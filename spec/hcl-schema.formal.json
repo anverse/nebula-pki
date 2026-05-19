@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://anverse.dev/nebula-pki/hcl-schema.json",
+  "title": "Nebula tool HCL configuration",
+  "description": "JSON Schema describing the HCL configuration once parsed to a JSON-equivalent object model. HCL block labels are represented as the field `label` on the corresponding object. The `name` field on `host` is the certificate common name and is optional; when omitted it defaults to the block label. Multiple blocks of the same type are represented as arrays. There are no cross-block references in v1 — hosts name destination directories directly via `output_dirs`.",
+  "type": "object",
+  "required": ["ca"],
+  "additionalProperties": false,
+  "properties": {
+    "ca":      { "$ref": "#/$defs/ca" },
+    "storage": { "$ref": "#/$defs/storage" },
+    "host": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/host" }
+    }
+  },
+  "$defs": {
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)([0-9]+(ns|us|µs|ms|s|m|h))*$",
+      "description": "Go time.Duration string."
+    },
+    "cidr": {
+      "type": "string",
+      "pattern": "^([0-9a-fA-F:.]+)/[0-9]+$",
+      "description": "IPv4 or IPv6 CIDR prefix."
+    },
+    "curve": {
+      "type": "string",
+      "enum": ["25519", "P256"]
+    },
+    "ca": {
+      "oneOf": [
+        { "$ref": "#/$defs/caGenerate" },
+        { "$ref": "#/$defs/caReference" }
+      ]
+    },
+    "caGenerate": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":              { "type": "string", "minLength": 1 },
+        "duration":          { "$ref": "#/$defs/duration" },
+        "version":           { "type": "integer", "enum": [1, 2] },
+        "curve":             { "$ref": "#/$defs/curve" },
+        "groups":            { "type": "array", "items": { "type": "string" } },
+        "networks":          { "type": "array", "items": { "$ref": "#/$defs/cidr" } },
+        "unsafe_networks":   { "type": "array", "items": { "$ref": "#/$defs/cidr" } },
+        "encrypt":           { "type": "boolean" },
+        "argon_memory":      { "type": "integer", "minimum": 1 },
+        "argon_iterations":  { "type": "integer", "minimum": 1 },
+        "argon_parallelism": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "out_crt":           { "type": "string" },
+        "out_key":           { "type": "string" },
+        "out_qr":            { "type": "string" }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["cert_file"] },
+          { "required": ["key_file"] }
+        ]
+      }
+    },
+    "caReference": {
+      "type": "object",
+      "required": ["cert_file", "key_file"],
+      "additionalProperties": false,
+      "properties": {
+        "cert_file": { "type": "string", "minLength": 1 },
+        "key_file":  { "type": "string", "minLength": 1 }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "out_dir":       { "type": "string", "minLength": 1 },
+        "manifest_file": { "type": "string", "minLength": 1 },
+        "encryption":    { "$ref": "#/$defs/encryption" }
+      }
+    },
+    "encryption": {
+      "oneOf": [
+        { "$ref": "#/$defs/encryptionNone" },
+        { "$ref": "#/$defs/encryptionSops" },
+        { "$ref": "#/$defs/encryptionExternal" }
+      ]
+    },
+    "encryptionNone": {
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "const": "none" }
+      }
+    },
+    "encryptionSops": {
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label":             { "const": "sops" },
+        "age":               { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "pgp":               { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "kms":               { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "gcp_kms":           { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "azure_kv":          { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "hc_vault_transit":  { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "shamir_threshold":  { "type": "integer", "minimum": 0 },
+        "config":            { "type": "string", "minLength": 1 },
+        "output_suffix":     { "type": "string", "default": ".enc" }
+      }
+    },
+    "encryptionExternal": {
+      "type": "object",
+      "required": ["label", "encrypt_command"],
+      "additionalProperties": false,
+      "properties": {
+        "label":           { "const": "external" },
+        "encrypt_command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "decrypt_command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "output_suffix":   { "type": "string", "default": ".enc" }
+      }
+    },
+    "host": {
+      "type": "object",
+      "required": ["label", "networks"],
+      "additionalProperties": false,
+      "properties": {
+        "label":           { "type": "string", "minLength": 1, "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+        "name":            { "type": "string", "minLength": 1 },
+        "networks":        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/cidr" } },
+        "groups":          { "type": "array", "items": { "type": "string" } },
+        "unsafe_networks": { "type": "array", "items": { "$ref": "#/$defs/cidr" } },
+        "duration":        { "$ref": "#/$defs/duration" },
+        "out_crt":         { "type": "string" },
+        "out_key":         { "type": "string" },
+        "out_qr":          { "type": "string" },
+        "in_pub":          { "type": "string" },
+        "output_dirs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "not": {
+        "allOf": [
+          { "anyOf": [ { "required": ["out_crt"] }, { "required": ["out_key"] } ] },
+          { "required": ["output_dirs"] }
+        ]
+      }
+    }
+  }
+}
