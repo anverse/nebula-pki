@@ -135,5 +135,10 @@ Encrypted key files (suffix configurable, `.enc` by default) can be read by the 
 ## Want more?
 
 - Full HCL reference, encryption backends, CA reference mode, host options: [`agents.md`](./agents.md).
+- Building, testing, releasing: [`development.md`](./development.md).
 - Design rationale and decisions: [`spec/`](./spec/readme.md).
 - Upstream Nebula: <https://github.com/slackhq/nebula>.
+
+---
+
+_Copyright (c) 2026 The nebula-pki Authors. Licensed under the MIT License — see [`LICENSE`](./LICENSE)._

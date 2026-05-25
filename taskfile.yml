@@ -1,0 +1,65 @@
+version: "3"
+
+# Top-level task runner for nebula-pki.
+# Targets that wrap goreleaser/nix expect those tools to be on PATH; the
+# dev shell from flake.nix provides them.
+
+vars:
+  BINARY: nebula-pki
+  PKG: ./cmd/nebula-pki
+  GIT_COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo none
+  BUILD_DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  # Dev ldflags — release builds inject real values via goreleaser.
+  LDFLAGS: '-s -w -X github.com/anverse/nebula-pki/internal/buildinfo.Version=dev -X github.com/anverse/nebula-pki/internal/buildinfo.Commit={{.GIT_COMMIT}} -X github.com/anverse/nebula-pki/internal/buildinfo.Date={{.BUILD_DATE}}'
+
+tasks:
+  build:
+    desc: Build the nebula-pki binary into bin/
+    cmds:
+      - mkdir -p bin
+      - go build -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}} {{.PKG}}
+
+  test:
+    desc: Run unit tests
+    cmds:
+      - go test ./...
+
+  test:e2e:
+    desc: Run end-to-end testscript suite
+    deps: [build]
+    cmds:
+      - go test ./test/e2e/...
+
+  lint:
+    desc: go vet + gofmt check
+    cmds:
+      - go vet ./...
+      - |
+        out=$(gofmt -l .)
+        if [ -n "$out" ]; then
+          echo "gofmt issues:"
+          echo "$out"
+          exit 1
+        fi
+
+  release:snapshot:
+    desc: Smoke-test the release pipeline locally (no publish)
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  release:
+    desc: Cut a real release (invoked by CI on tag push)
+    cmds:
+      - goreleaser release --clean
+
+  nix:build:
+    desc: Build via the nix flake
+    cmds:
+      - nix build .#default
+
+  nix:run:
+    desc: Run the flake-built binary's --version
+    cmds:
+      - nix run .#default -- --version

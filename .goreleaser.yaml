@@ -1,0 +1,69 @@
+version: 2
+
+project_name: nebula-pki
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: nebula-pki
+    main: ./cmd/nebula-pki
+    binary: nebula-pki
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/anverse/nebula-pki/internal/buildinfo.Version={{.Version}}
+      - -X github.com/anverse/nebula-pki/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/anverse/nebula-pki/internal/buildinfo.Date={{.Date}}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - readme.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+
+source:
+  enabled: true
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Homebrew formula generated into Formula/ in this repo (single-repo
+# policy — no separate tap repo).
+brews:
+  - name: nebula-pki
+    repository:
+      owner: anverse
+      name: nebula-pki
+    directory: Formula
+    homepage: "https://github.com/anverse/nebula-pki"
+    description: "Declarative wrapper around nebula-cert"
+    license: "MIT"
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    test: |
+      system "#{bin}/nebula-pki", "--version"

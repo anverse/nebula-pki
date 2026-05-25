@@ -2,3 +2,9 @@
 .idea
 .vscode
 .direnv
+
+# build artefacts
+/bin/
+/dist/
+/result
+/result-*

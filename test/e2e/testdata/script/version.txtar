@@ -1,0 +1,9 @@
+# `nebula-pki --version` prints the ldflag-injected version triple.
+exec nebula-pki --version
+stdout '^v0\.0\.1-test testcommit 1970-01-01T00:00:00Z$'
+! stderr .
+
+# `nebula-pki version` subcommand prints the same string.
+exec nebula-pki version
+stdout '^v0\.0\.1-test testcommit 1970-01-01T00:00:00Z$'
+! stderr .
