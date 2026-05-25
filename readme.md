@@ -18,6 +18,7 @@
 ### Homebrew
 
 ```sh
+brew tap anverse/nebula-pki https://github.com/anverse/nebula-pki.git
 brew install anverse/nebula-pki/nebula-pki
 ```
 
