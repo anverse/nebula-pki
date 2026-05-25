@@ -7,6 +7,10 @@ version: "3"
 vars:
   BINARY: nebula-pki
   PKG: ./cmd/nebula-pki
+
+env:
+  # Container runtime for scripts/e2e/*; override via shell env or .envrc.
+  CONTAINER_RUNTIME: '{{.CONTAINER_RUNTIME | default "docker"}}'
   GIT_COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo none
   BUILD_DATE:
@@ -63,3 +67,19 @@ tasks:
     desc: Run the flake-built binary's --version
     cmds:
       - nix run .#default -- --version
+
+  e2e:brew:
+    desc: Install latest released nebula-pki via Homebrew in an isolated container
+    cmds:
+      - ./scripts/e2e/brew.sh
+
+  e2e:nix:
+    desc: Run latest released nebula-pki flake in an isolated nix container
+    cmds:
+      - ./scripts/e2e/nix.sh
+
+  e2e:install:
+    desc: Run both installer e2e checks (brew + nix)
+    cmds:
+      - task: e2e:brew
+      - task: e2e:nix
