@@ -1,0 +1,40 @@
+# `nebula-pki check` parses + validates the supplied HCL configuration.
+
+# --- Happy path: minimal generate-mode config validates. ----------------------
+exec nebula-pki check -c minimal.hcl
+stdout '^ok: minimal\.hcl \(ca mode=generate, hosts=0\)$'
+! stderr .
+
+# Default config path is ./nebula.hcl when -c is omitted.
+exec nebula-pki check
+stdout '^ok: nebula\.hcl \(ca mode=generate, hosts=2\)$'
+! stderr .
+
+# Reference mode is reported as such.
+exec nebula-pki check -c reference.hcl
+stdout '^ok: reference\.hcl \(ca mode=reference, hosts=0\)$'
+! stderr .
+
+-- minimal.hcl --
+ca {
+  name = "test-mesh"
+}
+
+-- nebula.hcl --
+ca {
+  name = "test-mesh"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+-- reference.hcl --
+ca {
+  cert_file = "ca.crt"
+  key_file  = "ca.key"
+}

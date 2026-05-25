@@ -1,0 +1,62 @@
+# `nebula-pki check` surfaces each spec validation rule as a non-zero exit
+# with a readable error.
+
+# Duplicate host labels.
+! exec nebula-pki check -c dup-label.hcl
+stderr 'duplicate label'
+
+# Two hosts share the same overlay address (first prefix .Addr()).
+! exec nebula-pki check -c dup-overlay.hcl
+stderr 'overlay address 10\.0\.0\.1 already used'
+
+# out_crt + output_dirs is mutually exclusive.
+! exec nebula-pki check -c mut-excl.hcl
+stderr 'mutually exclusive'
+
+# Encryption block is parsed but rejected — ships in a later release.
+! exec nebula-pki check -c encryption.hcl
+stderr 'encryption ships in a later release'
+
+# Missing `ca` block.
+! exec nebula-pki check -c no-ca.hcl
+stderr 'missing required `ca` block'
+
+# Reference mode with generate-only fields.
+! exec nebula-pki check -c ref-with-gen.hcl
+stderr 'generate-only fields'
+
+-- dup-label.hcl --
+ca { name = "m" }
+host "a" { networks = ["10.0.0.1/16"] }
+host "a" { networks = ["10.0.0.2/16"] }
+
+-- dup-overlay.hcl --
+ca { name = "m" }
+host "a" { networks = ["10.0.0.1/16"] }
+host "b" { networks = ["10.0.0.1/24"] }
+
+-- mut-excl.hcl --
+ca { name = "m" }
+host "a" {
+  networks    = ["10.0.0.1/16"]
+  out_crt     = "x.crt"
+  output_dirs = ["dir1"]
+}
+
+-- encryption.hcl --
+ca { name = "m" }
+storage {
+  encryption "sops" {}
+}
+
+-- no-ca.hcl --
+host "a" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- ref-with-gen.hcl --
+ca {
+  cert_file = "ca.crt"
+  key_file  = "ca.key"
+  duration  = "1h"
+}

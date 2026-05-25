@@ -23,10 +23,6 @@ ca {
 storage {
   out_dir       = "out/dev"
   manifest_file = "out/dev/nebula-pki.json"
-
-  # Empty sops block: nebula-pki defers to .sops.yaml for recipients.
-  # Replace with `age = [...]` if you want inline recipients.
-  encryption "sops" {}
 }
 
 # Cluster certs go into a dedicated directory so the downstream consumer

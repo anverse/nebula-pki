@@ -25,6 +25,22 @@ tasks:
       - mkdir -p bin
       - go build -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}} {{.PKG}}
 
+  run:
+    desc: Build and run the binary with arbitrary args, e.g. `task run -- check -c examples/business/nebula.hcl`
+    deps: [build]
+    cmds:
+      - ./bin/{{.BINARY}} {{.CLI_ARGS}}
+
+  check:examples:
+    desc: Run `nebula-pki check` against every example HCL (most will fail until encryption ships)
+    deps: [build]
+    cmds:
+      - |
+        for f in examples/**/*.hcl; do
+          echo "--- $f ---"
+          ./bin/{{.BINARY}} check -c "$f" || true
+        done
+
   test:
     desc: Run unit tests
     cmds:

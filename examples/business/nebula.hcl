@@ -54,10 +54,6 @@ ca {
 
 storage {
   out_dir = "out"
-
-  # Each site's deploy pipeline pulls .sops.yaml-encrypted material
-  # out of its respective output directory.
-  encryption "sops" {}
 }
 
 # -----------------------------------------------------------------------------

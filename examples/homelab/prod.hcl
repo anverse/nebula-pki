@@ -22,15 +22,47 @@ storage {
   out_dir       = "out/prod"
   manifest_file = "out/prod/nebula-pki.json"
 
-  encryption "sops" {}
+  # At-rest encryption of the CA and host private keys is planned via a
+  # `storage.encryption` block. Until then `nebula-pki check` rejects the
+  # block, so it stays commented out. The likely shape:
+  #
+  #   encryption "sops" {}              # defer to .sops.yaml for recipients
+  #   encryption "sops" { age = [...] } # inline recipients override
+  #
+  # With sops, each site's deploy pipeline pulls .sops.yaml-encrypted
+  # material straight out of its respective output directory.
 }
 
 # Control-plane nodes. Three live nodes plus spares for replacement.
-host "node_1" { networks = ["172.16.110.1/16"] groups = ["cluster", "control_plane", "lighthouse"] output_dirs = ["out/prod/cluster"] }
-host "node_2" { networks = ["172.16.110.2/16"] groups = ["cluster", "control_plane", "lighthouse"] output_dirs = ["out/prod/cluster"] }
-host "node_3" { networks = ["172.16.110.3/16"] groups = ["cluster", "control_plane", "lighthouse"] output_dirs = ["out/prod/cluster"] }
-host "node_4" { networks = ["172.16.110.4/16"] groups = ["cluster", "control_plane", "lighthouse"] output_dirs = ["out/prod/cluster"] }
-host "node_5" { networks = ["172.16.110.5/16"] groups = ["cluster", "control_plane", "lighthouse"] output_dirs = ["out/prod/cluster"] }
+host "node_1" {
+  networks    = ["172.16.110.1/16"]
+  groups      = ["cluster", "control_plane", "lighthouse"]
+  output_dirs = ["out/prod/cluster"]
+}
+
+host "node_2" {
+  networks    = ["172.16.110.2/16"]
+  groups      = ["cluster", "control_plane", "lighthouse"]
+  output_dirs = ["out/prod/cluster"]
+}
+
+host "node_3" {
+  networks    = ["172.16.110.3/16"]
+  groups      = ["cluster", "control_plane", "lighthouse"]
+  output_dirs = ["out/prod/cluster"]
+}
+
+host "node_4" {
+  networks    = ["172.16.110.4/16"]
+  groups      = ["cluster", "control_plane", "lighthouse"]
+  output_dirs = ["out/prod/cluster"]
+}
+
+host "node_5" {
+  networks    = ["172.16.110.5/16"]
+  groups      = ["cluster", "control_plane", "lighthouse"]
+  output_dirs = ["out/prod/cluster"]
+}
 
 # Worker nodes (optional). Uncomment as the cluster grows.
 # host "worker_1" {
