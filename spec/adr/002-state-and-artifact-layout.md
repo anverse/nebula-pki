@@ -52,7 +52,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
 {
   "schema_version": 1,
   "generated_at": "2026-05-17T12:43:00Z",
-  "generator": { "name": "nebula-pki", "version": "0.1.0" },
+  "generator": { "name": "nebula-pki", "version": "0.1.0", "nebula_library_version": "v1.9.5" },
   "config_path": "nebula.hcl",
   "encryption": {
     "label": "sops",
@@ -93,6 +93,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
 #### Field rules
 
 - `schema_version` — integer. Bumped only when the manifest format changes incompatibly. Currently `1`.
+- `generator.nebula_library_version` — the `slackhq/nebula` Go module version pinned at build time. Matches the value reported by `nebula-pki --version`. See [ADR-012](./012-upstream-nebula-coupling.md). Optional in older manifests; written by all current builds.
 - `config_path` — path to the HCL config that produced this manifest, relative to the manifest's directory when possible (absolute fallback). Lets future tooling detect "wrong config writing to my manifest" without enforcing it at runtime.
 - `ca.mode` — `"generate"` or `"reference"`.
 - `ca.fingerprint` and `hosts.*.fingerprint` — SHA256 hex of the public key, formatted as `sha256:<hex>`. Matches what `nebula-cert print -path <crt> -json` emits in the `fingerprint` field.

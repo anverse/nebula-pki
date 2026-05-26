@@ -223,7 +223,7 @@ The manifest already carries an explicit `schema_version` field from day one —
 
 ## Status
 
-Specification stage. The implementation tracks [`spec/`](./spec/readme.md). When the implementation lands, this section will be replaced by version, supported-platform, and release-channel info.
+Specification stage. The implementation tracks [`spec/`](./spec/readme.md). When the implementation lands, this section will be replaced by version, supported-platform, release-channel, and pinned upstream Nebula version info — the latter is also surfaced via `nebula-pki --version` and the manifest's `generator.nebula_library_version` field. See [ADR-012](./spec/adr/012-upstream-nebula-coupling.md) for the upstream coupling and version-compatibility policy.
 
 ## Validation rules (selected)
 

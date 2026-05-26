@@ -51,7 +51,9 @@ cd nebula-pki
 go build -o nebula-pki ./cmd/nebula-pki
 ```
 
-The binary is self-contained. The built-in sops backend uses the sops Go library — no external `sops` CLI required.
+The binary is self-contained. It links the `slackhq/nebula/cert` Go library directly, so you don't need to install Nebula or `nebula-cert` alongside it.
+Each release pins one upstream Nebula version (visible in release notes, `nebula-pki --version`, and the manifest).
+The built-in sops backend uses the sops Go library — no external `sops` CLI required.
 
 ## Quickstart
 
