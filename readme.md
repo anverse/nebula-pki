@@ -4,14 +4,15 @@
 
 `nebula-pki` is a declarative layer over [`nebula-cert`](https://github.com/slackhq/nebula): you describe the mesh once in HCL, the tool keeps the on-disk certificates in sync.
 
-## Why use it
+> nebula-pki is under active development. It's ready to use day-to-day and we aim to keep the schema stable, but breaking changes may still happen before v1.0.
 
-- **Clarity.** Your CA and every host's identity live in one file you can read top-to-bottom. No more grep-ing through shell scripts to find which cert went where.
-- **Less toil.** Onboarding a new host is a 3-line HCL edit, not a sequence of remembered commands. Removing one is deleting a block. Renewals are a single re-run.
-- **Reviewable changes.** Cert and CA edits go through the same pull-request flow as everything else. The diff *is* the change request.
-- **Reproducible.** Same config in, same artifacts out. Onboarding a colleague is `git clone` and run.
-- **Thin and honest.** Every HCL field maps to a real `nebula-cert` flag. No magic, no lock-in — drop the tool and your certs keep working.
-- **Safe to commit.** Want to keep your `out/` directory in git? Turn on the optional encryption wrapper: keys get encrypted on disk via sops (built-in, no extra CLI to install) using whatever key type your `.sops.yaml` already declares — age, PGP, KMS, Vault, all supported — or use any encrypt command you prefer. The manifest itself holds zero secrets either way.
+## What you get
+
+- **One config, whole mesh.** CA and every host in a single HCL. With `nebula-cert` you'd reconstruct that picture from shell history.
+- **Reviewable.** Cert changes flow through pull requests like any other code.
+- **Reproducible.** Same config in, same artifacts out. `nebula-cert` produces whatever you remembered to type that day.
+- **Multiple output directories.** One host's cert can land in several directories in a single run. No more shell loops copying files around.
+- **No flag juggling.** Each host's networks, groups, and duration sit next to its name. No more re-typing the right `-networks`, `-groups`, `-duration` combo per host.
 
 ## Install
 
@@ -79,9 +80,11 @@ nebula-pki
 
 That's it. Running the tool reconciles `out/` with `nebula.hcl` — generates the CA if it doesn't exist, signs missing host certs, and updates the manifest at `out/nebula-pki.json`.
 
-Need certificates split across multiple Terraform projects? See **Fan-out** below.
+Need certificates split across multiple Terraform projects? See **Multiple output directories** below.
 
-## Fan-out: the killer feature
+## Multiple output directories
+
+Running a mesh that spans several Terraform projects, providers, or deploy targets? Each one usually only needs the certs for the hosts it owns. `output_dirs` lets a host's cert land in one or many directories at once, so every downstream project reads from its own folder and sees nothing else.
 
 ```hcl
 host "lh_fra" {
@@ -96,9 +99,11 @@ host "app_hetzner_01" {
 }
 ```
 
-Each downstream Terraform project reads from its provider's directory and never sees hosts that don't concern it. `output_dirs` accepts directories only — filenames are always `<host.name>.crt` / `.key`.
+`output_dirs` accepts directories only — filenames are always `<host.name>.crt` / `.key`.
 
-## Encryption (opt-in)
+## Encryption (coming soon, opt-in)
+
+By default, host keys land on disk as plaintext, which means you can't safely keep `out/` in git. The optional encryption wrapper fixes that: keys are encrypted at rest using sops (built-in, no extra CLI needed) with whatever recipients your `.sops.yaml` already defines — age, PGP, KMS, Vault. Commit the whole `out/` directory without leaking secrets; the manifest itself holds none.
 
 ```hcl
 storage {
