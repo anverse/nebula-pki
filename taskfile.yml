@@ -19,6 +19,14 @@ env:
   LDFLAGS: '-s -w -X github.com/anverse/nebula-pki/internal/buildinfo.Version=dev -X github.com/anverse/nebula-pki/internal/buildinfo.Commit={{.GIT_COMMIT}} -X github.com/anverse/nebula-pki/internal/buildinfo.Date={{.BUILD_DATE}}'
 
 tasks:
+  verify:
+    desc: Review step — lint, build, and run all tests
+    cmds:
+      - task: lint
+      - task: build
+      - task: test
+      - task: test:e2e
+
   build:
     desc: Build the nebula-pki binary into bin/
     cmds:
