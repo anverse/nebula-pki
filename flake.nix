@@ -17,7 +17,7 @@
       mkPackage = pkgs:
         pkgs.buildGoModule rec {
           pname = "nebula-pki";
-          version = "0.0.1";
+          version = "0.0.3";
 
           src = ./.;
 
@@ -25,7 +25,7 @@
           # spec/adr/014-flake-version-sync.md and scripts/release.sh.
           # To re-pin manually: set to lib.fakeHash, run `nix build`,
           # copy the suggested hash back here.
-          vendorHash = "sha256-c8ncCvckHEGT5qlzMzQubiuP5Ars0z9zNMQmV8q3mp4=";
+          vendorHash = "sha256-yiQ3xI0yKcuGoZnIzs2q4ZbnKUFr4I9RJjiRtGfBAjo=";
 
           subPackages = [ "cmd/nebula-pki" ];
 
