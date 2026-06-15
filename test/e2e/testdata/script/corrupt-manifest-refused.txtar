@@ -1,0 +1,22 @@
+# A truncated or hand-edited manifest must surface as an error, not be
+# silently treated as "no prior run" (which would let the tool quietly
+# overwrite the CA). The error wraps "parse manifest" so an operator can
+# grep for it.
+
+mkdir out
+cp bad-manifest out/nebula-pki.json
+
+! exec nebula-pki
+stderr 'parse manifest'
+
+# Manifest left untouched — the tool must not paper over the corruption.
+cmp out/nebula-pki.json bad-manifest
+! exists out/ca
+
+-- nebula.hcl --
+ca {
+  name = "test-mesh"
+}
+
+-- bad-manifest --
+{"schema_version": 1, "hosts": {

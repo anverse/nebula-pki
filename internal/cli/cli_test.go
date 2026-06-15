@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anverse/nebula-pki/internal/apply"
 	"github.com/anverse/nebula-pki/internal/buildinfo"
 )
 
@@ -134,3 +135,91 @@ func TestCheckSubcommand_RejectsArgs(t *testing.T) {
 	}
 }
 
+// TestWriteReconcileSummary documents the surface a user sees and pins
+// the "host warning is silent on a no-op rerun" rule. This is the unit
+// equivalent of the e2e idempotent-with-hosts script: regressions get
+// caught here before they reach a script run.
+func TestWriteReconcileSummary(t *testing.T) {
+	tests := []struct {
+		name        string
+		rep         apply.Report
+		wantContain []string
+		wantNot     []string
+	}{
+		{
+			name: "changed_no_hosts",
+			rep: apply.Report{
+				Changed:      true,
+				ManifestPath: "out/nebula-pki.json",
+				CACertPath:   "out/ca/ca.crt",
+				CAKeyPath:    "out/ca/ca.key",
+				CAName:       "mesh",
+			},
+			wantContain: []string{
+				`generated CA "mesh"`,
+				"cert: out/ca/ca.crt",
+				"key:  out/ca/ca.key",
+				"wrote manifest: out/nebula-pki.json",
+			},
+			wantNot: []string{"note:", "up to date"},
+		},
+		{
+			name: "changed_with_hosts_prints_note",
+			rep: apply.Report{
+				Changed:      true,
+				ManifestPath: "out/nebula-pki.json",
+				CACertPath:   "out/ca/ca.crt",
+				CAKeyPath:    "out/ca/ca.key",
+				CAName:       "mesh",
+				HostsParsed:  3,
+			},
+			wantContain: []string{
+				`generated CA "mesh"`,
+				"note: 3 host(s) parsed but not yet reconciled",
+			},
+			wantNot: []string{"up to date"},
+		},
+		{
+			name: "noop_no_hosts",
+			rep: apply.Report{
+				Changed:      false,
+				ManifestPath: "out/nebula-pki.json",
+				CAName:       "mesh",
+			},
+			wantContain: []string{"up to date; nothing to write"},
+			wantNot:     []string{"generated CA", "note:"},
+		},
+		{
+			// The bug the priority list called out: a no-op rerun must
+			// not re-print the host warning. If it did, every CI run of
+			// an unchanged tree would emit noise until v0.0.5.
+			name: "noop_with_hosts_is_silent",
+			rep: apply.Report{
+				Changed:      false,
+				ManifestPath: "out/nebula-pki.json",
+				CAName:       "mesh",
+				HostsParsed:  3,
+			},
+			wantContain: []string{"up to date; nothing to write"},
+			wantNot:     []string{"generated CA", "note:", "host(s)"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			writeReconcileSummary(&buf, &tc.rep)
+			out := buf.String()
+			for _, w := range tc.wantContain {
+				if !strings.Contains(out, w) {
+					t.Errorf("output = %q, want it to contain %q", out, w)
+				}
+			}
+			for _, w := range tc.wantNot {
+				if strings.Contains(out, w) {
+					t.Errorf("output = %q, must not contain %q", out, w)
+				}
+			}
+		})
+	}
+}

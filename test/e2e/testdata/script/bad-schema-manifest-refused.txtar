@@ -1,0 +1,39 @@
+# A manifest written by a future version of nebula-pki (or a manifest
+# that has lost its schema_version field, decoded as 0) must be
+# rejected. Treating an unknown schema as v1 would let an old build
+# misread fields whose meaning has changed.
+
+# schema_version = 2 → unsupported.
+mkdir out
+cp future-manifest out/nebula-pki.json
+! exec nebula-pki
+stderr 'schema_version 2'
+stderr 'this build of nebula-pki supports 1'
+cmp out/nebula-pki.json future-manifest
+! exists out/ca
+
+# Missing schema_version → decoded as 0 → unsupported.
+cp no-schema-manifest out/nebula-pki.json
+! exec nebula-pki
+stderr 'schema_version 0'
+cmp out/nebula-pki.json no-schema-manifest
+! exists out/ca
+
+-- nebula.hcl --
+ca {
+  name = "test-mesh"
+}
+
+-- future-manifest --
+{
+  "schema_version": 2,
+  "generated_at": "2026-01-02T03:04:05Z",
+  "generator": {"name": "nebula-pki", "version": "v9.9.9"},
+  "hosts": {}
+}
+-- no-schema-manifest --
+{
+  "generated_at": "2026-01-02T03:04:05Z",
+  "generator": {"name": "nebula-pki", "version": "v0.0.3-test"},
+  "hosts": {}
+}

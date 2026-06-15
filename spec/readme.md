@@ -56,6 +56,8 @@ The tool:
 - [`adr/009-host-identifier-vs-cert-name.md`](./adr/009-host-identifier-vs-cert-name.md) — why each `host` block has both a label (manifest key) and an optional `name` field (cert CN).
 - [`adr/010-single-ca-per-config.md`](./adr/010-single-ca-per-config.md) — one CA per HCL file in v1; multi-CA configs deferred and additively reachable later.
 - [`adr/011-output-blocks-are-directories.md`](./adr/011-output-blocks-are-directories.md) — why fan-out lives on the host as `output_dirs` rather than in a named `output` block.
+- [`adr/012-upstream-nebula-coupling.md`](./adr/012-upstream-nebula-coupling.md) — compile-time coupling to `slackhq/nebula`, no runtime dependency, version-compatibility policy.
+- [`adr/013-atomic-artifact-writes.md`](./adr/013-atomic-artifact-writes.md) — crash-safe per-file writes via temp+rename; what it guarantees for operators and what it deliberately does not.
 
 ## Operating model
 

@@ -29,7 +29,10 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
 
 ### File modes
 
-All artifacts are written with the same permissions `nebula-cert` itself uses:
+All artifacts are written atomically (temp file in the target directory, then
+`rename` over the target) so an interrupted run never leaves a torn cert, key,
+or manifest — see [ADR-013](./013-atomic-artifact-writes.md). They use the same
+permissions `nebula-cert` itself uses:
 
 - `.key` and `.key<suffix>` — `0600` (owner read/write only).
 - `.crt` and `.png` — `0600` from `nebula-cert`; nebula-pki copies via `os.WriteFile` and preserves the same mode. Downgrading to `0644` is an operator concern after the fact.
@@ -62,7 +65,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
   "ca": {
     "mode": "generate",
     "name": "wiech-mesh",
-    "fingerprint": "sha256:abc...",
+    "fingerprint": "f2a1c9...",
     "curve": "25519",
     "version": 2,
     "not_before": "2026-05-17T12:43:00Z",
@@ -73,14 +76,14 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
   "hosts": {
     "lh_fra": {
       "name":        "lh-fra",
-      "fingerprint": "sha256:def...",
+      "fingerprint": "9d4be7...",
       "networks":    ["10.42.0.1/16"],
       "groups":      ["lighthouse"],
       "unsafe_networks": [],
       "duration":    "26280h",
       "not_before":  "2026-05-17T12:43:00Z",
       "not_after":   "2029-05-16T12:42:59Z",
-      "ca_fingerprint": "sha256:abc...",
+      "ca_fingerprint": "f2a1c9...",
       "artifacts": [
         { "dir": "out/hetzner", "cert_path": "out/hetzner/lh-fra.crt", "key_path": "out/hetzner/lh-fra.key.enc" },
         { "dir": "out/shared",  "cert_path": "out/shared/lh-fra.crt",  "key_path": "out/shared/lh-fra.key.enc" }
@@ -96,7 +99,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
 - `generator.nebula_library_version` — the `slackhq/nebula` Go module version pinned at build time. Matches the value reported by `nebula-pki --version`. See [ADR-012](./012-upstream-nebula-coupling.md). Optional in older manifests; written by all current builds.
 - `config_path` — path to the HCL config that produced this manifest, relative to the manifest's directory when possible (absolute fallback). Lets future tooling detect "wrong config writing to my manifest" without enforcing it at runtime.
 - `ca.mode` — `"generate"` or `"reference"`.
-- `ca.fingerprint` and `hosts.*.fingerprint` — SHA256 hex of the public key, formatted as `sha256:<hex>`. Matches what `nebula-cert print -path <crt> -json` emits in the `fingerprint` field.
+- `ca.fingerprint` and `hosts.*.fingerprint` — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every host), not of the public key and not of any private material — so it is always safe to commit.
 - `hosts.*.name` — the cert Common Name. Equal to the host's HCL label unless `host.name` overrides it (see [ADR-009](./009-host-identifier-vs-cert-name.md)).
 - `hosts.*.duration` — the literal value from HCL (e.g. `"8760h"`), or `null` when unset. Used for idempotency; `not_after` is the resolved timestamp from the most recent sign.
 - `hosts.*.artifacts` — at least one entry. Each entry has `cert_path` and `key_path`. When the entry came from `host.output_dirs`, the entry's `dir` field is the corresponding directory. When the entry came from the default placement, `dir` is `<storage.out_dir>/hosts`. When the entry came from `host.out_crt` / `host.out_key`, the `dir` field is omitted because the operator chose the paths verbatim.
@@ -132,4 +135,4 @@ Existing files are not overwritten silently — Nebula refuses to overwrite, so 
 - Reference-mode CA is fully supported: the tool does not touch the existing CA files.
 - Renaming a host counts as remove + add. The old fingerprint is still in the previous git commit if needed for an external blocklist.
 - If a user deletes any artifact for a host, the next run reissues that host's certificate and key.
-- Manifest is regenerated on every successful run; partial runs leave the previous manifest intact.
+- Manifest is regenerated whenever a run makes changes; partial runs leave the previous manifest intact. A run where every host and the CA are already up to date writes **nothing** — not even the manifest — so an unchanged tree stays byte-identical across re-runs.

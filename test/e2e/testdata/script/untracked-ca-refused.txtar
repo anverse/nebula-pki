@@ -1,0 +1,35 @@
+# An untracked CA on disk (cert + key present, manifest absent or
+# missing its CA record) must NOT be silently overwritten. The user is
+# told what state the tool found and what to do about it. This is the
+# safety property that prevents a misplaced clone or a deleted manifest
+# from quietly leaking the previous run's private key.
+#
+# Mirrors plan.TestBuild_UntrackedFilesError at the binary boundary so a
+# regression in the wiring (a future change that swaps which package
+# emits the error) is caught here too.
+
+# Pre-seed both halves of the CA pair without a manifest.
+mkdir out/ca
+cp seed-cert out/ca/ca.crt
+cp seed-key  out/ca/ca.key
+
+! exec nebula-pki
+stderr 'untracked CA'
+stderr 'remove them to regenerate, or restore the manifest that produced them'
+
+# Crucial: the pre-seeded files were not touched.
+cmp out/ca/ca.crt seed-cert
+cmp out/ca/ca.key seed-key
+
+# And no manifest was conjured up to mask the problem.
+! exists out/nebula-pki.json
+
+-- nebula.hcl --
+ca {
+  name = "test-mesh"
+}
+
+-- seed-cert --
+PRE-EXISTING CERT BYTES
+-- seed-key --
+PRE-EXISTING KEY BYTES

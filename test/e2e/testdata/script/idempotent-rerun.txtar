@@ -1,0 +1,40 @@
+# Reconciling an unchanged tree a second time must write nothing — not even
+# the manifest — so the committed output stays byte-identical across runs.
+#
+# The config carries a host block on purpose: the "N host(s) parsed but not
+# yet reconciled" note must fire on the *first* run only. Repeating it on
+# every idempotent rerun would be noise (and would fight the byte-identical
+# guarantee from spec/adr/002).
+
+# First run creates the CA and manifest, and acknowledges the host.
+exec nebula-pki
+stdout '^generated CA "test-mesh"$'
+stdout '^note: 1 host\(s\) parsed but not yet reconciled'
+! stderr .
+
+# Snapshot every artifact.
+cp out/ca/ca.crt ca.crt.first
+cp out/ca/ca.key ca.key.first
+cp out/nebula-pki.json manifest.first
+
+# Second run finds everything up to date and reports as much. The host
+# warning must NOT reappear: nothing was reconciled, so nothing was
+# ignored on this run.
+exec nebula-pki
+stdout '^up to date; nothing to write$'
+! stdout 'host\(s\) parsed'
+! stderr .
+
+# Nothing changed on disk.
+cmp out/ca/ca.crt ca.crt.first
+cmp out/ca/ca.key ca.key.first
+cmp out/nebula-pki.json manifest.first
+
+-- nebula.hcl --
+ca {
+  name = "test-mesh"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}

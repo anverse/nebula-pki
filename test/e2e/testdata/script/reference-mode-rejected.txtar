@@ -1,0 +1,28 @@
+# CA reference mode (cert_file + key_file pointing at an existing CA)
+# is declared in the schema but not implemented in this release. `check`
+# accepts the config — the schema rules pass — but a reconcile run must
+# refuse with a clear "lands in a later version" message rather than
+# silently doing nothing.
+
+# `check` validates the config without touching the filesystem.
+exec nebula-pki check
+! stderr .
+
+# Reconcile, however, refuses.
+! exec nebula-pki
+stderr 'CA reference mode is not implemented in this release'
+stderr 'lands in a later version'
+
+# Nothing was written.
+! exists out
+
+-- nebula.hcl --
+ca {
+  cert_file = "ca.crt"
+  key_file  = "ca.key"
+}
+
+-- ca.crt --
+placeholder cert (not actually read in this release)
+-- ca.key --
+placeholder key (not actually read in this release)
