@@ -194,6 +194,9 @@ nebula/
       009-host-identifier-vs-cert-name.md
       010-single-ca-per-config.md
       011-output-blocks-are-directories.md
+      012-upstream-nebula-coupling.md
+      013-atomic-artifact-writes.md
+      014-flake-version-sync.md
   out/                  # generated; safe to commit when encryption is on
     nebula-pki.json     # manifest; rename via storage.manifest_file
     ca/

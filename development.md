@@ -30,6 +30,8 @@ task nix:build      # build via the nix flake
 task nix:run        # nix-built binary, prints --version
 ```
 
+For a real release, see [Releasing](#releasing) below.
+
 Run the binary directly:
 
 ```sh
@@ -53,17 +55,45 @@ clean shared format. When changing ldflags or build settings, update **both**.
 
 ## Releasing
 
-Tagging triggers `.github/workflows/release.yml`:
+Cutting a release is one command:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+task release VERSION=v0.1.0
 ```
 
-Tags use the `v` prefix because Go modules require it (`go install …@v0.1.0`
-only resolves when the underlying tag is `v0.1.0`). GoReleaser, Homebrew, and
-GitHub release UIs follow the same convention. Strip the prefix in scripts
-with `${TAG#v}` when you need a bare semver.
+That target runs [`scripts/release.sh`](./scripts/release.sh), which:
+
+1. Bumps the `version` attribute in [`flake.nix`](./flake.nix) to the
+   bare semver (`0.1.0`).
+2. Re-pins `vendorHash` by running `nix build` against `lib.fakeHash`
+   and parsing the recovered hash from the failure message. When
+   `go.mod` hasn't changed, the hash comes back identical and the net
+   diff is just the version bump.
+3. Verifies the bumped flake builds (`nix build .#default`).
+4. Commits the change as `release v0.1.0`.
+5. Creates an annotated tag and pushes the commit + tag atomically.
+
+The tag-push triggers [`.github/workflows/release.yml`](./.github/workflows/release.yml),
+which runs GoReleaser to build archives, publish the GitHub release,
+and commit a regenerated `Formula/nebula-pki.rb` on top of the bump
+commit.
+
+The script refuses to run on a dirty working tree, on an existing tag,
+or with a malformed version. If anything fails before the `git push`,
+recovery is `git reset --hard origin/<branch>` — nothing is published
+until the tag reaches `origin`.
+
+Tags use the `v` prefix because Go modules require it (`go install
+…@v0.1.0` only resolves when the underlying tag is `v0.1.0`).
+GoReleaser, Homebrew, and GitHub release UIs follow the same
+convention. Strip the prefix in scripts with `${TAG#v}` when you need
+a bare semver.
+
+Why one command instead of `git tag && git push`: see
+[ADR-014](./spec/adr/014-flake-version-sync.md). In short, the flake's
+embedded `version` string would otherwise lag the tag by one commit,
+making `nix run github:anverse/nebula-pki/vX.Y.Z -- --version` report
+the previous version.
 
 ## Repository layout
 

@@ -58,6 +58,7 @@ The tool:
 - [`adr/011-output-blocks-are-directories.md`](./adr/011-output-blocks-are-directories.md) — why fan-out lives on the host as `output_dirs` rather than in a named `output` block.
 - [`adr/012-upstream-nebula-coupling.md`](./adr/012-upstream-nebula-coupling.md) — compile-time coupling to `slackhq/nebula`, no runtime dependency, version-compatibility policy.
 - [`adr/013-atomic-artifact-writes.md`](./adr/013-atomic-artifact-writes.md) — crash-safe per-file writes via temp+rename; what it guarantees for operators and what it deliberately does not.
+- [`adr/014-flake-version-sync.md`](./adr/014-flake-version-sync.md) — pre-tag flake bump driven by `task release`; why the tag must already carry the new `version`/`vendorHash`.
 
 ## Operating model
 

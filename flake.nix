@@ -21,7 +21,9 @@
 
           src = ./.;
 
-          # Bump when go.mod changes. Set to lib.fakeHash, run `nix build`,
+          # Bumped by `task release VERSION=vX.Y.Z` — see
+          # spec/adr/014-flake-version-sync.md and scripts/release.sh.
+          # To re-pin manually: set to lib.fakeHash, run `nix build`,
           # copy the suggested hash back here.
           vendorHash = "sha256-c8ncCvckHEGT5qlzMzQubiuP5Ars0z9zNMQmV8q3mp4=";
 
