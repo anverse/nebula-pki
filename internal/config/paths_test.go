@@ -72,6 +72,28 @@ ca {
 	}
 }
 
+// TestCAReferencePaths checks that in reference mode the CA path helpers
+// return the operator-supplied cert_file/key_file verbatim, not the
+// generate-mode defaults under out_dir. apply uses these both to probe
+// for the files and to record them in the manifest, so they must point at
+// the source files the operator named.
+func TestCAReferencePaths(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca {
+  cert_file = "pki/root.crt"
+  key_file  = "pki/root.key"
+}
+storage { out_dir = "artifacts" }
+`)
+
+	if got, want := cfg.CACertPath(), "pki/root.crt"; got != want {
+		t.Errorf("CACertPath() = %q, want reference cert_file %q", got, want)
+	}
+	if got, want := cfg.CAKeyPath(), "pki/root.key"; got != want {
+		t.Errorf("CAKeyPath() = %q, want reference key_file %q", got, want)
+	}
+}
+
 func TestResolve(t *testing.T) {
 	cfg := mustParse(t, filepath.Join("project", "nebula.hcl"), `ca { name = "m" }`)
 

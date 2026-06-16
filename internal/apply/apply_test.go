@@ -154,16 +154,7 @@ func TestReconcile_UntrackedCAErrors(t *testing.T) {
 	}
 }
 
-func TestReconcile_ReferenceModeErrors(t *testing.T) {
-	cfg := writeConfig(t, `
-ca {
-  cert_file = "ca.crt"
-  key_file  = "ca.key"
-}`)
-	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err == nil {
-		t.Fatal("Reconcile: want error for reference mode, got nil")
-	}
-}
+// Reference-mode reconcile tests live in reference_test.go.
 
 // TestReconcile_PartialPairRefused covers the half-present pair case:
 // the CA cert exists on disk but the key does not (or vice versa) and

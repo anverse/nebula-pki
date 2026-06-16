@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anverse/nebula-pki/internal/apply"
 	"github.com/anverse/nebula-pki/internal/buildinfo"
+	"github.com/anverse/nebula-pki/internal/config"
+	"github.com/anverse/nebula-pki/internal/pki"
 )
 
 func TestVersionSubcommand(t *testing.T) {
@@ -135,6 +138,90 @@ func TestCheckSubcommand_RejectsArgs(t *testing.T) {
 	}
 }
 
+// TestCheckSubcommand_ReferenceReportsFingerprint covers the reference
+// path of `check`: it reads the operator-supplied CA files and prints the
+// CA fingerprint alongside the "ok:" line. This is the behaviour
+// agents.md promises ("In CA reference mode, reads ca.cert_file /
+// ca.key_file").
+func TestCheckSubcommand_ReferenceReportsFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	fp := seedRefCA(t, dir, `ca { name = "ext-mesh" }`)
+
+	path := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(path, []byte(`
+ca {
+  cert_file = "ca.crt"
+  key_file  = "ca.key"
+}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"check", "-c", path})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\nstderr=%s", err, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "ca mode=reference") {
+		t.Errorf("stdout = %q, want it to mention ca mode=reference", out)
+	}
+	if !strings.Contains(out, "fingerprint="+fp) {
+		t.Errorf("stdout = %q, want it to report fingerprint=%s", out, fp)
+	}
+}
+
+// TestCheckSubcommand_ReferenceInvalidCAFails confirms `check` fails when
+// the referenced files are not a usable CA, rather than printing "ok:" and
+// exiting 0.
+func TestCheckSubcommand_ReferenceInvalidCAFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), []byte("nope\n"), 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ca.key"), []byte("nope\n"), 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	path := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(path, []byte(`
+ca {
+  cert_file = "ca.crt"
+  key_file  = "ca.key"
+}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"check", "-c", path})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute: want error for invalid referenced CA, got nil")
+	}
+}
+
+// seedRefCA mints a CA and writes ca.crt / ca.key into dir, returning the
+// fingerprint so tests can assert it is surfaced.
+func seedRefCA(t *testing.T, dir, src string) string {
+	t.Helper()
+	cfg, err := config.Parse("seed.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("parse seed: %v", err)
+	}
+	res, err := pki.GenerateCA(cfg.CA, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateCA: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), res.CertPEM, 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ca.key"), res.KeyPEM, 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	return res.Fingerprint
+}
+
 // TestWriteReconcileSummary documents the surface a user sees and pins
 // the "host warning is silent on a no-op rerun" rule. This is the unit
 // equivalent of the e2e idempotent-with-hosts script: regressions get
@@ -178,6 +265,26 @@ func TestWriteReconcileSummary(t *testing.T) {
 				"note: 3 host(s) parsed but not yet reconciled",
 			},
 			wantNot: []string{"up to date"},
+		},
+		{
+			// Reference mode reads the operator's CA in place; the summary
+			// must say "using referenced CA", not "generated CA".
+			name: "changed_reference_mode",
+			rep: apply.Report{
+				Changed:      true,
+				CAMode:       "reference",
+				ManifestPath: "out/nebula-pki.json",
+				CACertPath:   "pki/root.crt",
+				CAKeyPath:    "pki/root.key",
+				CAName:       "ext-mesh",
+			},
+			wantContain: []string{
+				`using referenced CA "ext-mesh"`,
+				"cert: pki/root.crt",
+				"key:  pki/root.key",
+				"wrote manifest: out/nebula-pki.json",
+			},
+			wantNot: []string{"generated CA", "up to date"},
 		},
 		{
 			name: "noop_no_hosts",

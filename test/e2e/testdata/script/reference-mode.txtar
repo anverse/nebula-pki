@@ -1,0 +1,61 @@
+# CA reference mode: the operator supplies an existing ca.crt / ca.key and
+# nebula-pki records it in the manifest without ever rewriting the source
+# files. Re-running against an unchanged referenced CA is a byte-identical
+# no-op.
+
+# Mint a real CA, then stage it as the "external" CA we will reference.
+exec nebula-pki -c gen.hcl
+exists out/ca/ca.crt
+exists out/ca/ca.key
+mkdir pki
+cp out/ca/ca.crt pki/ca.crt
+cp out/ca/ca.key pki/ca.key
+
+# Snapshot the referenced files so we can prove they are untouched.
+cp pki/ca.crt want-ca.crt
+cp pki/ca.key want-ca.key
+
+# Reconcile in reference mode.
+exec nebula-pki -c reference.hcl
+stdout '^using referenced CA "ext-mesh"$'
+stdout '^  cert: pki/ca\.crt$'
+stdout '^  key:  pki/ca\.key$'
+stdout '^wrote manifest: refs/nebula-pki\.json$'
+! stderr .
+
+# The referenced CA files are byte-for-byte unchanged.
+cmp pki/ca.crt want-ca.crt
+cmp pki/ca.key want-ca.key
+
+# No CA artifacts were written under the reference run's out tree.
+! exists refs/ca
+
+# The manifest records reference mode and points at the source files.
+exists refs/nebula-pki.json
+grep '"mode": "reference"' refs/nebula-pki.json
+grep '"name": "ext-mesh"' refs/nebula-pki.json
+grep '"cert_path": "pki/ca\.crt"' refs/nebula-pki.json
+grep '"key_path": "pki/ca\.key"' refs/nebula-pki.json
+
+# Snapshot the manifest, then re-run: an unchanged referenced CA writes
+# nothing and the manifest stays byte-identical.
+cp refs/nebula-pki.json want-manifest.json
+exec nebula-pki -c reference.hcl
+stdout '^up to date; nothing to write$'
+! stderr .
+cmp refs/nebula-pki.json want-manifest.json
+
+-- gen.hcl --
+ca {
+  name = "ext-mesh"
+}
+
+-- reference.hcl --
+ca {
+  cert_file = "pki/ca.crt"
+  key_file  = "pki/ca.key"
+}
+
+storage {
+  manifest_file = "refs/nebula-pki.json"
+}

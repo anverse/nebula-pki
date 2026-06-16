@@ -63,6 +63,10 @@ ca {
 
 In reference mode, generate-only fields (`duration`, `curve`, `version`, `encrypt`, `argon_*`, `out_*`) are rejected. The tool only reads the CA files; it never rewrites them.
 
+On a run, nebula-pki loads the referenced pair and verifies it before recording anything: the certificate must be a CA (`IsCA`), its self-signature must verify, the key's curve must match the certificate, and the key must correspond to the certificate's public key. A missing `cert_file`/`key_file` is a hard error. An **expired** referenced CA is recorded anyway with a warning on stderr — the operator owns the CA in reference mode. The manifest records `ca.mode = "reference"` with the CA's fingerprint, validity window, and the referenced paths; `out/ca/` is never written. `nebula-pki check` additionally reads the referenced files and prints the CA fingerprint.
+
+Reference-mode reconcile is idempotent: a second run against an unchanged referenced CA writes nothing (the manifest stays byte-identical). Pointing `cert_file`/`key_file` at a different CA updates the manifest's recorded fingerprint on the next run.
+
 ## Full CA options (generate mode)
 
 ```hcl
@@ -237,6 +241,8 @@ Specification stage. The implementation tracks [`spec/`](./spec/readme.md). When
 - A `host.output_dirs` lists the same directory twice → error.
 - `ca` in reference mode with generate-only fields → error.
 - `ca` reference mode with only one of `cert_file`/`key_file` → error.
+- `ca` reference mode whose `cert_file`/`key_file` do not exist on disk → error (at reconcile/`check`, not parse time).
+- `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
 - `host.groups` containing a group not in `ca.groups` (when restricted) → error.
 - `host.networks` containing a prefix not contained by `ca.networks` (when restricted) → error.
 - `host.unsafe_networks` containing a prefix not contained by `ca.unsafe_networks` (when restricted) → error.

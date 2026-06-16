@@ -36,18 +36,28 @@ func (c *Config) Resolve(p string) string {
 	return filepath.Join(c.baseDir(), p)
 }
 
-// CACertPath returns the logical path of the CA certificate: the explicit
-// ca.out_crt when set, otherwise <out_dir>/ca/ca.crt.
+// CACertPath returns the logical path of the CA certificate. In reference
+// mode it is the operator-supplied ca.cert_file (read in place, never
+// rewritten). In generate mode it is the explicit ca.out_crt when set,
+// otherwise <out_dir>/ca/ca.crt.
 func (c *Config) CACertPath() string {
+	if c.CA.Mode == CAModeReference {
+		return c.CA.CertFile
+	}
 	if c.CA.OutCRT != "" {
 		return c.CA.OutCRT
 	}
 	return filepath.Join(c.Storage.OutDir, caSubdir, defaultCACertName)
 }
 
-// CAKeyPath returns the logical path of the CA private key: the explicit
-// ca.out_key when set, otherwise <out_dir>/ca/ca.key.
+// CAKeyPath returns the logical path of the CA private key. In reference
+// mode it is the operator-supplied ca.key_file (read in place, never
+// rewritten). In generate mode it is the explicit ca.out_key when set,
+// otherwise <out_dir>/ca/ca.key.
 func (c *Config) CAKeyPath() string {
+	if c.CA.Mode == CAModeReference {
+		return c.CA.KeyFile
+	}
 	if c.CA.OutKey != "" {
 		return c.CA.OutKey
 	}

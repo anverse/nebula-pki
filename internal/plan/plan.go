@@ -3,7 +3,9 @@
 // decides what should change; it performs no I/O of its own (callers
 // supply an existence probe) and never mutates anything.
 //
-// v0.0.3 plans the CA only. Hosts are parsed but not yet reconciled.
+// It plans both CA modes: generate (mint a fresh CA) and reference (use
+// an operator-supplied existing CA). Hosts are parsed but not yet
+// reconciled.
 package plan
 
 import (
@@ -21,6 +23,10 @@ const (
 	OpNoop Op = "noop"
 	// OpGenerate means an artifact must be created.
 	OpGenerate Op = "generate"
+	// OpReference means an operator-supplied CA must be read and recorded
+	// (reference mode). It never writes the CA files themselves; apply
+	// reads them in place and records their metadata in the manifest.
+	OpReference Op = "reference"
 )
 
 // Kind is the artifact an action concerns.
@@ -66,7 +72,11 @@ func (p Plan) Changes() bool {
 // to real ones inside exists.
 func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath string) bool) (Plan, error) {
 	if cfg.CA.Mode == config.CAModeReference {
-		return Plan{}, fmt.Errorf("CA reference mode is not implemented in this release; it lands in a later version")
+		refAction, err := planReferenceCA(cfg, m, exists)
+		if err != nil {
+			return Plan{}, err
+		}
+		return Plan{Actions: []Action{refAction}}, nil
 	}
 
 	caAction, err := planCA(cfg, m, exists)
@@ -74,6 +84,54 @@ func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath str
 		return Plan{}, err
 	}
 	return Plan{Actions: []Action{caAction}}, nil
+}
+
+// planReferenceCA decides the action for an operator-supplied existing CA.
+// The tool never writes the reference files, so the rules are simpler than
+// generate mode:
+//
+//   - either file missing -> error (the operator named a path that is not
+//     there; fail loudly rather than silently ignoring it);
+//   - both files present -> reference.
+//
+// plan is pure and cannot read the certificate, so it always emits a
+// reference action when the files are present and defers the real
+// idempotency decision to apply. apply reads the CA, rebuilds the
+// candidate manifest, and writes only when it differs from what is already
+// recorded — so a reference run whose inputs are unchanged still produces
+// a byte-identical tree, while a swapped reference file is detected via
+// its changed fingerprint. Keeping plan pure (no cert parsing) is the
+// reason the OpReference action is not collapsed to a noop here.
+func planReferenceCA(cfg *config.Config, _ *manifest.Manifest, exists func(string) bool) (Action, error) {
+	certPath := cfg.CACertPath()
+	keyPath := cfg.CAKeyPath()
+	haveCert := exists(certPath)
+	haveKey := exists(keyPath)
+
+	if !haveCert || !haveKey {
+		return Action{}, referenceMissingError(haveCert, haveKey, certPath, keyPath)
+	}
+
+	return Action{
+		Op:   OpReference,
+		Kind: KindCA,
+		Path: certPath,
+		Desc: fmt.Sprintf("use referenced CA %s", certPath),
+	}, nil
+}
+
+func referenceMissingError(haveCert, haveKey bool, certPath, keyPath string) error {
+	switch {
+	case !haveCert && !haveKey:
+		return fmt.Errorf(
+			"referenced CA not found: neither cert_file %s nor key_file %s exists",
+			certPath, keyPath,
+		)
+	case !haveCert:
+		return fmt.Errorf("referenced CA cert_file %s does not exist", certPath)
+	default:
+		return fmt.Errorf("referenced CA key_file %s does not exist", keyPath)
+	}
 }
 
 // planCA decides the CA action. The rule (spec/adr/002 idempotency, and

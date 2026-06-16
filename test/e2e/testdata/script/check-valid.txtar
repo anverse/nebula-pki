@@ -10,9 +10,16 @@ exec nebula-pki check
 stdout '^ok: nebula\.hcl \(ca mode=generate, hosts=2\)$'
 ! stderr .
 
-# Reference mode is reported as such.
+# --- Reference mode: check reads the referenced CA and reports it. ------------
+# First mint a real CA so reference.hcl has something coherent to point at.
+exec nebula-pki -c gen.hcl
+exists out/ca/ca.crt
+exists out/ca/ca.key
+
+# check in reference mode validates AND reports the CA fingerprint.
 exec nebula-pki check -c reference.hcl
 stdout '^ok: reference\.hcl \(ca mode=reference, hosts=0\)$'
+stdout '^  ca: name="ext-mesh" fingerprint=[0-9a-f]+$'
 ! stderr .
 
 -- minimal.hcl --
@@ -33,8 +40,13 @@ host "beta" {
   networks = ["10.0.0.2/16"]
 }
 
+-- gen.hcl --
+ca {
+  name = "ext-mesh"
+}
+
 -- reference.hcl --
 ca {
-  cert_file = "ca.crt"
-  key_file  = "ca.key"
+  cert_file = "out/ca/ca.crt"
+  key_file  = "out/ca/ca.key"
 }

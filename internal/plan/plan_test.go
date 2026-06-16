@@ -156,17 +156,93 @@ func TestBuild_NilManifestTreatedAsUntracked(t *testing.T) {
 	}
 }
 
-func TestBuild_ReferenceModeRejected(t *testing.T) {
+// --- Reference mode ---------------------------------------------------
+
+func TestBuild_ReferenceWithFilesPresent(t *testing.T) {
 	cfg := parseCfg(t, `
 ca {
-  cert_file = "ca.crt"
-  key_file  = "ca.key"
+  cert_file = "pki/root.crt"
+  key_file  = "pki/root.key"
 }`)
-	_, err := Build(cfg, manifest.New(), existsSet())
-	if err == nil {
-		t.Fatal("Build: want error for reference mode in this release, got nil")
+	// Both referenced files present, nothing recorded yet.
+	p, err := Build(cfg, manifest.New(), existsSet(cfg.CACertPath(), cfg.CAKeyPath()))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
 	}
-	if !strings.Contains(err.Error(), "reference mode") {
-		t.Errorf("error = %q, want it to mention 'reference mode'", err.Error())
+	if !p.Changes() {
+		t.Fatal("Changes() = false, want true when a reference CA is not yet recorded")
+	}
+	if len(p.Actions) != 1 || p.Actions[0].Op != OpReference || p.Actions[0].Kind != KindCA {
+		t.Fatalf("actions = %+v, want a single reference-ca", p.Actions)
+	}
+}
+
+// TestBuild_ReferenceEmitsReferenceEvenWhenTracked documents that plan
+// stays pure: it cannot read the cert to confirm the recorded fingerprint
+// still matches, so it always emits OpReference and lets apply decide
+// whether the manifest actually needs rewriting. (apply's own test
+// asserts the byte-identical rerun.)
+func TestBuild_ReferenceEmitsReferenceEvenWhenTracked(t *testing.T) {
+	cfg := parseCfg(t, `
+ca {
+  cert_file = "pki/root.crt"
+  key_file  = "pki/root.key"
+}`)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "reference", Name: "m"}
+
+	p, err := Build(cfg, m, existsSet(cfg.CACertPath(), cfg.CAKeyPath()))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.Actions[0].Op != OpReference {
+		t.Errorf("op = %q, want reference (plan defers identity check to apply)", p.Actions[0].Op)
+	}
+}
+
+func TestBuild_ReferenceMissingBothFiles(t *testing.T) {
+	cfg := parseCfg(t, `
+ca {
+  cert_file = "pki/root.crt"
+  key_file  = "pki/root.key"
+}`)
+	_, err := Build(cfg, manifest.New(), existsSet()) // nothing on disk
+	if err == nil {
+		t.Fatal("Build: want error when referenced files are absent, got nil")
+	}
+	if !strings.Contains(err.Error(), "referenced CA not found") {
+		t.Errorf("error = %q, want it to mention 'referenced CA not found'", err.Error())
+	}
+}
+
+func TestBuild_ReferenceMissingKeyOnly(t *testing.T) {
+	cfg := parseCfg(t, `
+ca {
+  cert_file = "pki/root.crt"
+  key_file  = "pki/root.key"
+}`)
+	// Cert present, key absent.
+	_, err := Build(cfg, manifest.New(), existsSet(cfg.CACertPath()))
+	if err == nil {
+		t.Fatal("Build: want error when referenced key is absent, got nil")
+	}
+	if !strings.Contains(err.Error(), "key_file") {
+		t.Errorf("error = %q, want it to identify the missing key_file", err.Error())
+	}
+}
+
+func TestBuild_ReferenceMissingCertOnly(t *testing.T) {
+	cfg := parseCfg(t, `
+ca {
+  cert_file = "pki/root.crt"
+  key_file  = "pki/root.key"
+}`)
+	// Key present, cert absent.
+	_, err := Build(cfg, manifest.New(), existsSet(cfg.CAKeyPath()))
+	if err == nil {
+		t.Fatal("Build: want error when referenced cert is absent, got nil")
+	}
+	if !strings.Contains(err.Error(), "cert_file") {
+		t.Errorf("error = %q, want it to identify the missing cert_file", err.Error())
 	}
 }

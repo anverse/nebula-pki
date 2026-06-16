@@ -4,15 +4,19 @@
 // out. It performs no filesystem access — callers persist the returned
 // bytes (see internal/apply + internal/fsutil).
 //
-// v0.0.3 implements CA generation only. Host signing arrives in a later
-// milestone step.
+// It supports two CA paths: GenerateCA mints a fresh self-signed CA, and
+// LoadReferenceCA reads and verifies an operator-supplied existing CA
+// without rewriting it. Host signing arrives in a later milestone step.
 package pki
 
 import (
+	"bytes"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,12 +28,16 @@ import (
 // a CA (8760h = 365 days) and is applied when ca.duration is omitted.
 const defaultCADuration = 8760 * time.Hour
 
-// CAResult is the output of GenerateCA: the PEM bytes to persist plus the
-// resolved metadata the manifest records. Curve and Version are returned
-// in their user-facing HCL spellings ("25519"/"P256", 1/2) so callers do
-// not need to translate upstream enum values. NotBefore/NotAfter are read
-// back from the signed certificate, so they match the on-disk artifact
-// exactly (the wire format stores second precision).
+// CAResult is the output of GenerateCA and LoadReferenceCA: the resolved
+// metadata the manifest records, plus (for GenerateCA only) the PEM bytes
+// to persist. Curve and Version are returned in their user-facing HCL
+// spellings ("25519"/"P256", 1/2) so callers do not need to translate
+// upstream enum values. NotBefore/NotAfter are read back from the
+// certificate, so they match the on-disk artifact exactly (the wire
+// format stores second precision).
+//
+// LoadReferenceCA leaves CertPEM and KeyPEM nil: reference mode reads the
+// operator's existing files in place and never rewrites them.
 type CAResult struct {
 	CertPEM []byte
 	KeyPEM  []byte
@@ -111,6 +119,120 @@ func GenerateCA(ca config.CA, now time.Time) (*CAResult, error) {
 		NotBefore:   c.NotBefore(),
 		NotAfter:    c.NotAfter(),
 	}, nil
+}
+
+// ErrReferenceCAExpired signals that a loaded reference CA's validity
+// window has already ended. It is returned by LoadReferenceCA alongside a
+// fully populated *CAResult so callers can decide policy: the apply layer
+// records the CA and warns rather than aborting (the operator owns the CA
+// in reference mode). Test for it with errors.Is.
+var ErrReferenceCAExpired = errors.New("reference CA is expired")
+
+// LoadReferenceCA parses and verifies an operator-supplied existing CA
+// from its certificate and private-key PEM bytes. It performs no
+// filesystem access; the caller reads the files. On success it returns
+// the same CAResult shape as GenerateCA, but with CertPEM/KeyPEM nil —
+// reference mode never rewrites the source files.
+//
+// Verification is deliberately strict so a misconfigured pair fails now,
+// at load time, rather than later when the first host is signed:
+//
+//   - the certificate must be a CA (IsCA);
+//   - its self-signature must verify against its own public key;
+//   - the private key's curve must match the certificate's curve;
+//   - the public key derived from the private key must equal the
+//     certificate's public key (i.e. the key really is this CA's key).
+//
+// An expired certificate is not a hard failure: the populated result is
+// returned together with ErrReferenceCAExpired so the caller can warn and
+// proceed. Every other problem returns a nil result and a descriptive
+// error.
+func LoadReferenceCA(certPEM, keyPEM []byte) (*CAResult, error) {
+	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse reference CA certificate: %w", err)
+	}
+	if !c.IsCA() {
+		return nil, fmt.Errorf("reference CA certificate %q is not a CA certificate (IsCA=false)", c.Name())
+	}
+	if !c.CheckSignature(c.PublicKey()) {
+		return nil, fmt.Errorf("reference CA certificate %q has an invalid self-signature", c.Name())
+	}
+
+	rawKey, _, keyCurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse reference CA key: %w", err)
+	}
+	if keyCurve != c.Curve() {
+		return nil, fmt.Errorf(
+			"reference CA key curve %s does not match certificate curve %s",
+			curveString(keyCurve), curveString(c.Curve()),
+		)
+	}
+
+	derivedPub, err := publicFromSigningKey(keyCurve, rawKey)
+	if err != nil {
+		return nil, fmt.Errorf("reference CA key: %w", err)
+	}
+	if !bytes.Equal(derivedPub, c.PublicKey()) {
+		return nil, fmt.Errorf("reference CA key does not match certificate %q (public keys differ)", c.Name())
+	}
+
+	fp, err := c.Fingerprint()
+	if err != nil {
+		return nil, fmt.Errorf("compute reference CA fingerprint: %w", err)
+	}
+
+	res := &CAResult{
+		Name:        c.Name(),
+		Curve:       curveString(c.Curve()),
+		Version:     int(c.Version()),
+		Fingerprint: fp,
+		NotBefore:   c.NotBefore(),
+		NotAfter:    c.NotAfter(),
+	}
+
+	// Expiry is a policy decision left to the caller; surface it as a
+	// sentinel rather than swallowing it or aborting here. A non-positive
+	// validity window (NotAfter not after NotBefore) is treated the same
+	// way — the cert can never be valid.
+	if !c.NotAfter().After(c.NotBefore()) || c.NotAfter().Before(timeNow()) {
+		return res, ErrReferenceCAExpired
+	}
+	return res, nil
+}
+
+// timeNow is a package-level seam so the expiry check is testable without
+// constructing certificates whose validity straddles wall-clock time.
+var timeNow = time.Now
+
+// publicFromSigningKey derives the public key bytes for a raw signing
+// private key, in the same byte layout cert stores in the certificate's
+// PublicKey(). It is the inverse of generateKeypair and lets
+// LoadReferenceCA confirm a key/cert pair really belong together.
+func publicFromSigningKey(curve cert.Curve, rawPriv []byte) ([]byte, error) {
+	switch curve {
+	case cert.Curve_CURVE25519:
+		if len(rawPriv) != ed25519.PrivateKeySize {
+			return nil, fmt.Errorf("ed25519 key has length %d, want %d", len(rawPriv), ed25519.PrivateKeySize)
+		}
+		priv := ed25519.PrivateKey(rawPriv)
+		pub, ok := priv.Public().(ed25519.PublicKey)
+		if !ok {
+			return nil, errors.New("ed25519 key did not yield an ed25519 public key")
+		}
+		return pub, nil
+
+	case cert.Curve_P256:
+		priv, err := ecdh.P256().NewPrivateKey(rawPriv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid P256 key: %w", err)
+		}
+		return priv.PublicKey().Bytes(), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported curve: %s", curve)
+	}
 }
 
 // generateKeypair returns the public key and the raw signing private key
