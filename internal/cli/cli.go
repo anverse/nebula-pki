@@ -144,8 +144,15 @@ func newCheckCmd(configPath *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// This line reports that the *configuration* parsed and passed
+			// every validation rule. In reference mode the referenced CA is
+			// then read and verified separately; if that fails, the error
+			// follows this line — which is still accurate, the config is
+			// valid, the referenced files are the problem. Hence "config
+			// valid" rather than a blanket "ok" that would read as "the
+			// whole check passed" right before an error.
 			fmt.Fprintf(cmd.OutOrStdout(),
-				"ok: %s (ca mode=%s, hosts=%d)\n",
+				"config valid: %s (ca mode=%s, hosts=%d)\n",
 				cfg.Path, cfg.CA.Mode, len(cfg.Hosts),
 			)
 			if cfg.CA.Mode == config.CAModeReference {
@@ -157,9 +164,12 @@ func newCheckCmd(configPath *string) *cobra.Command {
 }
 
 // checkReferenceCA reads and verifies the referenced CA, printing its
-// fingerprint on success. An expired CA is reported as a warning on
-// stderr but is not a check failure: the configuration is valid and the
-// files are a coherent CA. Any other load error fails the check.
+// fingerprint on success. It runs after the "config valid:" line, so a
+// failure here (missing files, not a CA, key/cert mismatch) surfaces as a
+// non-zero exit even though the configuration itself is well-formed — the
+// "config valid:" line above is about the HCL, this step is about the
+// files it points at. An expired CA is reported as a warning on stderr but
+// is not a check failure: the files are a coherent CA the operator owns.
 func checkReferenceCA(cmd *cobra.Command, cfg *config.Config) error {
 	certReal := cfg.Resolve(cfg.CACertPath())
 	keyReal := cfg.Resolve(cfg.CAKeyPath())
@@ -173,7 +183,7 @@ func checkReferenceCA(cmd *cobra.Command, cfg *config.Config) error {
 		return fmt.Errorf("read referenced CA key: %w", err)
 	}
 
-	res, err := pki.LoadReferenceCA(certPEM, keyPEM)
+	res, err := pki.LoadReferenceCA(certPEM, keyPEM, time.Now())
 	if errors.Is(err, pki.ErrReferenceCAExpired) {
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"warning: referenced CA %q is expired (not_after %s)\n",
@@ -184,7 +194,7 @@ func checkReferenceCA(cmd *cobra.Command, cfg *config.Config) error {
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(),
-		"  ca: name=%q fingerprint=%s\n", res.Name, res.Fingerprint,
+		"  ca verified: name=%q fingerprint=%s\n", res.Name, res.Fingerprint,
 	)
 	return nil
 }

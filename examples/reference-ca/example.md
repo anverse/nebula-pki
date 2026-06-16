@@ -43,7 +43,7 @@ is recorded anyway, with a warning on stderr: in reference mode the CA is
 yours to manage, and refusing would block you from inspecting or rotating
 it.
 
-Generate-only fields (`duration`, `curve`, `version`, `encrypt`,
+Generate-only fields (`name`, `duration`, `curve`, `version`, `encrypt`,
 `argon_*`, `out_*`) are rejected — they describe how a CA would be
 *created*, and reference mode creates nothing.
 
@@ -55,8 +55,8 @@ nebula-cert ca -name "shared-root" -out-crt ca.crt -out-key ca.key
 
 # Validate the config and confirm which CA you are pointed at.
 nebula-pki check
-# ok: nebula.hcl (ca mode=reference, hosts=0)
-#   ca: name="shared-root" fingerprint=<hex>
+# config valid: nebula.hcl (ca mode=reference, hosts=0)
+#   ca verified: name="shared-root" fingerprint=<hex>
 
 # Record the referenced CA in the manifest.
 nebula-pki

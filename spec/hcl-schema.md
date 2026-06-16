@@ -29,7 +29,7 @@ Defines the signing CA. Two mutually exclusive modes:
 
 | Field | Type | Required | Default | `nebula-cert ca` flag | Description |
 |---|---|---|---|---|---|
-| `name` | string | yes in generate mode | — | `-name` | CA name. Ignored in reference mode (CA is read as-is). |
+| `name` | string | yes in generate mode | — | `-name` | CA name. Rejected in reference mode (the CA name is read from the existing certificate). |
 | `duration` | duration | no | `"8760h"` (1 year, matches `nebula-cert` default) | `-duration` | Validity. Generate mode only. |
 | `version` | number | no | `2` | `-version` | Certificate format version (1 or 2). Generate mode only. |
 | `curve` | string | no | `"25519"` | `-curve` | `"25519"` or `"P256"`. Generate mode only. |
@@ -267,7 +267,7 @@ out/
 - A `host` sets both `out_crt`/`out_key` and `output_dirs`.
 - A `host.output_dirs` lists the same directory twice (entries deduplicated by normalised path).
 - `ca` is in reference mode but only one of `cert_file` / `key_file` is set.
-- `ca` is in reference mode and sets generate-only fields (`duration`, `curve`, `version`, `out_*`, `argon_*`, `encrypt`).
+- `ca` is in reference mode and sets generate-only fields (`name`, `duration`, `curve`, `version`, `out_*`, `argon_*`, `encrypt`).
 - Multiple `encryption` blocks in a single `storage`.
 - `host.groups` references a group not permitted by `ca.groups` (when `ca.groups` is non-empty).
 - Any `groups` entry (on `ca` or `host`) is empty, contains a comma, or contains leading/trailing whitespace. Group strings are otherwise free-form UTF-8; commas are forbidden because `nebula-cert`'s flag is comma-separated.

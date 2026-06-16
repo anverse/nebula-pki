@@ -172,7 +172,7 @@ func reconcileReference(cfg *config.Config, opts Options, report *Report, curren
 		return nil, fmt.Errorf("read referenced CA key: %w", err)
 	}
 
-	result, err := pki.LoadReferenceCA(certPEM, keyPEM)
+	result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
 	if errors.Is(err, pki.ErrReferenceCAExpired) {
 		fmt.Fprintf(warnWriter(opts.Warn),
 			"warning: referenced CA %q is expired (not_after %s); recording it anyway\n",

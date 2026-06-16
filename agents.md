@@ -61,7 +61,7 @@ ca {
 }
 ```
 
-In reference mode, generate-only fields (`duration`, `curve`, `version`, `encrypt`, `argon_*`, `out_*`) are rejected. The tool only reads the CA files; it never rewrites them.
+In reference mode, generate-only fields (`name`, `duration`, `curve`, `version`, `encrypt`, `argon_*`, `out_*`) are rejected. The tool only reads the CA files; it never rewrites them.
 
 On a run, nebula-pki loads the referenced pair and verifies it before recording anything: the certificate must be a CA (`IsCA`), its self-signature must verify, the key's curve must match the certificate, and the key must correspond to the certificate's public key. A missing `cert_file`/`key_file` is a hard error. An **expired** referenced CA is recorded anyway with a warning on stderr — the operator owns the CA in reference mode. The manifest records `ca.mode = "reference"` with the CA's fingerprint, validity window, and the referenced paths; `out/ca/` is never written. `nebula-pki check` additionally reads the referenced files and prints the CA fingerprint.
 

@@ -12,7 +12,7 @@
 # leaves out/ca/ empty. An expired referenced CA is recorded anyway, with
 # a warning — in reference mode the CA is yours to manage.
 #
-# Reference mode rejects every generate-only field (duration, curve,
+# Reference mode rejects every generate-only field (name, duration, curve,
 # version, encrypt, argon_*, out_*): those describe how a CA would be
 # *created*, and here nothing is created. Both cert_file and key_file are
 # required.

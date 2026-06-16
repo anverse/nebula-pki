@@ -1,9 +1,12 @@
 # Reference mode names cert_file / key_file that do not exist. The tool
 # must fail loudly rather than silently producing an empty manifest.
 
-# check fails because it tries to read the missing CA.
+# check reports the config itself as valid (the HCL parses), then fails on
+# the missing CA file. The "config valid:" line is scoped to the
+# configuration; it does not claim the whole check passed.
 ! exec nebula-pki check -c reference.hcl
-stdout '^ok: reference\.hcl \(ca mode=reference, hosts=0\)$'
+stdout '^config valid: reference\.hcl \(ca mode=reference, hosts=0\)$'
+! stdout 'ca verified:'
 stderr 'read referenced CA certificate'
 
 # Reconcile refuses too, naming the missing file.

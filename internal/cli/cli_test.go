@@ -47,7 +47,7 @@ func TestVersionFlag(t *testing.T) {
 }
 
 // TestCheckSubcommand_HappyPath verifies that `check -c <path>` parses
-// the file and prints the canonical "ok:" summary line.
+// the file and prints the canonical "config valid:" summary line.
 func TestCheckSubcommand_HappyPath(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ok.hcl")
@@ -71,8 +71,8 @@ host "a" {
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "ok: "+path) {
-		t.Errorf("stdout = %q, want it to contain %q", got, "ok: "+path)
+	if !strings.Contains(got, "config valid: "+path) {
+		t.Errorf("stdout = %q, want it to contain %q", got, "config valid: "+path)
 	}
 	if !strings.Contains(got, "ca mode=generate") {
 		t.Errorf("stdout = %q, want it to mention ca mode=generate", got)
@@ -84,7 +84,7 @@ host "a" {
 
 // TestCheckSubcommand_ValidationError ensures a validation rule surfaces
 // as a non-nil error from cobra (which the CLI maps to exit 1) and that
-// no "ok:" line was printed.
+// no "config valid:" line was printed.
 func TestCheckSubcommand_ValidationError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.hcl")
@@ -107,8 +107,8 @@ host "b" { networks = ["10.0.0.1/24"] }
 	if !strings.Contains(err.Error(), "overlay address") {
 		t.Errorf("error = %q, want overlay address error", err.Error())
 	}
-	if strings.Contains(stdout.String(), "ok:") {
-		t.Errorf("stdout = %q, must not contain 'ok:'", stdout.String())
+	if strings.Contains(stdout.String(), "config valid:") {
+		t.Errorf("stdout = %q, must not contain 'config valid:'", stdout.String())
 	}
 }
 
@@ -140,7 +140,7 @@ func TestCheckSubcommand_RejectsArgs(t *testing.T) {
 
 // TestCheckSubcommand_ReferenceReportsFingerprint covers the reference
 // path of `check`: it reads the operator-supplied CA files and prints the
-// CA fingerprint alongside the "ok:" line. This is the behaviour
+// CA fingerprint after the "config valid:" line. This is the behaviour
 // agents.md promises ("In CA reference mode, reads ca.cert_file /
 // ca.key_file").
 func TestCheckSubcommand_ReferenceReportsFingerprint(t *testing.T) {
@@ -173,8 +173,8 @@ ca {
 }
 
 // TestCheckSubcommand_ReferenceInvalidCAFails confirms `check` fails when
-// the referenced files are not a usable CA, rather than printing "ok:" and
-// exiting 0.
+// the referenced files are not a usable CA, rather than printing the
+// "config valid:" line and exiting 0.
 func TestCheckSubcommand_ReferenceInvalidCAFails(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), []byte("nope\n"), 0o600); err != nil {
@@ -198,6 +198,45 @@ ca {
 
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("Execute: want error for invalid referenced CA, got nil")
+	}
+}
+
+// TestCheckSubcommand_ReferenceMissingFileStillFails pins the reworded UX
+// (#4): when the config is well-formed but the referenced cert_file is
+// absent, `check` prints the "config valid:" line (the HCL really is
+// valid) and *then* fails on the missing file. The line must not claim
+// the whole check passed — it is scoped to the configuration, and the
+// command still exits non-zero.
+func TestCheckSubcommand_ReferenceMissingFileStillFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(path, []byte(`
+ca {
+  cert_file = "absent.crt"
+  key_file  = "absent.key"
+}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"check", "-c", path})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute: want error for missing referenced cert, got nil")
+	}
+	// The config-validity line is present (the HCL parsed and validated)...
+	if !strings.Contains(stdout.String(), "config valid: "+path) {
+		t.Errorf("stdout = %q, want it to contain the config-valid line", stdout.String())
+	}
+	// ...but no "ca verified:" line, because verification never succeeded.
+	if strings.Contains(stdout.String(), "ca verified:") {
+		t.Errorf("stdout = %q, must not claim the CA was verified", stdout.String())
+	}
+	// And the error names the missing file.
+	if !strings.Contains(err.Error(), "read referenced CA certificate") {
+		t.Errorf("error = %q, want it to mention the missing cert read", err.Error())
 	}
 }
 

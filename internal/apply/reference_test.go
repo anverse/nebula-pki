@@ -255,7 +255,9 @@ ca {
 
 // TestReconcile_ReferenceExpiredWarnsButRecords drives the expiry path:
 // the CA is recorded (Changed=true, manifest written) and a warning is
-// emitted to the configured Warn writer.
+// emitted to the configured Warn writer. Expiry is decided against
+// Options.Now (threaded into pki.LoadReferenceCA), so this is deterministic
+// and does not depend on the wall clock advancing.
 func TestReconcile_ReferenceExpiredWarnsButRecords(t *testing.T) {
 	cfg, seed := writeRefConfig(t, `
 ca {
@@ -286,6 +288,38 @@ ca {
 	}
 	if m.CA == nil || m.CA.Fingerprint != seed.Fingerprint {
 		t.Error("expired CA not recorded with its fingerprint")
+	}
+}
+
+// TestReconcile_ReferenceValidEmitsNoExpiryWarning is the deterministic
+// counterpart to the expired case and the regression guard for the
+// clock-injection fix: a CA evaluated at an Options.Now inside its
+// validity window must never be flagged expired, regardless of the real
+// wall-clock time when the test runs. Before expiry was threaded through
+// Options.Now, this verdict depended on time.Now() and would have started
+// warning once real time passed the fixture's NotAfter.
+func TestReconcile_ReferenceValidEmitsNoExpiryWarning(t *testing.T) {
+	// 1h CA, evaluated 30 minutes after issuance: comfortably valid.
+	cfg, _ := writeRefConfig(t, `
+ca {
+  name     = "fresh-mesh"
+  duration = "1h"
+}`)
+
+	var warn bytes.Buffer
+	rep, err := Reconcile(cfg, Options{
+		Now:              fixedNow.Add(30 * time.Minute),
+		GeneratorVersion: genVersion,
+		Warn:             &warn,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Error("Changed = false, want true on the first reference run")
+	}
+	if warn.Len() != 0 {
+		t.Errorf("warn output = %q, want empty for a valid CA", warn.String())
 	}
 }
 

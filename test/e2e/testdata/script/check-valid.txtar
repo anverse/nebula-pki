@@ -2,12 +2,12 @@
 
 # --- Happy path: minimal generate-mode config validates. ----------------------
 exec nebula-pki check -c minimal.hcl
-stdout '^ok: minimal\.hcl \(ca mode=generate, hosts=0\)$'
+stdout '^config valid: minimal\.hcl \(ca mode=generate, hosts=0\)$'
 ! stderr .
 
 # Default config path is ./nebula.hcl when -c is omitted.
 exec nebula-pki check
-stdout '^ok: nebula\.hcl \(ca mode=generate, hosts=2\)$'
+stdout '^config valid: nebula\.hcl \(ca mode=generate, hosts=2\)$'
 ! stderr .
 
 # --- Reference mode: check reads the referenced CA and reports it. ------------
@@ -16,10 +16,10 @@ exec nebula-pki -c gen.hcl
 exists out/ca/ca.crt
 exists out/ca/ca.key
 
-# check in reference mode validates AND reports the CA fingerprint.
+# check in reference mode validates AND verifies the referenced CA.
 exec nebula-pki check -c reference.hcl
-stdout '^ok: reference\.hcl \(ca mode=reference, hosts=0\)$'
-stdout '^  ca: name="ext-mesh" fingerprint=[0-9a-f]+$'
+stdout '^config valid: reference\.hcl \(ca mode=reference, hosts=0\)$'
+stdout '^  ca verified: name="ext-mesh" fingerprint=[0-9a-f]+$'
 ! stderr .
 
 -- minimal.hcl --

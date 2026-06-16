@@ -46,7 +46,7 @@ type Generator struct {
 }
 
 // CA is the certificate-authority record. Mode is "generate" or
-// "reference". In v0.0.3 only generate mode is produced.
+// "reference".
 type CA struct {
 	Mode        string    `json:"mode"`
 	Name        string    `json:"name"`

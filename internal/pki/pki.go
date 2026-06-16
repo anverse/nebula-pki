@@ -143,11 +143,19 @@ var ErrReferenceCAExpired = errors.New("reference CA is expired")
 //   - the public key derived from the private key must equal the
 //     certificate's public key (i.e. the key really is this CA's key).
 //
+// The now argument is the instant the validity window is evaluated
+// against. It is an explicit parameter rather than a call to time.Now so
+// the expiry verdict is a pure function of (cert, now): the same inputs
+// always produce the same result. apply passes its injected issuance
+// clock (Options.Now) so a reconcile is fully deterministic; the `check`
+// command passes the real time.Now (it is asking "is this expired right
+// now?"); tests pass a fixed instant.
+//
 // An expired certificate is not a hard failure: the populated result is
 // returned together with ErrReferenceCAExpired so the caller can warn and
 // proceed. Every other problem returns a nil result and a descriptive
 // error.
-func LoadReferenceCA(certPEM, keyPEM []byte) (*CAResult, error) {
+func LoadReferenceCA(certPEM, keyPEM []byte, now time.Time) (*CAResult, error) {
 	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
 	if err != nil {
 		return nil, fmt.Errorf("parse reference CA certificate: %w", err)
@@ -195,16 +203,14 @@ func LoadReferenceCA(certPEM, keyPEM []byte) (*CAResult, error) {
 	// Expiry is a policy decision left to the caller; surface it as a
 	// sentinel rather than swallowing it or aborting here. A non-positive
 	// validity window (NotAfter not after NotBefore) is treated the same
-	// way — the cert can never be valid.
-	if !c.NotAfter().After(c.NotBefore()) || c.NotAfter().Before(timeNow()) {
+	// way — the cert can never be valid. The comparison uses the caller's
+	// now so the verdict is deterministic and never depends on wall-clock
+	// time advancing between runs.
+	if !c.NotAfter().After(c.NotBefore()) || c.NotAfter().Before(now) {
 		return res, ErrReferenceCAExpired
 	}
 	return res, nil
 }
-
-// timeNow is a package-level seam so the expiry check is testable without
-// constructing certificates whose validity straddles wall-clock time.
-var timeNow = time.Now
 
 // publicFromSigningKey derives the public key bytes for a raw signing
 // private key, in the same byte layout cert stores in the certificate's
