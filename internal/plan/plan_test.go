@@ -156,6 +156,142 @@ func TestBuild_NilManifestTreatedAsUntracked(t *testing.T) {
 	}
 }
 
+// --- Host planning ----------------------------------------------------
+
+const hostHCL = `
+ca { name = "m" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+host "beta"  { networks = ["10.0.0.2/16"] }
+`
+
+func TestBuild_HostSignWhenUntracked(t *testing.T) {
+	cfg := parseCfg(t, hostHCL)
+	m := manifest.New() // no CA, no hosts recorded
+
+	// First populate the CA so plan doesn't fail there.
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+
+	// No files on disk.
+	p, err := Build(cfg, m, existsSet(cfg.CACertPath(), cfg.CAKeyPath()))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !p.Changes() {
+		t.Fatal("Changes() = false, want true when hosts need signing")
+	}
+	ha := p.HostActions()
+	if len(ha) != 2 {
+		t.Fatalf("HostActions() = %d, want 2", len(ha))
+	}
+	for _, a := range ha {
+		if a.Op != OpSign {
+			t.Errorf("host %q: Op = %q, want sign", a.Label, a.Op)
+		}
+		if a.Kind != KindHost {
+			t.Errorf("host %q: Kind = %q, want host", a.Label, a.Kind)
+		}
+	}
+}
+
+func TestBuild_HostNoopWhenTrackedAndPresent(t *testing.T) {
+	cfg := parseCfg(t, hostHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["alpha"] = manifest.Host{Name: "alpha"}
+	m.Hosts["beta"] = manifest.Host{Name: "beta"}
+
+	exists := existsSet(
+		cfg.CACertPath(), cfg.CAKeyPath(),
+		cfg.HostCertPath(cfg.Hosts[0]), cfg.HostKeyPath(cfg.Hosts[0]),
+		cfg.HostCertPath(cfg.Hosts[1]), cfg.HostKeyPath(cfg.Hosts[1]),
+	)
+	p, err := Build(cfg, m, exists)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.Changes() {
+		t.Fatalf("Changes() = true, want false; actions = %+v", p.Actions)
+	}
+	for _, a := range p.HostActions() {
+		if a.Op != OpNoop {
+			t.Errorf("host %q: Op = %q, want noop", a.Label, a.Op)
+		}
+	}
+}
+
+func TestBuild_HostSignWhenFilesAbsent(t *testing.T) {
+	cfg := parseCfg(t, hostHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	// Hosts are tracked in the manifest but files are missing (e.g. deleted).
+	m.Hosts["alpha"] = manifest.Host{Name: "alpha"}
+	m.Hosts["beta"] = manifest.Host{Name: "beta"}
+
+	// Only CA files are present; host files are absent.
+	p, err := Build(cfg, m, existsSet(cfg.CACertPath(), cfg.CAKeyPath()))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !p.Changes() {
+		t.Fatal("Changes() = false, want true when tracked hosts are missing their files")
+	}
+	for _, a := range p.HostActions() {
+		if a.Op != OpSign {
+			t.Errorf("host %q: Op = %q, want sign (re-create missing files)", a.Label, a.Op)
+		}
+	}
+}
+
+func TestBuild_MultipleHostsMixedActions(t *testing.T) {
+	cfg := parseCfg(t, hostHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	// alpha is tracked and present; beta is untracked.
+	m.Hosts["alpha"] = manifest.Host{Name: "alpha"}
+
+	exists := existsSet(
+		cfg.CACertPath(), cfg.CAKeyPath(),
+		cfg.HostCertPath(cfg.Hosts[0]), cfg.HostKeyPath(cfg.Hosts[0]),
+		// beta's files are absent
+	)
+	p, err := Build(cfg, m, exists)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !p.Changes() {
+		t.Fatal("Changes() = false, want true (beta needs signing)")
+	}
+	ha := p.HostActions()
+	if len(ha) != 2 {
+		t.Fatalf("HostActions() = %d, want 2", len(ha))
+	}
+	if ha[0].Label != "alpha" || ha[0].Op != OpNoop {
+		t.Errorf("host[0]: label=%q op=%q, want alpha/noop", ha[0].Label, ha[0].Op)
+	}
+	if ha[1].Label != "beta" || ha[1].Op != OpSign {
+		t.Errorf("host[1]: label=%q op=%q, want beta/sign", ha[1].Label, ha[1].Op)
+	}
+}
+
+func TestBuild_CANoopHostSign_ChangesTrue(t *testing.T) {
+	cfg := parseCfg(t, hostHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	// CA is tracked and both files present — CA action is noop.
+	// Hosts are untracked.
+
+	p, err := Build(cfg, m, existsSet(cfg.CACertPath(), cfg.CAKeyPath()))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.CAAction().Op != OpNoop {
+		t.Errorf("CAAction.Op = %q, want noop", p.CAAction().Op)
+	}
+	if !p.Changes() {
+		t.Fatal("Changes() = false, want true (hosts need signing)")
+	}
+}
+
 // --- Reference mode ---------------------------------------------------
 
 func TestBuild_ReferenceWithFilesPresent(t *testing.T) {

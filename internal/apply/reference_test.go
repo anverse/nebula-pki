@@ -323,6 +323,86 @@ ca {
 	}
 }
 
+// TestReconcile_ReferenceWithHosts verifies that reference mode signs host
+// certs using the operator-supplied CA (the CA files themselves are never
+// rewritten) and that a second run is byte-identical.
+func TestReconcile_ReferenceWithHosts(t *testing.T) {
+	dir := t.TempDir()
+	seed := seedReferenceCA(t, dir, `ca { name = "ref-mesh" }`)
+
+	path := filepath.Join(dir, "nebula.hcl")
+	src := `
+ca {
+  cert_file = "ca.crt"
+  key_file  = "ca.key"
+}
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false on first reference+host run, want true")
+	}
+	if len(rep.SignedHosts) != 1 || rep.SignedHosts[0].Label != "alpha" {
+		t.Errorf("SignedHosts = %v, want [{alpha ...}]", rep.SignedHosts)
+	}
+
+	// Host cert and key must exist.
+	hostCertReal := cfg.Resolve(rep.SignedHosts[0].CertPath)
+	hostKeyReal := cfg.Resolve(rep.SignedHosts[0].KeyPath)
+	if _, err := os.Stat(hostCertReal); err != nil {
+		t.Errorf("host cert missing: %v", err)
+	}
+	if _, err := os.Stat(hostKeyReal); err != nil {
+		t.Errorf("host key missing: %v", err)
+	}
+
+	// Manifest host record must carry the CA fingerprint.
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if h, ok := m.Hosts["alpha"]; !ok {
+		t.Fatal("manifest missing host alpha")
+	} else if h.CAFingerprint != seed.Fingerprint {
+		t.Errorf("host ca_fingerprint = %q, want %q", h.CAFingerprint, seed.Fingerprint)
+	}
+
+	// Second run must be a noop — files and manifest byte-identical.
+	manBefore := mustRead(t, cfg.Resolve(cfg.ManifestPath()))
+	certBefore := mustRead(t, hostCertReal)
+	keyBefore := mustRead(t, hostKeyReal)
+
+	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep2.Changed {
+		t.Fatal("Changed = true on second reference+host run, want false")
+	}
+	if !bytes.Equal(mustRead(t, cfg.Resolve(cfg.ManifestPath())), manBefore) {
+		t.Error("manifest changed on idempotent reference+host rerun")
+	}
+	if !bytes.Equal(mustRead(t, hostCertReal), certBefore) {
+		t.Error("host cert changed on idempotent reference+host rerun")
+	}
+	if !bytes.Equal(mustRead(t, hostKeyReal), keyBefore) {
+		t.Error("host key changed on idempotent reference+host rerun")
+	}
+}
+
 func mustStat(t *testing.T, path string) os.FileInfo {
 	t.Helper()
 	info, err := os.Stat(path)

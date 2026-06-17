@@ -73,14 +73,6 @@ func runReconcile(cmd *cobra.Command, configPath string) error {
 }
 
 // writeReconcileSummary prints a short human summary of a reconcile run.
-//
-// The "host(s) parsed but not yet reconciled" note is printed only on
-// runs that actually changed something. On an idempotent rerun the hosts
-// were already ignored on the first run; repeating the warning every
-// subsequent invocation would be noise (and would fight the
-// "byte-identical, zero-noise" idempotency guarantee from spec/adr/002,
-// since an operator running the tool in CI on every commit would see it
-// forever until host signing lands).
 func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 	if !rep.Changed {
 		fmt.Fprintln(w, "up to date; nothing to write")
@@ -88,8 +80,6 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 	}
 
 	if rep.CAMode == "reference" {
-		// Reference mode reads the operator's CA in place; only the
-		// manifest is written.
 		fmt.Fprintf(w, "using referenced CA %q\n", rep.CAName)
 		fmt.Fprintf(w, "  cert: %s\n", rep.CACertPath)
 		fmt.Fprintf(w, "  key:  %s\n", rep.CAKeyPath)
@@ -98,13 +88,12 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		fmt.Fprintf(w, "  cert: %s\n", rep.CACertPath)
 		fmt.Fprintf(w, "  key:  %s\n", rep.CAKeyPath)
 	}
-	fmt.Fprintf(w, "wrote manifest: %s\n", rep.ManifestPath)
-	if rep.HostsParsed > 0 {
-		fmt.Fprintf(w,
-			"note: %d host(s) parsed but not yet reconciled (host signing lands in a later release)\n",
-			rep.HostsParsed,
-		)
+	for _, h := range rep.SignedHosts {
+		fmt.Fprintf(w, "signed host %q\n", h.Label)
+		fmt.Fprintf(w, "  cert: %s\n", h.CertPath)
+		fmt.Fprintf(w, "  key:  %s\n", h.KeyPath)
 	}
+	fmt.Fprintf(w, "wrote manifest: %s\n", rep.ManifestPath)
 }
 
 func newVersionCmd() *cobra.Command {

@@ -19,6 +19,13 @@ const (
 	caSubdir          = "ca"
 )
 
+// Host artifact default sub-paths under storage.out_dir.
+const (
+	hostsSubdir        = "hosts"
+	defaultHostCertExt = ".crt"
+	defaultHostKeyExt  = ".key"
+)
+
 // baseDir is the directory the configuration was loaded from. Relative
 // logical paths resolve against it (see spec/adr/002). For in-memory
 // loads (Parse with a bare filename) this is ".".
@@ -69,4 +76,24 @@ func (c *Config) CAKeyPath() string {
 // <out_dir>/nebula-pki.json), so this is a simple accessor.
 func (c *Config) ManifestPath() string {
 	return c.Storage.ManifestFile
+}
+
+// HostCertPath returns the logical cert path for a host. If h.OutCRT is
+// set it is returned directly; otherwise the default is
+// <out_dir>/hosts/<h.Name>.crt.
+func (c *Config) HostCertPath(h Host) string {
+	if h.OutCRT != "" {
+		return h.OutCRT
+	}
+	return filepath.Join(c.Storage.OutDir, hostsSubdir, h.Name+defaultHostCertExt)
+}
+
+// HostKeyPath returns the logical key path for a host. If h.OutKey is
+// set it is returned directly; otherwise the default is
+// <out_dir>/hosts/<h.Name>.key.
+func (c *Config) HostKeyPath(h Host) string {
+	if h.OutKey != "" {
+		return h.OutKey
+	}
+	return filepath.Join(c.Storage.OutDir, hostsSubdir, h.Name+defaultHostKeyExt)
 }

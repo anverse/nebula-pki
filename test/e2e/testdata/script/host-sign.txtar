@@ -1,0 +1,75 @@
+# Multi-host scenario: two hosts with different groups, signed under a CA
+# with group and network constraints. Verifies cert files, manifest host
+# records, and full idempotency on a second run.
+
+exec nebula-pki
+stdout '^generated CA "test-mesh"$'
+stdout '^signed host "lighthouse"$'
+stdout '^  cert: out/hosts/lighthouse\.crt$'
+stdout '^  key:  out/hosts/lighthouse\.key$'
+stdout '^signed host "server"$'
+stdout '^  cert: out/hosts/server\.crt$'
+stdout '^  key:  out/hosts/server\.key$'
+stdout '^wrote manifest: out/nebula-pki\.json$'
+! stderr .
+
+# All artifacts exist.
+exists out/ca/ca.crt
+exists out/ca/ca.key
+exists out/hosts/lighthouse.crt
+exists out/hosts/lighthouse.key
+exists out/hosts/server.crt
+exists out/hosts/server.key
+exists out/nebula-pki.json
+
+# PEM material is present in each file.
+grep 'NEBULA CERTIFICATE' out/hosts/lighthouse.crt
+grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/lighthouse.key
+grep 'NEBULA CERTIFICATE' out/hosts/server.crt
+grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/server.key
+
+# Manifest records both hosts with CA fingerprint.
+grep '"lighthouse"' out/nebula-pki.json
+grep '"server"' out/nebula-pki.json
+grep '"ca_fingerprint"' out/nebula-pki.json
+
+# Snapshot all artifacts.
+cp out/ca/ca.crt ca.crt.first
+cp out/ca/ca.key ca.key.first
+cp out/hosts/lighthouse.crt lighthouse.crt.first
+cp out/hosts/lighthouse.key lighthouse.key.first
+cp out/hosts/server.crt server.crt.first
+cp out/hosts/server.key server.key.first
+cp out/nebula-pki.json manifest.first
+
+# Second run: everything up to date, nothing written.
+exec nebula-pki
+stdout '^up to date; nothing to write$'
+! stdout 'signed host'
+! stderr .
+
+# Byte-identical.
+cmp out/ca/ca.crt ca.crt.first
+cmp out/ca/ca.key ca.key.first
+cmp out/hosts/lighthouse.crt lighthouse.crt.first
+cmp out/hosts/lighthouse.key lighthouse.key.first
+cmp out/hosts/server.crt server.crt.first
+cmp out/hosts/server.key server.key.first
+cmp out/nebula-pki.json manifest.first
+
+-- nebula.hcl --
+ca {
+  name     = "test-mesh"
+  groups   = ["lighthouse", "app"]
+  networks = ["10.0.0.0/16"]
+}
+
+host "lighthouse" {
+  networks = ["10.0.0.1/16"]
+  groups   = ["lighthouse"]
+}
+
+host "server" {
+  networks = ["10.0.0.2/16"]
+  groups   = ["app"]
+}

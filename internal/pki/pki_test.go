@@ -213,6 +213,171 @@ func TestGenerateCA_DistinctNamesProduceDistinctCerts(t *testing.T) {
 	}
 }
 
+// --- SignHost tests -------------------------------------------------------
+
+// mustSignHost is a helper that generates a CA then signs a host under it.
+func mustSignHost(t *testing.T, caSrc, hostSrc string) (*CAResult, *HostResult) {
+	t.Helper()
+	caCfg := mustParseCA(t, caSrc)
+	ca, err := GenerateCA(caCfg.CA, fixedTime)
+	if err != nil {
+		t.Fatalf("GenerateCA: %v", err)
+	}
+	hCfg, err := config.Parse("nebula.hcl", []byte(hostSrc))
+	if err != nil {
+		t.Fatalf("config.Parse host: %v", err)
+	}
+	hr, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Hosts[0], fixedTime)
+	if err != nil {
+		t.Fatalf("SignHost: %v", err)
+	}
+	return ca, hr
+}
+
+func TestSignHost_CNAndNotACA(t *testing.T) {
+	_, hr := mustSignHost(t,
+		`ca { name = "mesh" }`,
+		`ca { name = "mesh" }
+host "h" {
+  name     = "my-host"
+  networks = ["10.0.0.1/16"]
+}`)
+
+	if hr.Name != "my-host" {
+		t.Errorf("Name = %q, want my-host", hr.Name)
+	}
+
+	c := parseCert(t, hr.CertPEM)
+	if c.IsCA() {
+		t.Error("IsCA() = true, want false for a host cert")
+	}
+	if c.Name() != "my-host" {
+		t.Errorf("cert.Name() = %q, want my-host", c.Name())
+	}
+}
+
+func TestSignHost_CurveAndVersionInheritedFromCA(t *testing.T) {
+	_, hr := mustSignHost(t,
+		`ca {
+  name    = "mesh"
+  curve   = "25519"
+  version = 2
+}`,
+		`ca { name = "mesh" }
+host "h" { networks = ["10.0.0.1/16"] }`)
+
+	if hr.Curve != "25519" {
+		t.Errorf("Curve = %q, want 25519", hr.Curve)
+	}
+	if hr.Version != 2 {
+		t.Errorf("Version = %d, want 2", hr.Version)
+	}
+}
+
+func TestSignHost_NetworksGroupsUnsafeNetworksRoundTrip(t *testing.T) {
+	_, hr := mustSignHost(t,
+		`ca {
+  name            = "mesh"
+  groups          = ["edge", "app"]
+  networks        = ["10.0.0.0/16"]
+  unsafe_networks = ["192.168.1.0/24"]
+}`,
+		`ca { name = "mesh" }
+host "h" {
+  networks        = ["10.0.0.1/16"]
+  groups          = ["edge"]
+  unsafe_networks = ["192.168.1.0/24"]
+}`)
+
+	c := parseCert(t, hr.CertPEM)
+
+	nets := c.Networks()
+	if len(nets) != 1 || nets[0].String() != "10.0.0.1/16" {
+		t.Errorf("Networks() = %v, want [10.0.0.1/16]", nets)
+	}
+	grps := c.Groups()
+	if len(grps) != 1 || grps[0] != "edge" {
+		t.Errorf("Groups() = %v, want [edge]", grps)
+	}
+	unsafe := c.UnsafeNetworks()
+	if len(unsafe) != 1 || unsafe[0].String() != "192.168.1.0/24" {
+		t.Errorf("UnsafeNetworks() = %v, want [192.168.1.0/24]", unsafe)
+	}
+}
+
+func TestSignHost_DefaultDurationMatchesCAExpiry(t *testing.T) {
+	ca, hr := mustSignHost(t,
+		`ca { name = "mesh" }`,
+		`ca { name = "mesh" }
+host "h" { networks = ["10.0.0.1/16"] }`)
+
+	// Without host.duration the host cert should expire when the CA does.
+	wantNotAfter := fixedTime.Add(defaultCADuration)
+	if !hr.NotAfter.Equal(wantNotAfter) {
+		t.Errorf("NotAfter = %v, want %v (same as CA)", hr.NotAfter, wantNotAfter)
+	}
+	// Sanity: matches the CA NotAfter.
+	if !hr.NotAfter.Equal(ca.NotAfter) {
+		t.Errorf("host NotAfter %v != CA NotAfter %v", hr.NotAfter, ca.NotAfter)
+	}
+}
+
+func TestSignHost_ExplicitDuration(t *testing.T) {
+	_, hr := mustSignHost(t,
+		`ca {
+  name     = "mesh"
+  duration = "8760h"
+}`,
+		`ca { name = "mesh" }
+host "h" {
+  networks = ["10.0.0.1/16"]
+  duration = "1h"
+}`)
+
+	want := fixedTime.Add(time.Hour)
+	if !hr.NotAfter.Equal(want) {
+		t.Errorf("NotAfter = %v, want %v (now + 1h)", hr.NotAfter, want)
+	}
+}
+
+func TestSignHost_CAFingerprintMatches(t *testing.T) {
+	ca, hr := mustSignHost(t,
+		`ca { name = "mesh" }`,
+		`ca { name = "mesh" }
+host "h" { networks = ["10.0.0.1/16"] }`)
+
+	if hr.CAFingerprint == "" {
+		t.Fatal("CAFingerprint is empty")
+	}
+	if hr.CAFingerprint != ca.Fingerprint {
+		t.Errorf("CAFingerprint = %q, want %q (CA fingerprint)", hr.CAFingerprint, ca.Fingerprint)
+	}
+}
+
+func TestSignHost_Distinct(t *testing.T) {
+	caCfg := mustParseCA(t, `ca { name = "mesh" }`)
+	ca, err := GenerateCA(caCfg.CA, fixedTime)
+	if err != nil {
+		t.Fatalf("GenerateCA: %v", err)
+	}
+	hCfg, _ := config.Parse("n.hcl", []byte(`
+ca { name = "m" }
+host "h" { networks = ["10.0.0.1/16"] }
+`))
+
+	a, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Hosts[0], fixedTime)
+	if err != nil {
+		t.Fatalf("SignHost a: %v", err)
+	}
+	b, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Hosts[0], fixedTime)
+	if err != nil {
+		t.Fatalf("SignHost b: %v", err)
+	}
+	if a.Fingerprint == b.Fingerprint {
+		t.Error("two calls to SignHost share a fingerprint; key material is not unique")
+	}
+}
+
 func mustParseCA(t *testing.T, src string) *config.Config {
 	t.Helper()
 	cfg, err := config.Parse("nebula.hcl", []byte(src))

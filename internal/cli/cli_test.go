@@ -261,10 +261,9 @@ func seedRefCA(t *testing.T, dir, src string) string {
 	return res.Fingerprint
 }
 
-// TestWriteReconcileSummary documents the surface a user sees and pins
-// the "host warning is silent on a no-op rerun" rule. This is the unit
-// equivalent of the e2e idempotent-with-hosts script: regressions get
-// caught here before they reach a script run.
+// TestWriteReconcileSummary documents the surface a user sees across the
+// key output shapes: changed with CA only, changed with signed hosts,
+// reference mode, and noop.
 func TestWriteReconcileSummary(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -287,23 +286,28 @@ func TestWriteReconcileSummary(t *testing.T) {
 				"key:  out/ca/ca.key",
 				"wrote manifest: out/nebula-pki.json",
 			},
-			wantNot: []string{"note:", "up to date"},
+			wantNot: []string{"signed host", "up to date"},
 		},
 		{
-			name: "changed_with_hosts_prints_note",
+			name: "changed_with_signed_hosts",
 			rep: apply.Report{
 				Changed:      true,
 				ManifestPath: "out/nebula-pki.json",
 				CACertPath:   "out/ca/ca.crt",
 				CAKeyPath:    "out/ca/ca.key",
 				CAName:       "mesh",
-				HostsParsed:  3,
+				SignedHosts: []apply.SignedHost{
+					{Label: "alpha", CertPath: "out/hosts/alpha.crt", KeyPath: "out/hosts/alpha.key"},
+				},
 			},
 			wantContain: []string{
 				`generated CA "mesh"`,
-				"note: 3 host(s) parsed but not yet reconciled",
+				`signed host "alpha"`,
+				"cert: out/hosts/alpha.crt",
+				"key:  out/hosts/alpha.key",
+				"wrote manifest: out/nebula-pki.json",
 			},
-			wantNot: []string{"up to date"},
+			wantNot: []string{"up to date", "not yet reconciled"},
 		},
 		{
 			// Reference mode reads the operator's CA in place; the summary
@@ -326,28 +330,14 @@ func TestWriteReconcileSummary(t *testing.T) {
 			wantNot: []string{"generated CA", "up to date"},
 		},
 		{
-			name: "noop_no_hosts",
+			name: "noop_run",
 			rep: apply.Report{
 				Changed:      false,
 				ManifestPath: "out/nebula-pki.json",
 				CAName:       "mesh",
 			},
 			wantContain: []string{"up to date; nothing to write"},
-			wantNot:     []string{"generated CA", "note:"},
-		},
-		{
-			// The bug the priority list called out: a no-op rerun must
-			// not re-print the host warning. If it did, every CI run of
-			// an unchanged tree would emit noise until v0.0.5.
-			name: "noop_with_hosts_is_silent",
-			rep: apply.Report{
-				Changed:      false,
-				ManifestPath: "out/nebula-pki.json",
-				CAName:       "mesh",
-				HostsParsed:  3,
-			},
-			wantContain: []string{"up to date; nothing to write"},
-			wantNot:     []string{"generated CA", "note:", "host(s)"},
+			wantNot:     []string{"generated CA", "signed host"},
 		},
 	}
 

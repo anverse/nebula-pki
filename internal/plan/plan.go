@@ -27,6 +27,8 @@ const (
 	// (reference mode). It never writes the CA files themselves; apply
 	// reads them in place and records their metadata in the manifest.
 	OpReference Op = "reference"
+	// OpSign means a host certificate must be signed and written.
+	OpSign Op = "sign"
 )
 
 // Kind is the artifact an action concerns.
@@ -35,12 +37,18 @@ type Kind string
 const (
 	// KindCA is the certificate authority.
 	KindCA Kind = "ca"
+	// KindHost is a host certificate.
+	KindHost Kind = "host"
 )
 
 // Action is a single planned operation.
 type Action struct {
 	Op   Op
 	Kind Kind
+	// Label is the config label for the artifact. Set for KindHost actions
+	// to identify which host config entry the action concerns; empty for
+	// KindCA.
+	Label string
 	// Path is the primary logical artifact path, for display. Empty for
 	// no-ops.
 	Path string
@@ -66,24 +74,76 @@ func (p Plan) Changes() bool {
 	return false
 }
 
+// CAAction returns the CA action. There is always exactly one per plan.
+func (p Plan) CAAction() Action {
+	for _, a := range p.Actions {
+		if a.Kind == KindCA {
+			return a
+		}
+	}
+	return Action{Op: OpNoop, Kind: KindCA}
+}
+
+// HostActions returns all host actions from the plan, in config order.
+func (p Plan) HostActions() []Action {
+	var hosts []Action
+	for _, a := range p.Actions {
+		if a.Kind == KindHost {
+			hosts = append(hosts, a)
+		}
+	}
+	return hosts
+}
+
 // Build computes the reconcile plan for cfg given the current manifest m
 // and an exists probe that reports whether a logical artifact path is
 // present on disk. The caller is responsible for resolving logical paths
 // to real ones inside exists.
 func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath string) bool) (Plan, error) {
-	if cfg.CA.Mode == config.CAModeReference {
-		refAction, err := planReferenceCA(cfg, m, exists)
-		if err != nil {
-			return Plan{}, err
-		}
-		return Plan{Actions: []Action{refAction}}, nil
-	}
+	var caAction Action
+	var err error
 
-	caAction, err := planCA(cfg, m, exists)
+	if cfg.CA.Mode == config.CAModeReference {
+		caAction, err = planReferenceCA(cfg, m, exists)
+	} else {
+		caAction, err = planCA(cfg, m, exists)
+	}
 	if err != nil {
 		return Plan{}, err
 	}
-	return Plan{Actions: []Action{caAction}}, nil
+
+	actions := []Action{caAction}
+	for i := range cfg.Hosts {
+		ha := planHost(cfg, m, &cfg.Hosts[i], exists)
+		actions = append(actions, ha)
+	}
+	return Plan{Actions: actions}, nil
+}
+
+// planHost decides the action for a single host. Host certs are not as
+// precious as CAs (they can always be re-signed), so partial pairs and
+// untracked files are resolved by re-signing rather than erroring:
+//
+//   - tracked in manifest AND both cert + key present → noop
+//   - anything else (untracked, files absent, partial pair) → sign
+func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, exists func(string) bool) Action {
+	certPath := cfg.HostCertPath(*h)
+	keyPath := cfg.HostKeyPath(*h)
+
+	tracked := m != nil && m.Hosts[h.Label].Name != ""
+	haveCert := exists(certPath)
+	haveKey := exists(keyPath)
+
+	if tracked && haveCert && haveKey {
+		return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+	}
+	return Action{
+		Op:    OpSign,
+		Kind:  KindHost,
+		Label: h.Label,
+		Path:  certPath,
+		Desc:  fmt.Sprintf("sign host %q", h.Label),
+	}
 }
 
 // planReferenceCA decides the action for an operator-supplied existing CA.

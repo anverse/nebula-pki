@@ -272,6 +272,104 @@ func generateKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 	}
 }
 
+// HostResult is the output of SignHost: the signed certificate and its
+// freshly generated private key, plus the metadata the manifest records.
+// Curve and Version are returned in their HCL spellings ("25519"/"P256",
+// 1/2) for consistency with CAResult and the manifest format.
+type HostResult struct {
+	CertPEM []byte
+	KeyPEM  []byte
+
+	Name          string
+	Fingerprint   string
+	Curve         string
+	Version       int
+	NotBefore     time.Time
+	NotAfter      time.Time
+	CAFingerprint string
+}
+
+// SignHost signs a host certificate under the given CA, returning the cert
+// PEM and a freshly generated private key PEM. It is pure on the input
+// side (no filesystem access) and inherits the curve and certificate
+// version from the signing CA so callers do not need to specify them.
+//
+// If h.HasDuration is true, the host cert expires now+h.Duration.
+// Otherwise it co-expires with the CA (mirrors nebula-cert sign's default
+// behaviour when no -duration flag is given).
+func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostResult, error) {
+	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)
+	}
+
+	rawKey, _, keyCurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(caKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA key for host signing: %w", err)
+	}
+
+	curve := caCert.Curve()
+	version := caCert.Version()
+
+	notAfter := caCert.NotAfter()
+	if h.HasDuration {
+		notAfter = now.Add(h.Duration)
+	}
+
+	pub, rawPriv, err := generateKeypair(curve)
+	if err != nil {
+		return nil, fmt.Errorf("generate host keypair: %w", err)
+	}
+
+	tbs := &cert.TBSCertificate{
+		Version:        version,
+		Name:           h.Name,
+		Groups:         h.Groups,
+		Networks:       h.Networks,
+		UnsafeNetworks: h.UnsafeNetworks,
+		NotBefore:      now,
+		NotAfter:       notAfter,
+		PublicKey:      pub,
+		IsCA:           false,
+		Curve:          curve,
+	}
+
+	c, err := tbs.Sign(caCert, keyCurve, rawKey)
+	if err != nil {
+		return nil, fmt.Errorf("sign host certificate %q: %w", h.Name, err)
+	}
+
+	certPEM, err := c.MarshalPEM()
+	if err != nil {
+		return nil, fmt.Errorf("marshal host certificate %q: %w", h.Name, err)
+	}
+	keyPEM := cert.MarshalSigningPrivateKeyToPEM(curve, rawPriv)
+	if keyPEM == nil {
+		return nil, fmt.Errorf("marshal host private key %q: unsupported curve %s", h.Name, curve)
+	}
+
+	fp, err := c.Fingerprint()
+	if err != nil {
+		return nil, fmt.Errorf("compute host certificate fingerprint %q: %w", h.Name, err)
+	}
+	caFP, err := caCert.Fingerprint()
+	if err != nil {
+		return nil, fmt.Errorf("compute CA fingerprint while signing host %q: %w", h.Name, err)
+	}
+
+	return &HostResult{
+		CertPEM:       certPEM,
+		KeyPEM:        keyPEM,
+		Name:          c.Name(),
+		Fingerprint:   fp,
+		Curve:         curveString(curve),
+		Version:       int(version),
+		NotBefore:     c.NotBefore(),
+		NotAfter:      c.NotAfter(),
+		CAFingerprint: caFP,
+	}, nil
+}
+
 // curveString maps an upstream curve enum back to the HCL spelling used
 // throughout the config surface and the manifest.
 func curveString(cv cert.Curve) string {

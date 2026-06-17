@@ -1,25 +1,31 @@
-# `nebula-pki` with no args reconciles the CA declared in ./nebula.hcl.
-# Host blocks are parsed and reported, but not signed in this release.
+# `nebula-pki` with no args reconciles the CA and host certs declared in
+# ./nebula.hcl. This script covers the basic generate-mode path: a fresh
+# tree gets a CA and one host cert on the first run.
 
 exec nebula-pki
 stdout '^generated CA "test-mesh"$'
 stdout '^  cert: out/ca/ca\.crt$'
 stdout '^  key:  out/ca/ca\.key$'
+stdout '^signed host "alpha"$'
+stdout '^  cert: out/hosts/alpha\.crt$'
+stdout '^  key:  out/hosts/alpha\.key$'
 stdout '^wrote manifest: out/nebula-pki\.json$'
-stdout '^note: 1 host\(s\) parsed but not yet reconciled'
 ! stderr .
 
-# CA artifacts exist; no host artifacts are produced yet.
+# CA and host artifacts exist.
 exists out/ca/ca.crt
 exists out/ca/ca.key
+exists out/hosts/alpha.crt
+exists out/hosts/alpha.key
 exists out/nebula-pki.json
-! exists out/hosts
 
 # Real PEM material was written.
 grep 'NEBULA CERTIFICATE' out/ca/ca.crt
 grep 'NEBULA ED25519 PRIVATE KEY' out/ca/ca.key
+grep 'NEBULA CERTIFICATE' out/hosts/alpha.crt
+grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key
 
-# Manifest shape: schema, generator, CA record, relative config path, empty hosts.
+# Manifest shape: schema, generator, CA record, host record, relative config path.
 grep '"schema_version": 1' out/nebula-pki.json
 grep '"name": "nebula-pki"' out/nebula-pki.json
 grep '"version": "v0\.0\.1-test"' out/nebula-pki.json
@@ -29,7 +35,8 @@ grep '"curve": "25519"' out/nebula-pki.json
 grep '"config_path": "\.\./nebula\.hcl"' out/nebula-pki.json
 grep '"cert_path": "out/ca/ca\.crt"' out/nebula-pki.json
 grep '"key_path": "out/ca/ca\.key"' out/nebula-pki.json
-grep '"hosts": {}' out/nebula-pki.json
+grep '"alpha"' out/nebula-pki.json
+grep '"ca_fingerprint"' out/nebula-pki.json
 
 -- nebula.hcl --
 ca {

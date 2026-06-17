@@ -53,8 +53,8 @@ func TestReconcile_FreshGeneratesCAAndManifest(t *testing.T) {
 	if !rep.Changed {
 		t.Fatal("Changed = false, want true on a fresh tree")
 	}
-	if rep.HostsParsed != 0 {
-		t.Errorf("HostsParsed = %d, want 0", rep.HostsParsed)
+	if len(rep.SignedHosts) != 0 {
+		t.Errorf("SignedHosts = %v, want none (no host blocks)", rep.SignedHosts)
 	}
 
 	certReal := cfg.Resolve(cfg.CACertPath())
@@ -319,34 +319,113 @@ storage {
 	}
 }
 
-// TestReconcile_HostsParsedCount surfaces v0.0.3's parse-but-don't-sign
-// behaviour. The number of host blocks in HCL must show up in
-// Report.HostsParsed verbatim — that is the signal the CLI relies on
-// for the "N host(s) parsed but not yet reconciled" warning.
-func TestReconcile_HostsParsedCount(t *testing.T) {
+// TestReconcile_SignsHostsAfterCA verifies that host certs are signed,
+// written to disk, and recorded in the manifest on a fresh run.
+func TestReconcile_SignsHostsAfterCA(t *testing.T) {
 	cfg := writeConfig(t, `
 ca { name = "mesh" }
 
 host "alpha" { networks = ["10.0.0.1/16"] }
 host "beta"  { networks = ["10.0.0.2/16"] }
-host "gamma" { networks = ["10.0.0.3/16"] }
 `)
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if rep.HostsParsed != 3 {
-		t.Errorf("HostsParsed = %d, want 3", rep.HostsParsed)
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true on first run")
 	}
-	// And: hosts must NOT appear in the manifest yet (v0.0.3 stops at the
-	// CA). Schema-stability is enforced by manifest.New() initialising
-	// Hosts to an empty (non-nil) map.
+	if len(rep.SignedHosts) != 2 {
+		t.Fatalf("SignedHosts = %d, want 2", len(rep.SignedHosts))
+	}
+	if rep.SignedHosts[0].Label != "alpha" || rep.SignedHosts[1].Label != "beta" {
+		t.Errorf("SignedHosts labels = %v, want [alpha beta]",
+			[]string{rep.SignedHosts[0].Label, rep.SignedHosts[1].Label})
+	}
+
+	// Files must exist.
+	for _, h := range rep.SignedHosts {
+		if _, err := os.Stat(cfg.Resolve(h.CertPath)); err != nil {
+			t.Errorf("host %q cert missing: %v", h.Label, err)
+		}
+		if _, err := os.Stat(cfg.Resolve(h.KeyPath)); err != nil {
+			t.Errorf("host %q key missing: %v", h.Label, err)
+		}
+	}
+
+	// Manifest must record both hosts.
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if len(m.Hosts) != 0 {
-		t.Errorf("manifest hosts populated in v0.0.3: %+v", m.Hosts)
+	if len(m.Hosts) != 2 {
+		t.Fatalf("manifest hosts = %d, want 2", len(m.Hosts))
+	}
+	for _, label := range []string{"alpha", "beta"} {
+		h, ok := m.Hosts[label]
+		if !ok {
+			t.Fatalf("manifest missing host %q", label)
+		}
+		if h.CAFingerprint == "" {
+			t.Errorf("host %q: ca_fingerprint is empty", label)
+		}
+		if h.Fingerprint == "" {
+			t.Errorf("host %q: fingerprint is empty", label)
+		}
+		if len(h.Artifacts) != 1 {
+			t.Errorf("host %q: artifacts = %d, want 1", label, len(h.Artifacts))
+		}
+	}
+	// CA fingerprints must match.
+	if m.Hosts["alpha"].CAFingerprint != m.CA.Fingerprint {
+		t.Errorf("host alpha ca_fingerprint %q != ca fingerprint %q",
+			m.Hosts["alpha"].CAFingerprint, m.CA.Fingerprint)
+	}
+}
+
+// TestReconcile_HostIdempotency verifies that a second reconcile with an
+// unchanged config writes nothing — not a single byte, including the
+// manifest.
+func TestReconcile_HostIdempotency(t *testing.T) {
+	cfg := writeConfig(t, `
+ca { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	certReal := cfg.Resolve(cfg.CACertPath())
+	keyReal := cfg.Resolve(cfg.CAKeyPath())
+	manReal := cfg.Resolve(cfg.ManifestPath())
+	hostCertReal := cfg.Resolve(cfg.HostCertPath(cfg.Hosts[0]))
+	hostKeyReal := cfg.Resolve(cfg.HostKeyPath(cfg.Hosts[0]))
+
+	snapshots := map[string][]byte{
+		certReal:     mustRead(t, certReal),
+		keyReal:      mustRead(t, keyReal),
+		manReal:      mustRead(t, manReal),
+		hostCertReal: mustRead(t, hostCertReal),
+		hostKeyReal:  mustRead(t, hostKeyReal),
+	}
+
+	// Second run at a different time; everything must be byte-identical.
+	rep, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Fatal("Changed = true on second run, want false (full idempotency)")
+	}
+	if len(rep.SignedHosts) != 0 {
+		t.Errorf("SignedHosts non-empty on noop run: %v", rep.SignedHosts)
+	}
+
+	for path, before := range snapshots {
+		after := mustRead(t, path)
+		if string(after) != string(before) {
+			t.Errorf("%s changed on no-op run", path)
+		}
 	}
 }
 
