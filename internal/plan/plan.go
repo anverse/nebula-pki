@@ -4,8 +4,8 @@
 // supply an existence probe) and never mutates anything.
 //
 // It plans both CA modes: generate (mint a fresh CA) and reference (use
-// an operator-supplied existing CA). Hosts are parsed but not yet
-// reconciled.
+// an operator-supplied existing CA). It also plans host actions: sign a
+// new certificate or leave an existing one in place (noop).
 package plan
 
 import (

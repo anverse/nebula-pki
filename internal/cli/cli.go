@@ -54,7 +54,7 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 
 // runReconcile is the default action: load the configuration and bring the
 // output tree in line with it. It reconciles the CA in both generate and
-// reference mode; host blocks are parsed and counted but not yet signed.
+// reference mode, and signs any host certificates that are new or missing.
 func runReconcile(cmd *cobra.Command, configPath string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
