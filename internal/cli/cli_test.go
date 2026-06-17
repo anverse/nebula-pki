@@ -297,7 +297,9 @@ func TestWriteReconcileSummary(t *testing.T) {
 				CAKeyPath:    "out/ca/ca.key",
 				CAName:       "mesh",
 				SignedHosts: []apply.SignedHost{
-					{Label: "alpha", CertPath: "out/hosts/alpha.crt", KeyPath: "out/hosts/alpha.key"},
+					{Label: "alpha", Artifacts: []apply.SignedArtifact{
+						{CertPath: "out/hosts/alpha.crt", KeyPath: "out/hosts/alpha.key"},
+					}},
 				},
 			},
 			wantContain: []string{

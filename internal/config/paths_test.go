@@ -94,6 +94,81 @@ storage { out_dir = "artifacts" }
 	}
 }
 
+func TestHostArtifactPaths_Default(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca { name = "m" }
+host "node" { networks = ["10.0.0.1/16"] }
+`)
+	h := cfg.Hosts[0]
+	got := cfg.HostArtifactPaths(h)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Dir != "" {
+		t.Errorf("Dir = %q, want empty for default path", got[0].Dir)
+	}
+	if want := cfg.HostCertPath(h); got[0].CertPath != want {
+		t.Errorf("CertPath = %q, want %q", got[0].CertPath, want)
+	}
+	if want := cfg.HostKeyPath(h); got[0].KeyPath != want {
+		t.Errorf("KeyPath = %q, want %q", got[0].KeyPath, want)
+	}
+}
+
+func TestHostArtifactPaths_ExplicitPaths(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca { name = "m" }
+host "node" {
+  networks = ["10.0.0.1/16"]
+  out_crt  = "custom/node.crt"
+  out_key  = "custom/node.key"
+}
+`)
+	h := cfg.Hosts[0]
+	got := cfg.HostArtifactPaths(h)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Dir != "" {
+		t.Errorf("Dir = %q, want empty for explicit paths", got[0].Dir)
+	}
+	if got[0].CertPath != "custom/node.crt" {
+		t.Errorf("CertPath = %q, want custom/node.crt", got[0].CertPath)
+	}
+	if got[0].KeyPath != "custom/node.key" {
+		t.Errorf("KeyPath = %q, want custom/node.key", got[0].KeyPath)
+	}
+}
+
+func TestHostArtifactPaths_OutputDirs(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca { name = "m" }
+host "node" {
+  networks    = ["10.0.0.1/16"]
+  output_dirs = ["dir-a", "dir-b"]
+}
+`)
+	h := cfg.Hosts[0]
+	got := cfg.HostArtifactPaths(h)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	for i, want := range []struct{ dir, cert, key string }{
+		{"dir-a", filepath.Join("dir-a", "node.crt"), filepath.Join("dir-a", "node.key")},
+		{"dir-b", filepath.Join("dir-b", "node.crt"), filepath.Join("dir-b", "node.key")},
+	} {
+		if got[i].Dir != want.dir {
+			t.Errorf("[%d] Dir = %q, want %q", i, got[i].Dir, want.dir)
+		}
+		if got[i].CertPath != want.cert {
+			t.Errorf("[%d] CertPath = %q, want %q", i, got[i].CertPath, want.cert)
+		}
+		if got[i].KeyPath != want.key {
+			t.Errorf("[%d] KeyPath = %q, want %q", i, got[i].KeyPath, want.key)
+		}
+	}
+}
+
 func TestResolve(t *testing.T) {
 	cfg := mustParse(t, filepath.Join("project", "nebula.hcl"), `ca { name = "m" }`)
 

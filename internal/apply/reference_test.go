@@ -360,8 +360,8 @@ host "alpha" {
 	}
 
 	// Host cert and key must exist.
-	hostCertReal := cfg.Resolve(rep.SignedHosts[0].CertPath)
-	hostKeyReal := cfg.Resolve(rep.SignedHosts[0].KeyPath)
+	hostCertReal := cfg.Resolve(rep.SignedHosts[0].Artifacts[0].CertPath)
+	hostKeyReal := cfg.Resolve(rep.SignedHosts[0].Artifacts[0].KeyPath)
 	if _, err := os.Stat(hostCertReal); err != nil {
 		t.Errorf("host cert missing: %v", err)
 	}

@@ -124,24 +124,30 @@ func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath str
 // precious as CAs (they can always be re-signed), so partial pairs and
 // untracked files are resolved by re-signing rather than erroring:
 //
-//   - tracked in manifest AND both cert + key present → noop
-//   - anything else (untracked, files absent, partial pair) → sign
+//   - tracked in manifest AND every artifact file present → noop
+//   - anything else (untracked, files absent, partial pair, new dir) → sign
 func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, exists func(string) bool) Action {
-	certPath := cfg.HostCertPath(*h)
-	keyPath := cfg.HostKeyPath(*h)
+	artifacts := cfg.HostArtifactPaths(*h)
+	primary := artifacts[0]
 
 	tracked := m != nil && m.Hosts[h.Label].Name != ""
-	haveCert := exists(certPath)
-	haveKey := exists(keyPath)
-
-	if tracked && haveCert && haveKey {
-		return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+	if tracked {
+		allPresent := true
+		for _, a := range artifacts {
+			if !exists(a.CertPath) || !exists(a.KeyPath) {
+				allPresent = false
+				break
+			}
+		}
+		if allPresent {
+			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+		}
 	}
 	return Action{
 		Op:    OpSign,
 		Kind:  KindHost,
 		Label: h.Label,
-		Path:  certPath,
+		Path:  primary.CertPath,
 		Desc:  fmt.Sprintf("sign host %q", h.Label),
 	}
 }

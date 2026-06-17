@@ -345,11 +345,13 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 
 	// Files must exist.
 	for _, h := range rep.SignedHosts {
-		if _, err := os.Stat(cfg.Resolve(h.CertPath)); err != nil {
-			t.Errorf("host %q cert missing: %v", h.Label, err)
-		}
-		if _, err := os.Stat(cfg.Resolve(h.KeyPath)); err != nil {
-			t.Errorf("host %q key missing: %v", h.Label, err)
+		for _, a := range h.Artifacts {
+			if _, err := os.Stat(cfg.Resolve(a.CertPath)); err != nil {
+				t.Errorf("host %q cert %q missing: %v", h.Label, a.CertPath, err)
+			}
+			if _, err := os.Stat(cfg.Resolve(a.KeyPath)); err != nil {
+				t.Errorf("host %q key %q missing: %v", h.Label, a.KeyPath, err)
+			}
 		}
 	}
 
@@ -459,6 +461,102 @@ func TestReconcile_AbsoluteConfigPathStillRecordsRelativeManifest(t *testing.T) 
 	if want := filepath.Join("..", "nebula.hcl"); m.ConfigPath != want {
 		t.Errorf("config_path = %q, want %q (relative even though cfg.Path was absolute)",
 			m.ConfigPath, want)
+	}
+}
+
+// TestReconcile_FanOut verifies that output_dirs causes byte-identical cert
+// and key files to be written to every listed directory, that the manifest
+// records all artifacts, and that a second run is a noop.
+func TestReconcile_FanOut(t *testing.T) {
+	cfg := writeConfig(t, `
+ca { name = "mesh" }
+host "node" {
+  networks    = ["10.0.0.1/16"]
+  output_dirs = ["dir-a", "dir-b"]
+}
+`)
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true on first run")
+	}
+	if len(rep.SignedHosts) != 1 {
+		t.Fatalf("SignedHosts = %d, want 1", len(rep.SignedHosts))
+	}
+	sh := rep.SignedHosts[0]
+	if sh.Label != "node" {
+		t.Errorf("Label = %q, want node", sh.Label)
+	}
+	if len(sh.Artifacts) != 2 {
+		t.Fatalf("Artifacts = %d, want 2", len(sh.Artifacts))
+	}
+
+	// All four files must exist on disk.
+	for _, a := range sh.Artifacts {
+		if _, err := os.Stat(cfg.Resolve(a.CertPath)); err != nil {
+			t.Errorf("cert %q missing: %v", a.CertPath, err)
+		}
+		if _, err := os.Stat(cfg.Resolve(a.KeyPath)); err != nil {
+			t.Errorf("key %q missing: %v", a.KeyPath, err)
+		}
+	}
+
+	// Cert and key must be byte-identical across all dirs.
+	cert0 := mustRead(t, cfg.Resolve(sh.Artifacts[0].CertPath))
+	cert1 := mustRead(t, cfg.Resolve(sh.Artifacts[1].CertPath))
+	if string(cert0) != string(cert1) {
+		t.Error("cert in dir-a and dir-b differ; expected identical copies")
+	}
+	key0 := mustRead(t, cfg.Resolve(sh.Artifacts[0].KeyPath))
+	key1 := mustRead(t, cfg.Resolve(sh.Artifacts[1].KeyPath))
+	if string(key0) != string(key1) {
+		t.Error("key in dir-a and dir-b differ; expected identical copies")
+	}
+
+	// Manifest must record 2 artifacts for the host.
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	node, ok := m.Hosts["node"]
+	if !ok {
+		t.Fatal("manifest missing host node")
+	}
+	if len(node.Artifacts) != 2 {
+		t.Fatalf("manifest artifacts = %d, want 2", len(node.Artifacts))
+	}
+	for i, wantDir := range []string{"dir-a", "dir-b"} {
+		if node.Artifacts[i].Dir != wantDir {
+			t.Errorf("artifact[%d].Dir = %q, want %q", i, node.Artifacts[i].Dir, wantDir)
+		}
+	}
+
+	// Snapshot all fan-out files.
+	snap := map[string][]byte{}
+	for _, a := range sh.Artifacts {
+		snap[cfg.Resolve(a.CertPath)] = mustRead(t, cfg.Resolve(a.CertPath))
+		snap[cfg.Resolve(a.KeyPath)] = mustRead(t, cfg.Resolve(a.KeyPath))
+	}
+	manSnap := mustRead(t, cfg.Resolve(cfg.ManifestPath()))
+
+	// Second run must be a noop.
+	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep2.Changed {
+		t.Fatal("Changed = true on second run, want false (full idempotency)")
+	}
+	for path, before := range snap {
+		after := mustRead(t, path)
+		if string(after) != string(before) {
+			t.Errorf("%s changed on no-op run", path)
+		}
+	}
+	if got := mustRead(t, cfg.Resolve(cfg.ManifestPath())); string(got) != string(manSnap) {
+		t.Error("manifest changed on no-op run")
 	}
 }
 

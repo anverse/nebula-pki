@@ -347,6 +347,69 @@ func TestBuild_CANoopHostSign_ChangesTrue(t *testing.T) {
 	}
 }
 
+// --- Fan-out (output_dirs) --------------------------------------------
+
+const fanOutHCL = `
+ca { name = "m" }
+host "node" {
+  networks    = ["10.0.0.1/16"]
+  output_dirs = ["dir-a", "dir-b"]
+}
+`
+
+func TestBuild_FanOutNoopWhenAllPresent(t *testing.T) {
+	cfg := parseCfg(t, fanOutHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["node"] = manifest.Host{Name: "node"}
+
+	artifacts := cfg.HostArtifactPaths(cfg.Hosts[0])
+	exists := existsSet(
+		cfg.CACertPath(), cfg.CAKeyPath(),
+		artifacts[0].CertPath, artifacts[0].KeyPath,
+		artifacts[1].CertPath, artifacts[1].KeyPath,
+	)
+	p, err := Build(cfg, m, exists)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.Changes() {
+		t.Fatalf("Changes() = true, want false when all fan-out artifacts present; actions = %+v", p.Actions)
+	}
+	for _, a := range p.HostActions() {
+		if a.Op != OpNoop {
+			t.Errorf("host %q: Op = %q, want noop", a.Label, a.Op)
+		}
+	}
+}
+
+func TestBuild_FanOutSignWhenArtifactMissing(t *testing.T) {
+	cfg := parseCfg(t, fanOutHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["node"] = manifest.Host{Name: "node"}
+
+	// Only dir-a artifacts present; dir-b is missing.
+	artifacts := cfg.HostArtifactPaths(cfg.Hosts[0])
+	exists := existsSet(
+		cfg.CACertPath(), cfg.CAKeyPath(),
+		artifacts[0].CertPath, artifacts[0].KeyPath,
+		// artifacts[1] absent
+	)
+	p, err := Build(cfg, m, exists)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !p.Changes() {
+		t.Fatal("Changes() = false, want true when a fan-out artifact is missing")
+	}
+	for _, a := range p.HostActions() {
+		if a.Op != OpSign {
+			t.Errorf("host %q: Op = %q, want sign", a.Label, a.Op)
+		}
+	}
+}
+
 // --- Reference mode ---------------------------------------------------
 
 func TestBuild_ReferenceWithFilesPresent(t *testing.T) {

@@ -90,8 +90,10 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 	}
 	for _, h := range rep.SignedHosts {
 		fmt.Fprintf(w, "signed host %q\n", h.Label)
-		fmt.Fprintf(w, "  cert: %s\n", h.CertPath)
-		fmt.Fprintf(w, "  key:  %s\n", h.KeyPath)
+		for _, a := range h.Artifacts {
+			fmt.Fprintf(w, "  cert: %s\n", a.CertPath)
+			fmt.Fprintf(w, "  key:  %s\n", a.KeyPath)
+		}
 	}
 	fmt.Fprintf(w, "wrote manifest: %s\n", rep.ManifestPath)
 }

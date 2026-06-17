@@ -53,11 +53,17 @@ type Options struct {
 	Warn io.Writer
 }
 
-// SignedHost is a brief record of one host that was signed this run.
-type SignedHost struct {
-	Label    string
+// SignedArtifact is one destination for a signed host's cert/key pair.
+type SignedArtifact struct {
+	Dir      string // populated for output_dirs fan-out; empty for default/explicit
 	CertPath string
 	KeyPath  string
+}
+
+// SignedHost is a brief record of one host that was signed this run.
+type SignedHost struct {
+	Label     string
+	Artifacts []SignedArtifact
 }
 
 // Report summarises what a reconcile did, for the CLI to present. Paths
@@ -305,9 +311,6 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 			return nil, fmt.Errorf("host action references unknown label %q", ha.Label)
 		}
 
-		certPath := cfg.HostCertPath(*h)
-		keyPath := cfg.HostKeyPath(*h)
-
 		if ha.Op == plan.OpNoop {
 			if existing, ok := current.Hosts[h.Label]; ok {
 				next.Hosts[h.Label] = existing
@@ -315,17 +318,32 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 			continue
 		}
 
-		// OpSign: sign the host cert.
+		// OpSign: sign the host cert once, then fan out to all destinations.
 		result, err := pki.SignHost(caCertPEM, caKeyPEM, *h, opts.Now)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := fsutil.WriteFile(cfg.Resolve(certPath), result.CertPEM, certMode); err != nil {
-			return nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
-		}
-		if err := fsutil.WriteFile(cfg.Resolve(keyPath), result.KeyPEM, keyMode); err != nil {
-			return nil, fmt.Errorf("write host key %q: %w", h.Label, err)
+		artifactPaths := cfg.HostArtifactPaths(*h)
+		manifestArtifacts := make([]manifest.Artifact, 0, len(artifactPaths))
+		signedArtifacts := make([]SignedArtifact, 0, len(artifactPaths))
+		for _, a := range artifactPaths {
+			if err := fsutil.WriteFile(cfg.Resolve(a.CertPath), result.CertPEM, certMode); err != nil {
+				return nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
+			}
+			if err := fsutil.WriteFile(cfg.Resolve(a.KeyPath), result.KeyPEM, keyMode); err != nil {
+				return nil, fmt.Errorf("write host key %q: %w", h.Label, err)
+			}
+			manifestArtifacts = append(manifestArtifacts, manifest.Artifact{
+				Dir:      a.Dir,
+				CertPath: a.CertPath,
+				KeyPath:  a.KeyPath,
+			})
+			signedArtifacts = append(signedArtifacts, SignedArtifact{
+				Dir:      a.Dir,
+				CertPath: a.CertPath,
+				KeyPath:  a.KeyPath,
+			})
 		}
 
 		durationStr := ""
@@ -343,12 +361,10 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 			NotBefore:      result.NotBefore.UTC(),
 			NotAfter:       result.NotAfter.UTC(),
 			CAFingerprint:  result.CAFingerprint,
-			Artifacts: []manifest.Artifact{
-				{CertPath: certPath, KeyPath: keyPath},
-			},
+			Artifacts:      manifestArtifacts,
 		}
 
-		signed = append(signed, SignedHost{Label: h.Label, CertPath: certPath, KeyPath: keyPath})
+		signed = append(signed, SignedHost{Label: h.Label, Artifacts: signedArtifacts})
 	}
 	return signed, nil
 }

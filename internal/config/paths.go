@@ -97,3 +97,33 @@ func (c *Config) HostKeyPath(h Host) string {
 	}
 	return filepath.Join(c.Storage.OutDir, hostsSubdir, h.Name+defaultHostKeyExt)
 }
+
+// ArtifactPath is one resolved (cert, key) destination for a host.
+// Dir is populated only for output_dirs fan-out entries; it is empty for
+// the default path and for explicit out_crt/out_key overrides.
+type ArtifactPath struct {
+	Dir      string
+	CertPath string
+	KeyPath  string
+}
+
+// HostArtifactPaths returns all the destinations a host's cert and key
+// should be written to. When output_dirs is set there is one entry per
+// directory; otherwise there is a single entry at the default or explicit
+// path. This is the single source of truth used by both plan and apply.
+func (c *Config) HostArtifactPaths(h Host) []ArtifactPath {
+	if len(h.OutputDirs) > 0 {
+		paths := make([]ArtifactPath, len(h.OutputDirs))
+		for i, dir := range h.OutputDirs {
+			paths[i] = ArtifactPath{
+				Dir:      dir,
+				CertPath: filepath.Join(dir, h.Name+defaultHostCertExt),
+				KeyPath:  filepath.Join(dir, h.Name+defaultHostKeyExt),
+			}
+		}
+		return paths
+	}
+	return []ArtifactPath{
+		{CertPath: c.HostCertPath(h), KeyPath: c.HostKeyPath(h)},
+	}
+}
