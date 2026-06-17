@@ -78,7 +78,7 @@ The cert CN appears in Nebula daemon logs, in firewall match rules, in `nebula-c
 
 ### Future cross-block references
 
-The v1 schema has no cross-block references at all. If future features add them (e.g. a CRL-like list, per-host trust relationships, or a named `output` block referenced from hosts), those references must target a stable identifier — the label — not a mutable display name.
+The only cross-block reference is `host.ca` selecting a signing CA by label ([ADR-015](./015-multiple-cas-per-config.md)) — and it targets a CA's stable label, exactly the kind of stable identifier this split provides for hosts. If future features add more references (a CRL-like list, per-host trust relationships, or a named `output` block referenced from hosts), those must likewise target a stable identifier — the label — not a mutable display name.
 
 ## Considered alternatives
 

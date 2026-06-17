@@ -7,8 +7,11 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 - Wraps `nebula-cert` (slackhq/nebula).
 - HCL fields mirror `nebula-cert ca` and `nebula-cert sign` flags 1:1 with underscores.
 - Adds: declarative config, per-host fan-out to multiple directories, optional at-rest encryption, a JSON manifest.
-- One CA per HCL file (v1 constraint — [ADR-010](./spec/adr/010-single-ca-per-config.md)). Multiple CAs = multiple files in one directory.
-- Does not render `config.yaml`, does not push files, does not implement lighthouse/blocklist/firewall.
+- One or more CAs per HCL file: a single unlabelled `ca {}`, or multiple labelled `ca "<label>" {}` blocks for rotation and multi-CA meshes ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
+- Emits a CA trust bundle for `pki.ca` and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-host-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
+- Does not render `config.yaml`, does not push files (including during rotation), does not implement lighthouse/blocklist/firewall.
+
+> Capability detail for the four areas above (multi-CA, rotation/bundle, `renew_before`, `in_pub`) currently lives in [`spec/`](./spec/readme.md) and the cited ADRs. The full option tables in this file are refreshed at the v0.1.0 cut (see [`spec/milestones/v0.1.md`](./spec/milestones/v0.1.md)); until then, treat `spec/hcl-schema.md` as authoritative where they differ.
 
 ## CLI
 
@@ -20,6 +23,8 @@ nebula-pki -c <path>      # alternate config path (default: ./nebula.hcl)
 ```
 
 Exit codes: `0` on success or clean dry-run; `1` on validation/runtime error; `2` on usage error.
+
+After each reconcile and `--dry-run` (including no-op runs), the tool prints to stderr the earliest actionable deadline — the soonest of a host entering its `renew_before` window or the expiry of any cert without a threshold — plus a "run again before `<date>`" hint. Advisory only; it changes no exit code and triggers no writes. See [`spec/adr/017-host-renewal-threshold.md`](./spec/adr/017-host-renewal-threshold.md).
 
 Deferred:
 
@@ -50,7 +55,7 @@ Default file paths use the **cert name**, not the label. Full rationale in [`spe
 
 ## References between blocks
 
-There are no cross-block references in v1. Hosts name destination directories directly via `host.output_dirs`. The schema avoids `hcl.EvalContext` because nothing is being interpolated. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-011](./spec/adr/011-output-blocks-are-directories.md).
+The only cross-block reference is `host.ca` (with the CA marked `default = true` as the fallback when omitted), a plain string label selecting the signing CA when more than one CA exists ([ADR-015](./spec/adr/015-multiple-cas-per-config.md)). Hosts still name destination directories directly via `host.output_dirs`. The schema avoids `hcl.EvalContext` because nothing is interpolated — references are bare labels, not traversal expressions. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-011](./spec/adr/011-output-blocks-are-directories.md).
 
 ## Using an existing CA (reference mode)
 

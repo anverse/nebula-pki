@@ -2,7 +2,9 @@
 
 ## Status
 
-accepted
+superseded by [ADR-015](./015-multiple-cas-per-config.md)
+
+> This ADR is retained for history. It described the v1 single-CA constraint and, in "Forward compatibility is preserved", sketched the additive multi-CA path that [ADR-015](./015-multiple-cas-per-config.md) later took when CA rotation ([ADR-016](./016-ca-rotation-and-trust-bundles.md)) made multi-CA a first-class need. The unlabelled single-`ca {}` form it describes remains valid and is the common case; what changed is that labelled `ca "<label>" {}` blocks are now also allowed.
 
 ## Context
 
