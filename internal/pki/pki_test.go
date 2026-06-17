@@ -354,6 +354,54 @@ host "h" { networks = ["10.0.0.1/16"] }`)
 	}
 }
 
+func TestSignHost_DurationCappedToCACertExpiry(t *testing.T) {
+	// CA with a short explicit duration; host requests a duration that
+	// exceeds the CA's lifetime. The host cert must be capped to the CA's
+	// notAfter, not truncated to now+hostDuration.
+	ca, hr := mustSignHost(t,
+		`ca {
+  name     = "mesh"
+  duration = "1h"
+}`,
+		`ca { name = "mesh" }
+host "h" {
+  networks = ["10.0.0.1/16"]
+  duration = "100h"
+}`)
+
+	if hr.NotAfter.After(ca.NotAfter) {
+		t.Errorf("host NotAfter %v is after CA NotAfter %v; cert outlives CA",
+			hr.NotAfter, ca.NotAfter)
+	}
+	if !hr.NotAfter.Equal(ca.NotAfter) {
+		t.Errorf("host NotAfter = %v, want %v (CA expiry, not now+100h)",
+			hr.NotAfter, ca.NotAfter)
+	}
+}
+
+func TestSignHost_DurationShorterThanCAIsHonoured(t *testing.T) {
+	// When the host duration fits within the CA's lifetime it must be used
+	// as-is and not capped.
+	ca, hr := mustSignHost(t,
+		`ca {
+  name     = "mesh"
+  duration = "100h"
+}`,
+		`ca { name = "mesh" }
+host "h" {
+  networks = ["10.0.0.1/16"]
+  duration = "1h"
+}`)
+
+	want := fixedTime.Add(time.Hour)
+	if !hr.NotAfter.Equal(want) {
+		t.Errorf("host NotAfter = %v, want %v (now+1h)", hr.NotAfter, want)
+	}
+	if hr.NotAfter.After(ca.NotAfter) {
+		t.Errorf("host NotAfter %v unexpectedly exceeds CA NotAfter %v", hr.NotAfter, ca.NotAfter)
+	}
+}
+
 func TestSignHost_Distinct(t *testing.T) {
 	caCfg := mustParseCA(t, `ca { name = "mesh" }`)
 	ca, err := GenerateCA(caCfg.CA, fixedTime)

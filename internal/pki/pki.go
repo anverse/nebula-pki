@@ -294,9 +294,11 @@ type HostResult struct {
 // side (no filesystem access) and inherits the curve and certificate
 // version from the signing CA so callers do not need to specify them.
 //
-// If h.HasDuration is true, the host cert expires now+h.Duration.
-// Otherwise it co-expires with the CA (mirrors nebula-cert sign's default
-// behaviour when no -duration flag is given).
+// If h.HasDuration is true, the host cert expires at
+// min(now+h.Duration, CA.NotAfter): the host cert is silently capped to
+// the CA's expiry so it never outlives its signing CA. Otherwise it
+// co-expires with the CA (mirrors nebula-cert sign's default behaviour
+// when no -duration flag is given).
 func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostResult, error) {
 	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
 	if err != nil {
@@ -311,9 +313,12 @@ func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostRe
 	curve := caCert.Curve()
 	version := caCert.Version()
 
-	notAfter := caCert.NotAfter()
+	caNotAfter := caCert.NotAfter()
+	notAfter := caNotAfter
 	if h.HasDuration {
-		notAfter = now.Add(h.Duration)
+		if nd := now.Add(h.Duration); nd.Before(caNotAfter) {
+			notAfter = nd
+		}
 	}
 
 	pub, rawPriv, err := generateKeypair(curve)

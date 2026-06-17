@@ -242,6 +242,61 @@ func TestBuild_HostSignWhenFilesAbsent(t *testing.T) {
 	}
 }
 
+func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
+	// Partial pair: cert exists, key deleted. planHost must re-sign rather
+	// than treating this as a noop, because the key is unrecoverable.
+	cfg := parseCfg(t, hostHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["alpha"] = manifest.Host{Name: "alpha"}
+
+	exists := existsSet(
+		cfg.CACertPath(), cfg.CAKeyPath(),
+		cfg.HostCertPath(cfg.Hosts[0]), // cert present
+		// host key absent
+	)
+	p, err := Build(cfg, m, exists)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var alphaAction Action
+	for _, a := range p.HostActions() {
+		if a.Label == "alpha" {
+			alphaAction = a
+		}
+	}
+	if alphaAction.Op != OpSign {
+		t.Errorf("alpha: Op = %q, want sign (key missing → re-sign whole pair)", alphaAction.Op)
+	}
+}
+
+func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
+	// Partial pair: key exists, cert deleted. planHost must re-sign.
+	cfg := parseCfg(t, hostHCL)
+	m := manifest.New()
+	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["alpha"] = manifest.Host{Name: "alpha"}
+
+	exists := existsSet(
+		cfg.CACertPath(), cfg.CAKeyPath(),
+		// host cert absent
+		cfg.HostKeyPath(cfg.Hosts[0]), // key present
+	)
+	p, err := Build(cfg, m, exists)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var alphaAction Action
+	for _, a := range p.HostActions() {
+		if a.Label == "alpha" {
+			alphaAction = a
+		}
+	}
+	if alphaAction.Op != OpSign {
+		t.Errorf("alpha: Op = %q, want sign (cert missing → re-sign whole pair)", alphaAction.Op)
+	}
+}
+
 func TestBuild_MultipleHostsMixedActions(t *testing.T) {
 	cfg := parseCfg(t, hostHCL)
 	m := manifest.New()
