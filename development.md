@@ -39,6 +39,46 @@ Run the binary directly:
 ./bin/nebula-pki -c examples/homelab/nebula.hcl check
 ```
 
+## Running latest code without installation
+
+If you want to test your changes against example configs without installing or leaving build artifacts in your workspace:
+
+### Option 1: `nix run` (recommended)
+
+```sh
+# Run from your local working directory against an example
+nix run . -- -c examples/homelab/nebula.hcl --dry-run
+
+# Check syntax only
+nix run . -- -c examples/homelab/nebula.hcl check
+
+# Full reconcile (writes to out/)
+nix run . -- -c examples/homelab/nebula.hcl
+```
+
+The `.` tells Nix to build from your current code. The binary goes into `/nix/store`; nothing pollutes your workspace. Rebuilds automatically when you change Go sources.
+
+### Option 2: Build once, reuse the binary
+
+```sh
+# Build via Nix (creates ./result symlink)
+nix build
+./result/bin/nebula-pki -c examples/homelab/nebula.hcl --dry-run
+
+# Or copy to a temporary location
+cp result/bin/nebula-pki /tmp/nebula-pki-test
+/tmp/nebula-pki-test -c examples/homelab/nebula.hcl
+```
+
+### Option 3: Traditional Go build
+
+```sh
+go build -o /tmp/nebula-pki ./cmd/nebula-pki
+/tmp/nebula-pki -c examples/homelab/nebula.hcl --dry-run
+```
+
+Pick `nix run .` if you're iterating on code and want the latest build every time with zero manual steps.
+
 ## Two build paths (intentional)
 
 The repo carries **two** sets of build instructions:
