@@ -56,13 +56,6 @@
               go-task
               goreleaser
             ];
-
-            shellHook = ''
-              echo "tools"
-              echo "  go         $(go version)"
-              echo "  task       $(task --version)"
-              echo "  goreleaser $(goreleaser --version 2>&1 | awk -F'[: ]+' '/^GitVersion:/{print $2; exit}')"
-            '';
           };
         }
       );
