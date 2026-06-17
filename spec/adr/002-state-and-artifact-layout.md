@@ -104,10 +104,8 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "fingerprint": "9d4be7...",
       "networks":    ["10.42.0.1/16"],
       "groups":      ["lighthouse"],
-      "unsafe_networks": [],
       "duration":    "26280h",
       "renew_before": "720h",
-      "in_pub":      false,
       "not_before":  "2026-05-17T12:43:00Z",
       "not_after":   "2029-05-16T12:42:59Z",
       "ca_fingerprint": "f2a1c9...",
@@ -121,9 +119,6 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "ca":          "current",
       "fingerprint": "71c0a4...",
       "networks":    ["10.42.5.20/16"],
-      "groups":      ["mobile"],
-      "unsafe_networks": [],
-      "duration":    null,
       "in_pub":      true,
       "not_before":  "2026-05-17T12:43:00Z",
       "not_after":   "2027-05-17T12:42:59Z",
@@ -151,9 +146,10 @@ For a single unlabelled CA, the manifest retains the legacy top-level `ca` objec
 - `*.fingerprint` (on `ca`, `cas.*`, and `hosts.*`) — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every host), not of the public key and not of any private material — so it is always safe to commit.
 - `hosts.*.name` — the cert Common Name. Equal to the host's HCL label unless `host.name` overrides it (see [ADR-009](./009-host-identifier-vs-cert-name.md)).
 - `hosts.*.ca` — the label of the CA that signed this host (the signing CA resolved from `host.ca`, or the CA marked `default = true`). Present with labelled CAs; omitted in the single-CA legacy shape. `hosts.*.ca_fingerprint` pins the exact CA cert regardless.
-- `hosts.*.duration` — the literal value from HCL (e.g. `"8760h"`), or `null` when unset. Used for idempotency; `not_after` is the resolved timestamp from the most recent sign.
-- `hosts.*.renew_before` — the resolved renewal threshold literal (from `host.renew_before` or the signing CA's `renew_before`), or omitted when neither is set. Recorded so the staleness verdict is reproducible. See [ADR-017](./017-host-renewal-threshold.md).
-- `hosts.*.in_pub` — `true` when the host was signed from an externally-supplied public key ([ADR-018](./018-in-pub-air-gapped-signing.md)). Such a host has **no** `key_path` in any `artifacts` entry (cert only) and never carries an encryption suffix.
+- `hosts.*.duration` — the literal value from HCL (e.g. `"8760h"`). **Omitted** when unset (the host co-expires with its CA). Used for idempotency; `not_after` is the resolved timestamp from the most recent sign.
+- `hosts.*.renew_before` — the resolved renewal threshold literal (from `host.renew_before` or the signing CA's `renew_before`). **Omitted** when neither is set. Recorded so the staleness verdict is reproducible. See [ADR-017](./017-host-renewal-threshold.md).
+- `hosts.*.in_pub` — `true` when the host was signed from an externally-supplied public key ([ADR-018](./018-in-pub-air-gapped-signing.md)). **Omitted** when false.
+- Optional fields in general — all optional host and CA record fields are omitted from the JSON when empty (nil slice, empty string, false bool). Required fields are always present. See [ADR-019](./019-manifest-compactness.md) for the full policy. Such a host has **no** `key_path` in any `artifacts` entry (cert only) and never carries an encryption suffix.
 - `hosts.*.artifacts` — at least one entry. Each entry has `cert_path` and, for key-bearing hosts, `key_path`; `in_pub` hosts omit `key_path`. When the entry came from `host.output_dirs`, the entry's `dir` field is the corresponding directory. When the entry came from the default placement, `dir` is `<storage.out_dir>/hosts`. When the entry came from `host.out_crt` / `host.out_key`, the `dir` field is omitted because the operator chose the paths verbatim.
 - `encryption` — the resolved sops configuration for the run. Whichever key-type fields were set in HCL (`age`, `pgp`, `kms`, etc.) appear here verbatim; absent fields are omitted. When the run deferred to `.sops.yaml`, this block records only `backend` and `output_suffix` — recipients live in `.sops.yaml`. All values are public and safe to commit.
 

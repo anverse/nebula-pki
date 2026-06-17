@@ -65,8 +65,8 @@ type Host struct {
 	Name           string     `json:"name"`
 	Fingerprint    string     `json:"fingerprint"`
 	Networks       []string   `json:"networks"`
-	Groups         []string   `json:"groups"`
-	UnsafeNetworks []string   `json:"unsafe_networks"`
+	Groups         []string   `json:"groups,omitempty"`
+	UnsafeNetworks []string   `json:"unsafe_networks,omitempty"`
 	Duration       string     `json:"duration,omitempty"`
 	NotBefore      time.Time  `json:"not_before"`
 	NotAfter       time.Time  `json:"not_after"`
@@ -75,10 +75,12 @@ type Host struct {
 }
 
 // Artifact is one resolved destination for a host's cert/key pair.
+// KeyPath is omitted for in_pub hosts (air-gapped signing: cert only, no
+// key is ever written by the tool).
 type Artifact struct {
 	Dir      string `json:"dir,omitempty"`
 	CertPath string `json:"cert_path"`
-	KeyPath  string `json:"key_path"`
+	KeyPath  string `json:"key_path,omitempty"`
 }
 
 // New returns an empty manifest with the current schema version and an

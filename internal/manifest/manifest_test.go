@@ -232,22 +232,96 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestArtifactDirOmitEmpty pins the `omitempty` tag on Artifact.Dir.
-// Single-destination hosts (the common case: no host.output_dirs set)
-// produce one artifact with an empty Dir; emitting `"dir": ""` would
-// be noise. Cert/key paths are always present and must NOT be omitted
-// even when empty (so a malformed input is visible).
-func TestArtifactDirOmitEmpty(t *testing.T) {
-	a := Artifact{CertPath: "x.crt", KeyPath: "x.key"}
-	data, err := json.Marshal(a)
+// TestHostOptionalFieldsOmitEmpty pins the omitempty behaviour for
+// optional host fields (Groups, UnsafeNetworks). A host with no groups and
+// no unsafe_networks must produce JSON without those keys — emitting null
+// for every host would be noise in every manifest diff.
+// Required fields (Networks, Artifacts, CAFingerprint …) must remain present.
+func TestHostOptionalFieldsOmitEmpty(t *testing.T) {
+	t0 := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	m := New()
+	m.Hosts["bare"] = Host{
+		Name:        "bare",
+		Fingerprint: "fp",
+		Networks:    []string{"10.0.0.1/16"},
+		// Groups and UnsafeNetworks deliberately omitted
+		NotBefore:     t0,
+		NotAfter:      t0.Add(8760 * time.Hour),
+		CAFingerprint: "ca-fp",
+		Artifacts:     []Artifact{{CertPath: "out/hosts/bare.crt", KeyPath: "out/hosts/bare.key"}},
+	}
+
+	data, err := Marshal(m)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
+	s := string(data)
+
+	if strings.Contains(s, `"groups"`) {
+		t.Errorf("JSON must not contain groups key when empty:\n%s", s)
+	}
+	if strings.Contains(s, `"unsafe_networks"`) {
+		t.Errorf("JSON must not contain unsafe_networks key when empty:\n%s", s)
+	}
+	// Required fields must always be present.
+	if !strings.Contains(s, `"networks"`) {
+		t.Errorf("JSON must contain networks key:\n%s", s)
+	}
+	if !strings.Contains(s, `"artifacts"`) {
+		t.Errorf("JSON must contain artifacts key:\n%s", s)
+	}
+	if !strings.Contains(s, `"ca_fingerprint"`) {
+		t.Errorf("JSON must contain ca_fingerprint key:\n%s", s)
+	}
+}
+
+// TestArtifactDirOmitEmpty pins the omitempty behaviour for Artifact fields.
+//
+//   - Dir is omitted when empty (single-destination hosts have no dir).
+//   - KeyPath is omitted when empty (in_pub hosts: cert only, no key written).
+//   - CertPath is always present (required for all artifact types).
+//   - KeyPath is present for normal (non-in_pub) hosts.
+func TestArtifactDirOmitEmpty(t *testing.T) {
+	// Normal artifact: all three fields.
+	normal := Artifact{Dir: "out/hosts", CertPath: "x.crt", KeyPath: "x.key"}
+	data, err := json.Marshal(normal)
+	if err != nil {
+		t.Fatalf("Marshal normal: %v", err)
+	}
+	if !strings.Contains(string(data), `"dir"`) {
+		t.Errorf("normal artifact must contain dir: %s", data)
+	}
+	if !strings.Contains(string(data), `"key_path":"x.key"`) {
+		t.Errorf("normal artifact must contain key_path: %s", data)
+	}
+
+	// No-dir artifact (default path, no output_dirs): dir omitted.
+	noDir := Artifact{CertPath: "x.crt", KeyPath: "x.key"}
+	data, err = json.Marshal(noDir)
+	if err != nil {
+		t.Fatalf("Marshal no-dir: %v", err)
+	}
 	if strings.Contains(string(data), `"dir"`) {
-		t.Errorf("artifact JSON = %s, must not contain dir key when empty", data)
+		t.Errorf("no-dir artifact must not contain dir: %s", data)
 	}
 	if !strings.Contains(string(data), `"cert_path":"x.crt"`) {
-		t.Errorf("artifact JSON = %s, must contain cert_path", data)
+		t.Errorf("no-dir artifact must contain cert_path: %s", data)
+	}
+	if !strings.Contains(string(data), `"key_path":"x.key"`) {
+		t.Errorf("no-dir artifact must contain key_path: %s", data)
+	}
+
+	// in_pub artifact: key_path omitted (cert only, no key written).
+	inPub := Artifact{Dir: "out/hosts", CertPath: "x.crt"}
+	data, err = json.Marshal(inPub)
+	if err != nil {
+		t.Fatalf("Marshal in_pub: %v", err)
+	}
+	if strings.Contains(string(data), `"key_path"`) {
+		t.Errorf("in_pub artifact must not contain key_path: %s", data)
+	}
+	if !strings.Contains(string(data), `"cert_path":"x.crt"`) {
+		t.Errorf("in_pub artifact must contain cert_path: %s", data)
 	}
 }
 

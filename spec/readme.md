@@ -68,6 +68,7 @@ The tool:
 - [`adr/016-ca-rotation-and-trust-bundles.md`](./adr/016-ca-rotation-and-trust-bundles.md) — declarative CA rotation, the emitted trust bundle, signing-CA vs. trusted-set.
 - [`adr/017-host-renewal-threshold.md`](./adr/017-host-renewal-threshold.md) — `renew_before`; time-based re-signing before expiry.
 - [`adr/018-in-pub-air-gapped-signing.md`](./adr/018-in-pub-air-gapped-signing.md) — signing a device-supplied public key, config-only, no `keygen` subcommand.
+- [`adr/019-manifest-compactness.md`](./adr/019-manifest-compactness.md) — omit optional fields when empty; policy for which manifest fields carry `omitempty`.
 
 ## Operating model
 
