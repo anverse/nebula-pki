@@ -13,6 +13,10 @@ stderr 'overlay address 10\.0\.0\.1 already used'
 ! exec nebula-pki check -c mut-excl.hcl
 stderr 'mutually exclusive'
 
+# out_key + output_dirs is also mutually exclusive.
+! exec nebula-pki check -c mut-excl-key.hcl
+stderr 'mutually exclusive'
+
 # Duplicate output_dirs entries.
 ! exec nebula-pki check -c dup-output-dirs.hcl
 stderr 'more than once'
@@ -44,6 +48,14 @@ ca { name = "m" }
 host "a" {
   networks    = ["10.0.0.1/16"]
   out_crt     = "x.crt"
+  output_dirs = ["dir1"]
+}
+
+-- mut-excl-key.hcl --
+ca { name = "m" }
+host "a" {
+  networks    = ["10.0.0.1/16"]
+  out_key     = "x.key"
   output_dirs = ["dir1"]
 }
 

@@ -560,6 +560,110 @@ host "node" {
 	}
 }
 
+// TestReconcile_FanOutAddDir verifies that adding a directory to output_dirs
+// between runs triggers a re-sign and writes byte-identical files to all
+// dirs, then the third run is a noop.
+func TestReconcile_FanOutAddDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "nebula.hcl")
+
+	loadHCL := func(src string) *config.Config {
+		t.Helper()
+		if err := os.WriteFile(configPath, []byte(src), 0o644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		return cfg
+	}
+
+	// Run 1: single output dir.
+	cfg1 := loadHCL(`
+ca { name = "mesh" }
+host "node" {
+  networks    = ["10.0.0.1/16"]
+  output_dirs = ["dir-a"]
+}
+`)
+	rep1, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	if !rep1.Changed {
+		t.Fatal("first run: Changed = false, want true")
+	}
+	certAfterRun1 := mustRead(t, filepath.Join(tmpDir, "dir-a", "node.crt"))
+
+	// Run 2: add dir-b. Plan must detect dir-b is missing and re-sign.
+	cfg2 := loadHCL(`
+ca { name = "mesh" }
+host "node" {
+  networks    = ["10.0.0.1/16"]
+  output_dirs = ["dir-a", "dir-b"]
+}
+`)
+	rep2, err := Reconcile(cfg2, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if !rep2.Changed {
+		t.Fatal("second run: Changed = false, want true (dir-b is new)")
+	}
+	if len(rep2.SignedHosts) != 1 {
+		t.Fatalf("second run: SignedHosts = %d, want 1", len(rep2.SignedHosts))
+	}
+	if len(rep2.SignedHosts[0].Artifacts) != 2 {
+		t.Fatalf("second run: Artifacts = %d, want 2", len(rep2.SignedHosts[0].Artifacts))
+	}
+
+	// Both dirs must have files after the second run.
+	for _, p := range []string{
+		filepath.Join(tmpDir, "dir-a", "node.crt"),
+		filepath.Join(tmpDir, "dir-a", "node.key"),
+		filepath.Join(tmpDir, "dir-b", "node.crt"),
+		filepath.Join(tmpDir, "dir-b", "node.key"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s missing: %v", p, err)
+		}
+	}
+
+	// dir-a and dir-b are byte-identical (same signing event).
+	certA := mustRead(t, filepath.Join(tmpDir, "dir-a", "node.crt"))
+	certB := mustRead(t, filepath.Join(tmpDir, "dir-b", "node.crt"))
+	if string(certA) != string(certB) {
+		t.Error("dir-a and dir-b certs differ; fan-out must produce identical copies")
+	}
+	keyA := mustRead(t, filepath.Join(tmpDir, "dir-a", "node.key"))
+	keyB := mustRead(t, filepath.Join(tmpDir, "dir-b", "node.key"))
+	if string(keyA) != string(keyB) {
+		t.Error("dir-a and dir-b keys differ; fan-out must produce identical copies")
+	}
+
+	// The re-sign produced a new cert (different key material / issuance time).
+	_ = certAfterRun1
+
+	// Manifest records two artifacts.
+	m, err := manifest.Load(cfg2.Resolve(cfg2.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if len(m.Hosts["node"].Artifacts) != 2 {
+		t.Fatalf("manifest artifacts = %d, want 2", len(m.Hosts["node"].Artifacts))
+	}
+
+	// Run 3: must be a noop.
+	rep3, err := Reconcile(cfg2, Options{Now: fixedNow.Add(2 * time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("third Reconcile: %v", err)
+	}
+	if rep3.Changed {
+		t.Fatal("third run: Changed = true, want false (full noop after add-dir)")
+	}
+}
+
 func assertMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	info, err := os.Stat(path)

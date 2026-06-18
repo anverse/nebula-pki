@@ -312,6 +312,32 @@ func TestWriteReconcileSummary(t *testing.T) {
 			wantNot: []string{"up to date", "not yet reconciled"},
 		},
 		{
+			// Fan-out: each host emits one cert/key line per output_dirs entry.
+			name: "changed_fan_out",
+			rep: apply.Report{
+				Changed:      true,
+				ManifestPath: "out/nebula-pki.json",
+				CACertPath:   "out/ca/ca.crt",
+				CAKeyPath:    "out/ca/ca.key",
+				CAName:       "mesh",
+				SignedHosts: []apply.SignedHost{
+					{Label: "node", Artifacts: []apply.SignedArtifact{
+						{CertPath: "dir-a/node.crt", KeyPath: "dir-a/node.key"},
+						{CertPath: "dir-b/node.crt", KeyPath: "dir-b/node.key"},
+					}},
+				},
+			},
+			wantContain: []string{
+				`signed host "node"`,
+				"cert: dir-a/node.crt",
+				"key:  dir-a/node.key",
+				"cert: dir-b/node.crt",
+				"key:  dir-b/node.key",
+				"wrote manifest: out/nebula-pki.json",
+			},
+			wantNot: []string{"up to date"},
+		},
+		{
 			// Reference mode reads the operator's CA in place; the summary
 			// must say "using referenced CA", not "generated CA".
 			name: "changed_reference_mode",
