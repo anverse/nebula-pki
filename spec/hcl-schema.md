@@ -14,7 +14,7 @@ The CLI is a thin declarative wrapper around `nebula-cert ca` and `nebula-cert s
 |---|---|---|
 | `ca` | 1..N | Certificate authority — either generated or referenced from existing files. A single unlabelled `ca {}` is the common case; multiple `ca "<label>" {}` blocks enable CA rotation and multi-CA meshes. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
 | `storage` | 0..1 | Default output directory, trust-bundle path, and encryption backend. |
-| `host` | 0..N | A host certificate to sign. Maps 1:1 to `nebula-cert sign`. Selects a signing CA via `host.ca` when more than one CA exists. Fan-out to multiple destination directories is configured per host via `output_dirs`. |
+| `host` | 0..N | A host certificate to sign. Maps 1:1 to `nebula-cert sign`. Selects a signing CA via `host.ca` when more than one CA exists. Each host's cert and key are written to a per-host `output_dir` (defaults to `<storage.out_dir>/hosts`). |
 
 There is **no** `network`, `group`, `blocklist_entry`, or `is_lighthouse` block. Networks are declared per-host (Nebula `-networks` is per-cert), groups are free-form non-empty UTF-8 strings on each host (commas and surrounding whitespace forbidden — see validation rules), and lighthouse behaviour is decided in the runtime `config.yaml` that downstream projects render.
 
@@ -135,23 +135,34 @@ Set the optional `name` field when the certificate CN needs characters HCL label
 | `unsafe_networks` | list(CIDR) | no | `-unsafe-networks` | Subnets this host may route for. |
 | `duration` | duration | no | `-duration` | Cert validity. Defaults to 1 second before CA expiry, matching `nebula-cert`. |
 | `renew_before` | duration | no | — | Re-sign this host when within this window of `not_after`. Falls back to the signing CA's `renew_before`, then to no time-based renewal. Must be less than the effective validity. See [ADR-017](./adr/017-host-renewal-threshold.md). |
-| `out_crt` | string | no | `-out-crt` | Override cert output path. |
-| `out_key` | string | no | `-out-key` | Override key output path. Forbidden together with `in_pub` (no key is written). |
-| `out_qr` | string | no | `-out-qr` | Path for the optional QR PNG. When `output_dirs` is set, the QR is fanned out symmetrically with the cert/key: a `<dir>/<host.name>.png` is written to each entry, and the `out_qr` value is treated as a flag (any non-empty string enables QR generation; the path itself is ignored in fan-out mode). When `out_crt`/`out_key` are used instead, `out_qr` is taken verbatim. QR contents are public; encryption is never applied. |
+| `output_dir` | string | no | — | Destination directory for this host's cert and key. Relative paths resolve against the config file's directory; absolute paths are honoured. When omitted, defaults to `<storage.out_dir>/hosts`. See [ADR-020](./adr/020-output-dir-per-host.md). |
+| `out_crt` | string | no | `-out-crt` | Cert path component. Joined onto `output_dir` when that is set; otherwise resolved relative to the config file. May be a bare filename (`nebula.crt`) or a relative sub-path (`certs/nebula.crt`). Defaults to `<host.name>.crt` within the base directory. |
+| `out_key` | string | no | `-out-key` | Key path component. Same joining semantics as `out_crt`. Forbidden together with `in_pub` (no key is written). Defaults to `<host.name>.key` within the base directory. |
+| `out_qr` | string | no | `-out-qr` | Path for the optional QR PNG, joined onto `output_dir` when set. QR contents are public; encryption is never applied. |
 | `in_pub` | string | no | `-in-pub` | Path to a PEM **public key** exported by the device. When set, the CLI signs that public key and writes **only** the cert — no private key is generated or written, and no encryption applies. The key's curve must match the signing CA. Enables the "private key never leaves the device" pattern (mobile, HSM, separation of duties). Mutually exclusive with `out_key`. Mirrors `nebula-cert sign -in-pub`. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md). |
-| `output_dirs` | list(string) | no | — | Destination directories. The cert/key is written to each as `<dir>/<host.name>.crt` and `<dir>/<host.name>.key` (cert only when `in_pub` is set). Filenames are always derived from the cert `name` — entries are directories, not full paths. Mutually exclusive with `out_crt`/`out_key`. See [ADR-011](./adr/011-output-blocks-are-directories.md). |
 
-#### Path resolution order
+#### Path resolution
 
-For each host, output paths are resolved as follows:
+For each host, the base directory and file paths are resolved as follows:
 
-1. If `out_crt` / `out_key` are set, they are used verbatim (relative to config file). This is the per-host escape hatch and controls both directory and filename. `out_qr`, when set, is also used verbatim.
-2. Else if `output_dirs` is set, paths are computed per entry: `<dir>/<host.name>.crt` and `<dir>/<host.name>.key`. When `out_qr` is also set (any non-empty value), a `<dir>/<host.name>.png` is written alongside.
-3. Else paths default to `<storage.out_dir>/hosts/<host.name>.crt` and `<storage.out_dir>/hosts/<host.name>.key`. When `out_qr` is set, a sibling `<host.name>.png` is written in the same directory.
+```
+base      = output_dir              if set
+            else <storage.out_dir>/hosts
+
+cert_path = Join(base, out_crt)     if out_crt set
+            else Join(base, <host.name>.crt)
+
+key_path  = Join(base, out_key)     if out_key set
+            else Join(base, <host.name>.key)
+
+qr_path   = Join(base, out_qr)     if out_qr set  (cert only; no encryption)
+```
+
+`filepath.Join` concatenates and cleans. A bare filename in `out_crt` / `out_key` stays in `base`; a relative sub-path (`certs/node.crt`) nests inside it. When an absolute final path is needed, make `output_dir` absolute and use bare filenames in `out_crt` / `out_key` — combining an absolute `out_crt` with a set `output_dir` produces a joined result, not an override.
 
 Encryption suffix is appended only to the **key** file (`.key` → `.key<suffix>`), and only when the active encryption backend is not `none`. Cert (`.crt`) and QR (`.png`) files are never encrypted and never suffixed.
 
-When `in_pub` is set, no `.key` is written at any of the resolved locations — only the `.crt` (and `.png`, if `out_qr`). The encryption suffix logic does not apply to such hosts because there is no private key. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
+When `in_pub` is set, no `.key` is written — only the `.crt` (and `.png`, if `out_qr`). The encryption suffix logic does not apply. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
 
 ## Complete example
 
@@ -171,22 +182,22 @@ storage {
 }
 
 host "lh_fra" {
-  name        = "lh-fra"
-  networks    = ["10.42.0.1/16"]
-  groups      = ["lighthouse"]
-  output_dirs = ["out/hetzner", "out/shared"]
+  name       = "lh-fra"
+  networks   = ["10.42.0.1/16"]
+  groups     = ["lighthouse"]
+  output_dir = "out/hetzner"
 }
 
 host "app_01" {
-  networks    = ["10.42.1.10/16"]
-  groups      = ["app"]
-  output_dirs = ["out/hetzner"]
+  networks   = ["10.42.1.10/16"]
+  groups     = ["app"]
+  output_dir = "out/hetzner"
 }
 
 host "app_02" {
-  networks    = ["10.42.1.11/16"]
-  groups      = ["app"]
-  output_dirs = ["out/aws"]
+  networks   = ["10.42.1.11/16"]
+  groups     = ["app"]
+  output_dir = "out/aws"
 }
 
 host "router_edge" {
@@ -303,7 +314,7 @@ host "alice_phone" {
 
 A single HCL file may declare multiple CAs (see [ADR-015](./adr/015-multiple-cas-per-config.md)) — this is the right shape for **rotation**, where old and new CA are the same mesh in transition. For **isolated environments** (`dev`, `staging`, `prod`), prefer one HCL file per environment sharing the working directory: separate manifests, separate output directories, and separate review/approval flows align with how operators want environments kept apart.
 
-Each config must own a distinct manifest, and the per-host `output_dirs` entries must point at non-overlapping directories.
+Each config must own a distinct manifest, and the resolved artifact paths must not overlap between configs.
 
 `dev.hcl`:
 
@@ -357,9 +368,6 @@ out/
   aws/
     app_02.crt
     app_02.key.enc
-  shared/
-    lh-fra.crt
-    lh-fra.key.enc
   hosts/
     router-edge.crt
     router-edge.key.enc
@@ -389,10 +397,8 @@ Hosts:
 - Two `host` blocks share an overlay address (the `Addr()` of the first prefix in `networks`, regardless of prefix length). `nebula-cert` cannot detect cross-host conflicts; catching them at config time avoids deploying a broken mesh.
 - A `host.networks` entry is not a valid CIDR.
 - A `host.duration` exceeds its signing CA's `not_after`.
-- A `host` sets both `out_crt`/`out_key` and `output_dirs`.
 - A `host` sets both `in_pub` and `out_key` (no key is written when signing a supplied public key).
 - A `host.in_pub` file's public-key curve does not match its signing CA's curve (checked at reconcile/`check`, not parse time — the file must be read).
-- A `host.output_dirs` lists the same directory twice (entries deduplicated by normalised path).
 - `host.groups` references a group not permitted by its signing CA's `groups` (when that CA's `groups` is non-empty).
 - `host.networks` contains a prefix not contained by any of its signing CA's `networks` prefixes (when that CA's `networks` is non-empty).
 - `host.unsafe_networks` contains a prefix not contained by any of its signing CA's `unsafe_networks` prefixes (when that CA's `unsafe_networks` is non-empty).
@@ -410,9 +416,9 @@ Groups and storage:
 
 The schema has exactly one kind of cross-block reference: a host names its signing CA by **label** via `host.ca` (with the CA marked `default = true` as the fallback when `host.ca` is omitted), introduced in [ADR-015](./adr/015-multiple-cas-per-config.md). This is a plain string label, not a traversal expression — the schema does not use `hcl.EvalContext`; see [ADR-005](./adr/005-hcl-schema-decision.md).
 
-Hosts still name their destination directories directly via `output_dirs` rather than referencing a named `output` block. See [ADR-011](./adr/011-output-blocks-are-directories.md) for the rationale and the conditions under which a named `output` block could be added back additively.
+Hosts name their destination directory via `output_dir`. See [ADR-020](./adr/020-output-dir-per-host.md) for the rationale, path-resolution rules, and the conditions under which multi-directory fan-out would be reintroduced.
 
-If a future field needs to reference another block (per-output encryption recipients, for example), it will be added by reintroducing a named block alongside the inline form, following the same label-reference pattern as `host.ca`.
+If a future field needs to reference another block (per-output encryption recipients, for example), it will be added by reintroducing a named `output` block alongside the inline form, following the same label-reference pattern as `host.ca`.
 
 ## Labels vs. names (worked example)
 

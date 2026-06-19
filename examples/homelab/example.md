@@ -5,8 +5,8 @@ environment, each with its own CA, a handful of cluster nodes, a couple
 of admin laptops, and an optional phone or two.
 
 This is the smallest realistic shape for `nebula-pki`. If your needs are
-larger or more structured (multiple sites, role-based subnets, fan-out to
-different deploy targets), see [`../business/`](../business/example.md).
+larger or more structured (multiple sites, role-based subnets, per-site
+`output_dir`), see [`../business/`](../business/example.md).
 
 ## Files
 
@@ -41,10 +41,10 @@ to prod and vice versa, even though the overlay /16 is shared.
 ## What the configs demonstrate
 
 - Two CAs in one working directory, one per file.
-- A single fan-out directory per environment (`out/<env>/cluster/`) that
+- A single `output_dir` per environment (`out/<env>/cluster/`) that
   a downstream consumer (Terraform, Ansible, ...) can read with no
-  extra glue. Hosts opt into it via `output_dirs = ["out/<env>/cluster"]`.
-- Default placement for admin laptops (no `output_dirs`) ends up in
+  extra glue. Hosts opt into it via `output_dir = "out/<env>/cluster"`.
+- Default placement for admin laptops (no `output_dir`) ends up in
   `out/<env>/hosts/`.
 - `lighthouse` group on every control-plane cert. Which node actually
   runs as a lighthouse is a **runtime** decision in `config.yaml`, not

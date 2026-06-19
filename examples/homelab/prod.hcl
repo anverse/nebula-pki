@@ -37,38 +37,38 @@ storage {
 host "node_1" {
   networks    = ["172.16.110.1/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/prod/cluster"]
+  output_dir  = "out/prod/cluster"
 }
 
 host "node_2" {
   networks    = ["172.16.110.2/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/prod/cluster"]
+  output_dir  = "out/prod/cluster"
 }
 
 host "node_3" {
   networks    = ["172.16.110.3/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/prod/cluster"]
+  output_dir  = "out/prod/cluster"
 }
 
 host "node_4" {
   networks    = ["172.16.110.4/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/prod/cluster"]
+  output_dir  = "out/prod/cluster"
 }
 
 host "node_5" {
   networks    = ["172.16.110.5/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/prod/cluster"]
+  output_dir  = "out/prod/cluster"
 }
 
 # Worker nodes (optional). Uncomment as the cluster grows.
 # host "worker_1" {
 #   networks    = ["172.16.120.1/16"]
 #   groups      = ["cluster", "worker"]
-#   output_dirs = ["out/prod/cluster"]
+#   output_dir = "out/prod/cluster"
 # }
 
 # Admin laptops.

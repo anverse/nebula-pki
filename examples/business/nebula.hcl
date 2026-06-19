@@ -1,7 +1,7 @@
 # Business example — multi-site corporate mesh on 10.0.0.0/8.
 #
-# One CA, three sites, fan-out per site to the relevant deploy target
-# (each site's Terraform / Ansible repo reads from its own directory).
+# One CA, three sites, each with its own output_dir so the relevant
+# deploy target (Terraform / Ansible) reads from its own directory.
 #
 # This example is meant to show "yes, this scales beyond a homelab" —
 # but the tool is still aimed at the dozens-of-hosts range, not
@@ -59,7 +59,7 @@ storage {
 # -----------------------------------------------------------------------------
 # Output directories — one per site.
 #
-# Hosts opt into a destination via `output_dirs`. The per-site deploy
+# Each host names its destination via `output_dir`. The per-site deploy
 # pipeline (Terraform module, Ansible inventory, ...) reads from these
 # directories. Filenames are always <host.name>.crt and
 # <host.name>.key.enc, derived from the host label.
@@ -78,16 +78,16 @@ storage {
 host "lh_hq_1" {
   networks    = ["10.10.0.1/16"]
   groups      = ["lighthouse", "hq"]
-  output_dirs = ["out/sites/hq"]
+  output_dir  = "out/sites/hq"
 }
 
 host "lh_hq_2" {
   networks    = ["10.10.0.2/16"]
   groups      = ["lighthouse", "hq"]
-  output_dirs = ["out/sites/hq"]
+  output_dir  = "out/sites/hq"
 }
 
-# Admin workstations (operators). Default placement — no `output_dirs`,
+# Admin workstations (operators). Default placement — no `output_dir`,
 # since admin keys don't ship with the site deploy.
 host "admin_1" {
   networks = ["10.10.0.10/16"]
@@ -103,32 +103,32 @@ host "admin_2" {
 host "app_hq_1" {
   networks    = ["10.10.1.1/16"]
   groups      = ["app", "hq"]
-  output_dirs = ["out/sites/hq"]
+  output_dir  = "out/sites/hq"
 }
 
 host "app_hq_2" {
   networks    = ["10.10.1.2/16"]
   groups      = ["app", "hq"]
-  output_dirs = ["out/sites/hq"]
+  output_dir  = "out/sites/hq"
 }
 
 host "app_hq_3" {
   networks    = ["10.10.1.3/16"]
   groups      = ["app", "hq"]
-  output_dirs = ["out/sites/hq"]
+  output_dir  = "out/sites/hq"
 }
 
 # Database (primary + replica).
 host "db_hq_primary" {
   networks    = ["10.10.2.1/16"]
   groups      = ["db", "hq"]
-  output_dirs = ["out/sites/hq"]
+  output_dir  = "out/sites/hq"
 }
 
 host "db_hq_replica" {
   networks    = ["10.10.2.2/16"]
   groups      = ["db", "hq"]
-  output_dirs = ["out/sites/hq"]
+  output_dir  = "out/sites/hq"
 }
 
 # Edge router. Bridges the overlay onto the HQ office LAN so admins on
@@ -140,7 +140,7 @@ host "router_hq" {
   networks        = ["10.10.9.1/16"]
   unsafe_networks = ["192.168.10.0/24"]
   groups          = ["router", "hq"]
-  output_dirs     = ["out/sites/hq"]
+  output_dir      = "out/sites/hq"
 }
 
 # =============================================================================
@@ -150,37 +150,37 @@ host "router_hq" {
 host "lh_euw_1" {
   networks    = ["10.20.0.1/16"]
   groups      = ["lighthouse", "eu_west"]
-  output_dirs = ["out/sites/eu-west"]
+  output_dir = "out/sites/eu-west"
 }
 
 host "app_euw_1" {
   networks    = ["10.20.1.1/16"]
   groups      = ["app", "eu_west"]
-  output_dirs = ["out/sites/eu-west"]
+  output_dir = "out/sites/eu-west"
 }
 
 host "app_euw_2" {
   networks    = ["10.20.1.2/16"]
   groups      = ["app", "eu_west"]
-  output_dirs = ["out/sites/eu-west"]
+  output_dir = "out/sites/eu-west"
 }
 
 host "app_euw_3" {
   networks    = ["10.20.1.3/16"]
   groups      = ["app", "eu_west"]
-  output_dirs = ["out/sites/eu-west"]
+  output_dir = "out/sites/eu-west"
 }
 
 host "ci_euw_1" {
   networks    = ["10.20.2.1/16"]
   groups      = ["ci", "eu_west"]
-  output_dirs = ["out/sites/eu-west"]
+  output_dir = "out/sites/eu-west"
 }
 
 host "ci_euw_2" {
   networks    = ["10.20.2.2/16"]
   groups      = ["ci", "eu_west"]
-  output_dirs = ["out/sites/eu-west"]
+  output_dir = "out/sites/eu-west"
 }
 
 # =============================================================================
@@ -190,17 +190,17 @@ host "ci_euw_2" {
 host "lh_use_1" {
   networks    = ["10.30.0.1/16"]
   groups      = ["lighthouse", "us_east"]
-  output_dirs = ["out/sites/us-east"]
+  output_dir = "out/sites/us-east"
 }
 
 host "app_use_1" {
   networks    = ["10.30.1.1/16"]
   groups      = ["app", "us_east"]
-  output_dirs = ["out/sites/us-east"]
+  output_dir = "out/sites/us-east"
 }
 
 host "app_use_2" {
   networks    = ["10.30.1.2/16"]
   groups      = ["app", "us_east"]
-  output_dirs = ["out/sites/us-east"]
+  output_dir = "out/sites/us-east"
 }

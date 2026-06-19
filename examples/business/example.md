@@ -1,8 +1,8 @@
 # Business example
 
 A multi-site corporate mesh on `10.0.0.0/8`: one CA, three sites
-(on-prem HQ + two AWS regions), fan-out per site so each location's
-deploy pipeline reads from its own directory.
+(on-prem HQ + two AWS regions), each location's deploy pipeline reads
+from its own `output_dir`.
 
 This is the "yes, it scales beyond a homelab" example. It is *not* a
 benchmark — `nebula-pki` is still a hand-written-HCL tool aimed at the
@@ -44,7 +44,7 @@ each cert.
 
 ## What the config demonstrates
 
-- **One CA, many sites.** A single trust root with site-scoped fan-out.
+- **One CA, many sites.** A single trust root with per-site `output_dir`.
 - **`ca.networks` and `ca.groups` as guard rails.** Subordinate certs
   can only declare addresses inside `10.0.0.0/8` and groups from the
   allow-list. Catches typos and out-of-band hosts at config-parse time
@@ -53,11 +53,11 @@ each cert.
   `192.168.10.0/24` so overlay peers can reach the office LAN through
   it. The CA's own `unsafe_networks` field whitelists which subnets are
   allowed to appear on subordinate certs.
-- **Per-site output directories as deploy targets.** Each site's deploy
-  pipeline reads from `out/sites/<site>/`. Adding a fourth site is
-  pointing the new hosts' `output_dirs` at `out/sites/<site>/`.
+- **Per-site `output_dir` as deploy target.** Each site's deploy
+  pipeline reads from `out/sites/<site>/`. Adding a fourth site means
+  setting `output_dir = "out/sites/<site>"` on the new hosts.
 - **Default placement for non-shipped hosts.** Admin workstations have
-  no `output_dirs`; their material ends up under
+  no `output_dir`; their material ends up under
   `out/hosts/<name>.{crt,key.enc}` and stays on the operator
   workstation.
 - **Sops backend deferring to `.sops.yaml`.** Empty `encryption "sops"
@@ -112,8 +112,8 @@ fingerprints, validity, and artifact paths — no secret material.
 ## Adding a host
 
 1. Pick a free address inside the right site's `/16`.
-2. Add a `host` block with `output_dirs = ["out/sites/<site>"]` for the
-   right site (omit `output_dirs` if the host shouldn't ship with the
+2. Add a `host` block with `output_dir = "out/sites/<site>"` for the
+   right site (omit `output_dir` if the host shouldn't ship with the
    site deploy).
 3. Run `nebula-pki --dry-run` to confirm the plan, then
    `nebula-pki` to reconcile.
@@ -126,7 +126,7 @@ fingerprints, validity, and artifact paths — no secret material.
 2. Add an entry to `ca.groups` if the site warrants its own group
    (e.g. `"ap_south"`).
 3. Add `host` blocks for that site's lighthouses, app servers, etc.,
-   each with `output_dirs = ["out/sites/<site>"]`.
+   each with `output_dir = "out/sites/<site>"`.
 
 ## What this example deliberately does NOT do
 

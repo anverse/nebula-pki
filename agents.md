@@ -6,7 +6,7 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 
 - Wraps `nebula-cert` (slackhq/nebula).
 - HCL fields mirror `nebula-cert ca` and `nebula-cert sign` flags 1:1 with underscores.
-- Adds: declarative config, per-host fan-out to multiple directories, optional at-rest encryption, a JSON manifest.
+- Adds: declarative config, per-host `output_dir` for custom certificate placement, optional at-rest encryption, a JSON manifest.
 - One or more CAs per HCL file: a single unlabelled `ca {}`, or multiple labelled `ca "<label>" {}` blocks for rotation and multi-CA meshes ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
 - Emits a CA trust bundle for `pki.ca` and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-host-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
 - Does not render `config.yaml`, does not push files (including during rotation), does not implement lighthouse/blocklist/firewall.
@@ -55,7 +55,7 @@ Default file paths use the **cert name**, not the label. Full rationale in [`spe
 
 ## References between blocks
 
-The only cross-block reference is `host.ca` (with the CA marked `default = true` as the fallback when omitted), a plain string label selecting the signing CA when more than one CA exists ([ADR-015](./spec/adr/015-multiple-cas-per-config.md)). Hosts still name destination directories directly via `host.output_dirs`. The schema avoids `hcl.EvalContext` because nothing is interpolated — references are bare labels, not traversal expressions. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-011](./spec/adr/011-output-blocks-are-directories.md).
+The only cross-block reference is `host.ca` (with the CA marked `default = true` as the fallback when omitted), a plain string label selecting the signing CA when more than one CA exists ([ADR-015](./spec/adr/015-multiple-cas-per-config.md)). Hosts name their destination directory directly via `host.output_dir`. The schema avoids `hcl.EvalContext` because nothing is interpolated — references are bare labels, not traversal expressions. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-020](./spec/adr/020-output-dir-per-host.md).
 
 ## Using an existing CA (reference mode)
 
@@ -109,13 +109,18 @@ host "router" {
 }
 ```
 
-Path resolution precedence for a host's cert/key:
+Path resolution for a host's cert/key (see [ADR-020](./spec/adr/020-output-dir-per-host.md)):
 
-1. Explicit `out_crt`/`out_key` (mutually exclusive with `output_dirs`).
-2. Each entry in `host.output_dirs` → `<dir>/<host.name>.crt` (and `.key`).
-3. Default `<storage.out_dir>/hosts/<host.name>.crt`.
+```
+base      = output_dir              if set
+          = <storage.out_dir>/hosts  otherwise
+cert_path = Join(base, out_crt)     if out_crt set
+          = Join(base, <name>.crt)  otherwise
+key_path  = Join(base, out_key)     if out_key set
+          = Join(base, <name>.key)  otherwise
+```
 
-Multiple `output_dirs` entries produce identical copies in each destination. Filenames are always derived from the cert `name`; the field accepts directories, not full paths. See [ADR-011](./spec/adr/011-output-blocks-are-directories.md).
+`out_crt` and `out_key` compose with `output_dir` rather than overriding it; a bare filename stays in `base`, a relative sub-path nests inside it.
 
 ## Encryption backends
 
@@ -168,17 +173,17 @@ storage {
 
 The tool writes plaintext to a temp file, substitutes placeholders, runs the command, then deletes the temp file. `decrypt_command` is optional but recommended for future workflows that need to read encrypted material back.
 
-## Fan-out via `output_dirs`
+## Custom output directory (`output_dir`)
 
 ```hcl
 host "lh_fra" {
-  networks    = ["10.42.0.1/16"]
-  groups      = ["lighthouse"]
-  output_dirs = ["out/hetzner", "out/shared"]
+  networks   = ["10.42.0.1/16"]
+  groups     = ["lighthouse"]
+  output_dir = "out/hetzner"
 }
 ```
 
-`output_dirs` is a list of **directories**. Filenames are always `<host.name>.crt` / `.key` / `.png`. To customise a filename, use `host.out_crt` / `host.out_key` on the individual host (escape hatch — mutually exclusive with `output_dirs`). A host listing the same directory twice in `output_dirs` is a validation error. See [ADR-011](./spec/adr/011-output-blocks-are-directories.md).
+`output_dir` is a single **directory**. Filenames default to `<host.name>.crt` / `.key`; override with `out_crt` / `out_key` (path components joined onto the directory). When omitted, files land in `<storage.out_dir>/hosts`. See [ADR-020](./spec/adr/020-output-dir-per-host.md).
 
 ## File layout
 
@@ -209,8 +214,8 @@ nebula/
   out/                  # generated; safe to commit when encryption is on
     nebula-pki.json     # manifest; rename via storage.manifest_file
     ca/
-    hosts/              # default location for hosts without an `output_dirs` entry
-    <output-dirs>/      # any directories listed in host.output_dirs
+    hosts/              # default location for hosts without an `output_dir`
+    <custom-dir>/       # any directory set via host.output_dir
 ```
 
 ## Manifest
@@ -242,8 +247,6 @@ Specification stage. The implementation tracks [`spec/`](./spec/readme.md). When
 - Duplicate `host` labels → error.
 - Duplicate cert `name`s (after defaulting from labels) → error.
 - Duplicate first-prefix overlay addresses across hosts → error.
-- `host` setting both `out_crt`/`out_key` and `output_dirs` → error.
-- A `host.output_dirs` lists the same directory twice → error.
 - `ca` in reference mode with generate-only fields → error.
 - `ca` reference mode with only one of `cert_file`/`key_file` → error.
 - `ca` reference mode whose `cert_file`/`key_file` do not exist on disk → error (at reconcile/`check`, not parse time).

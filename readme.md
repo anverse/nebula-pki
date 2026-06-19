@@ -82,26 +82,34 @@ nebula-pki
 
 That's it. Running the tool reconciles `out/` with `nebula.hcl` — generates the CA if it doesn't exist, signs missing host certs, and updates the manifest at `out/nebula-pki.json`.
 
-Need certificates split across multiple Terraform projects? See **Multiple output directories** below.
+Need certificates split across multiple Terraform projects? See **Per-host output directory** below.
 
-## Multiple output directories
+## Per-host output directory
 
-Running a mesh that spans several Terraform projects, providers, or deploy targets? Each one usually only needs the certs for the hosts it owns. `output_dirs` lets a host's cert land in one or many directories at once, so every downstream project reads from its own folder and sees nothing else.
+Running a mesh that spans several Terraform projects, providers, or deploy targets? Each one usually only needs the certs for the hosts it owns. `output_dir` places a host's cert and key in a specific directory so every downstream project reads from its own folder and sees nothing else.
 
 ```hcl
 host "lh_fra" {
-  name        = "lh-fra"                              # cert CN; optional, defaults to label
-  networks    = ["10.42.0.1/16"]
-  output_dirs = ["out/hetzner", "out/aws"]            # cert written to BOTH dirs
+  name       = "lh-fra"          # cert CN; optional, defaults to label
+  networks   = ["10.42.0.1/16"]
+  output_dir = "out/hetzner"     # cert written to out/hetzner/lh-fra.{crt,key}
 }
 
 host "app_hetzner_01" {
-  networks    = ["10.42.1.10/16"]
-  output_dirs = ["out/hetzner"]
+  networks   = ["10.42.1.10/16"]
+  output_dir = "out/hetzner"
 }
 ```
 
-`output_dirs` accepts directories only — filenames are always `<host.name>.crt` / `.key`.
+Filenames default to `<host.name>.crt` / `.key`. Use `out_crt` / `out_key` to rename them while keeping the same `output_dir`:
+
+```hcl
+host "lh_fra" {
+  networks   = ["10.42.0.1/16"]
+  output_dir = "out/hetzner"
+  out_crt    = "nebula.crt"      # → out/hetzner/nebula.crt
+}
+```
 
 ## Encryption (coming soon, opt-in)
 

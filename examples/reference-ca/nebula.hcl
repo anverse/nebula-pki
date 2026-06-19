@@ -46,5 +46,5 @@ storage {
 # host "worker_1" {
 #   networks    = ["10.50.10.1/16"]
 #   groups      = ["worker"]
-#   output_dirs = ["out/site-a"]
+#   output_dir = "out/site-a"
 # }

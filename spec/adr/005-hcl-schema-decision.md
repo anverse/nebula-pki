@@ -27,7 +27,7 @@ Concepts that do not exist in `nebula-cert` are deliberately excluded:
 
 Labelled blocks (`encryption "sops" {}`) are used where a backend or named target is needed, mirroring Terraform's resource-type pattern.
 
-The only cross-block reference is a host naming its signing CA by label (`host.ca`, with the CA marked `default = true` as the fallback when omitted), introduced in [ADR-015](./015-multiple-cas-per-config.md). It is a bare string label, not a traversal expression. Fan-out to multiple destination directories is still expressed inline on the host via `host.output_dirs` (a list of directory strings), not through a labelled `output` block referenced by name. The schema therefore needs no `hcl.EvalContext` and the JSON projection stays trivially equivalent to the HCL form. See [ADR-011](./011-output-blocks-are-directories.md) for the fan-out rationale and the conditions under which a named `output` block could be added back additively.
+The only cross-block reference is a host naming its signing CA by label (`host.ca`, with the CA marked `default = true` as the fallback when omitted), introduced in [ADR-015](./015-multiple-cas-per-config.md). It is a bare string label, not a traversal expression. Per-host output placement is expressed via the inline `host.output_dir` string (a single directory path), not through a labelled `output` block referenced by name. The schema therefore needs no `hcl.EvalContext` and the JSON projection stays trivially equivalent to the HCL form. See [ADR-020](./020-output-dir-per-host.md) for the output-dir rationale and the conditions under which a named `output` block could be added back additively.
 
 ### Labels and the optional `name` field
 

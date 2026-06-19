@@ -6,7 +6,7 @@ accepted
 
 ## Context
 
-The CLI must produce certificates and a small amount of bookkeeping data. Downstream Terraform projects read these files directly. We need a layout that is stable, predictable, and safe to commit to git. We also need a manifest format that captures enough metadata to support idempotency, multi-output fan-out, and consumption by other tooling.
+The CLI must produce certificates and a small amount of bookkeeping data. Downstream Terraform projects read these files directly. We need a layout that is stable, predictable, and safe to commit to git. We also need a manifest format that captures enough metadata to support idempotency, per-host output placement, and consumption by other tooling.
 
 ## Decision
 
@@ -42,7 +42,7 @@ permissions `nebula-cert` itself uses:
 - Manifest (`nebula-pki.json`) — `0644`. Contains no secret material.
 - Directories (`out/`, `out/ca/`, `out/<output>/`) — `0755`.
 
-Per-host outputs may override defaults via `host.out_crt` / `host.out_key`, or via `host.output_dirs`. When a host lists multiple directories in `output_dirs`, identical copies of its cert and key are written to each.
+Per-host outputs may specify a destination directory via `host.output_dir`; cert and key filenames default to `<host.name>.crt` / `<host.name>.key`. The filename (or a sub-path within the directory) may be overridden via `host.out_crt` / `host.out_key`, which are joined onto `output_dir` when that is set. See [ADR-020](./020-output-dir-per-host.md) for the full path-resolution rules.
 
 In **reference mode** for the CA (the user supplies pre-existing `ca.crt` / `ca.key` paths), the tool reads those files in place and does **not** write anything under `ca/`. The manifest still records the CA's fingerprint and validity window.
 
@@ -110,8 +110,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "not_after":   "2029-05-16T12:42:59Z",
       "ca_fingerprint": "f2a1c9...",
       "artifacts": [
-        { "dir": "out/hetzner", "cert_path": "out/hetzner/lh-fra.crt", "key_path": "out/hetzner/lh-fra.key.enc" },
-        { "dir": "out/shared",  "cert_path": "out/shared/lh-fra.crt",  "key_path": "out/shared/lh-fra.key.enc" }
+        { "dir": "out/hetzner", "cert_path": "out/hetzner/lh-fra.crt", "key_path": "out/hetzner/lh-fra.key.enc" }
       ]
     },
     "alice_phone": {
@@ -124,7 +123,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "not_after":   "2027-05-17T12:42:59Z",
       "ca_fingerprint": "f2a1c9...",
       "artifacts": [
-        { "dir": "out/hosts", "cert_path": "out/hosts/alice-phone.crt" }
+        { "cert_path": "out/hosts/alice-phone.crt" }
       ]
     }
   }
@@ -150,7 +149,7 @@ For a single unlabelled CA, the manifest retains the legacy top-level `ca` objec
 - `hosts.*.renew_before` — the resolved renewal threshold literal (from `host.renew_before` or the signing CA's `renew_before`). **Omitted** when neither is set. Recorded so the staleness verdict is reproducible. See [ADR-017](./017-host-renewal-threshold.md).
 - `hosts.*.in_pub` — `true` when the host was signed from an externally-supplied public key ([ADR-018](./018-in-pub-air-gapped-signing.md)). **Omitted** when false.
 - Optional fields in general — all optional host and CA record fields are omitted from the JSON when empty (nil slice, empty string, false bool). Required fields are always present. See [ADR-019](./019-manifest-compactness.md) for the full policy. Such a host has **no** `key_path` in any `artifacts` entry (cert only) and never carries an encryption suffix.
-- `hosts.*.artifacts` — at least one entry. Each entry has `cert_path` and, for key-bearing hosts, `key_path`; `in_pub` hosts omit `key_path`. When the entry came from `host.output_dirs`, the entry's `dir` field is the corresponding directory. When the entry came from the default placement, `dir` is `<storage.out_dir>/hosts`. When the entry came from `host.out_crt` / `host.out_key`, the `dir` field is omitted because the operator chose the paths verbatim.
+- `hosts.*.artifacts` — always exactly one entry. The entry has `cert_path` and, for key-bearing hosts, `key_path`; `in_pub` hosts omit `key_path`. When `host.output_dir` is set, the entry's `dir` field records that value. When the cert lives at the default placement or the path was specified entirely via `out_crt` / `out_key` without `output_dir`, `dir` is omitted (the full path is already captured by `cert_path` / `key_path`).
 - `encryption` — the resolved sops configuration for the run. Whichever key-type fields were set in HCL (`age`, `pgp`, `kms`, etc.) appear here verbatim; absent fields are omitted. When the run deferred to `.sops.yaml`, this block records only `backend` and `output_suffix` — recipients live in `.sops.yaml`. All values are public and safe to commit.
 
 ### Pruning removed hosts
@@ -182,7 +181,7 @@ Existing files are not overwritten silently — Nebula refuses to overwrite, so 
 ## Consequences
 
 - The manifest is the single comparator; no separate state file.
-- Multi-output fan-out is recorded explicitly per host, so downstream tooling can pick a specific output without inferring paths.
+- Per-host output placement is recorded explicitly so downstream tooling can locate artifacts without inferring paths.
 - Multiple CAs and rotation progress are observable from `cas` + `hosts.*.ca`; the emitted `trust_bundle` records exactly what the mesh trusts. See [ADR-015](./015-multiple-cas-per-config.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md).
 - Reference-mode CA is fully supported: the tool does not touch the existing CA files.
 - Renaming a host counts as remove + add. The old fingerprint is still in the previous git commit if needed for an external blocklist.

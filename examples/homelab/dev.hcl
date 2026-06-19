@@ -26,9 +26,8 @@ storage {
 }
 
 # Cluster certs go into a dedicated directory so the downstream consumer
-# (Ansible, Terraform, ...) can read just the cluster material. Hosts
-# point at the directory directly via `output_dirs`; there is no
-# separate `output` block.
+# (Ansible, Terraform, ...) can read just the cluster material. Each host
+# points at the directory via `output_dir`.
 
 # -----------------------------------------------------------------------------
 # Control-plane nodes.
@@ -42,19 +41,19 @@ storage {
 host "node_1" {
   networks    = ["172.16.1.1/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/dev/cluster"]
+  output_dir  = "out/dev/cluster"
 }
 
 host "node_2" {
   networks    = ["172.16.1.2/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/dev/cluster"]
+  output_dir  = "out/dev/cluster"
 }
 
 host "node_3" {
   networks    = ["172.16.1.3/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/dev/cluster"]
+  output_dir  = "out/dev/cluster"
 }
 
 # Pre-signed spares for node replacement. Comment out anything you don't
@@ -63,13 +62,13 @@ host "node_3" {
 host "node_4" {
   networks    = ["172.16.1.4/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/dev/cluster"]
+  output_dir  = "out/dev/cluster"
 }
 
 host "node_5" {
   networks    = ["172.16.1.5/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
-  output_dirs = ["out/dev/cluster"]
+  output_dir  = "out/dev/cluster"
 }
 
 # -----------------------------------------------------------------------------
@@ -79,13 +78,13 @@ host "node_5" {
 # host "worker_1" {
 #   networks    = ["172.16.2.1/16"]
 #   groups      = ["cluster", "worker"]
-#   output_dirs = ["out/dev/cluster"]
+#   output_dir  = "out/dev/cluster"
 # }
 
 # -----------------------------------------------------------------------------
 # Admin laptops.
 #
-# Default placement: out/dev/hosts/<name>.crt — no `output_dirs`,
+# Default placement: out/dev/hosts/<name>.crt — no `output_dir`,
 # since admin keys typically don't ship alongside the cluster deploy.
 # -----------------------------------------------------------------------------
 

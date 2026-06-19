@@ -18,7 +18,7 @@ The tool:
 - Signs device-supplied public keys (`host.in_pub`) for the "private key never leaves the device" pattern — mobile, HSM, separation of duties; see [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
 - Emits a concatenated-PEM **trust bundle** for downstream `pki.ca`, and supports declarative CA rotation across an overlap window; see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md).
 - Re-signs host certificates before expiry when a `renew_before` threshold is set, and after each run prints the earliest upcoming renewal/expiry deadline so the operator knows when to run again; see [ADR-017](./adr/017-host-renewal-threshold.md).
-- Writes artifacts to configurable paths. Hosts fan certificates out to multiple destination directories via `host.output_dirs`, one entry per downstream provider/project/environment.
+- Writes artifacts to configurable paths. Each host's cert and key land in a per-host directory configured via `host.output_dir` (defaults to `<storage.out_dir>/hosts`); `out_crt` / `out_key` override the path component within that directory.
 - Optionally encrypts private key material at rest via pluggable **storage encryption backends** (built-in: `none`, `sops`; extensible via `external` command).
 - Maintains a git-committable **manifest** tracking certificate fingerprints, validity windows, signing-CA relationships, and the full artifact layout. The manifest contains **no secret material**.
 - Is idempotent: re-running with an unchanged spec produces no churn; changed spec produces minimal diffs.
@@ -60,7 +60,8 @@ The tool:
 - [`adr/008-cli-surface.md`](./adr/008-cli-surface.md) — default reconcile action with `--dry-run` and `check`; why we don't mirror Terraform's verbs.
 - [`adr/009-host-identifier-vs-cert-name.md`](./adr/009-host-identifier-vs-cert-name.md) — why each `host` block has both a label (manifest key) and an optional `name` field (cert CN).
 - [`adr/010-single-ca-per-config.md`](./adr/010-single-ca-per-config.md) — one CA per HCL file (superseded by ADR-015).
-- [`adr/011-output-blocks-are-directories.md`](./adr/011-output-blocks-are-directories.md) — why fan-out lives on the host as `output_dirs` rather than in a named `output` block.
+- [`adr/011-output-blocks-are-directories.md`](./adr/011-output-blocks-are-directories.md) — fan-out design context (superseded by ADR-020).
+- [`adr/020-output-dir-per-host.md`](./adr/020-output-dir-per-host.md) — single `output_dir` per host replacing the `output_dirs` list; composable `out_crt` / `out_key` path components.
 - [`adr/012-upstream-nebula-coupling.md`](./adr/012-upstream-nebula-coupling.md) — compile-time coupling to `slackhq/nebula`, no runtime dependency, version-compatibility policy.
 - [`adr/013-atomic-artifact-writes.md`](./adr/013-atomic-artifact-writes.md) — crash-safe per-file writes via temp+rename; what it guarantees for operators and what it deliberately does not.
 - [`adr/014-flake-version-sync.md`](./adr/014-flake-version-sync.md) — pre-tag flake bump driven by `task release`; why the tag must already carry the new `version`/`vendorHash`.
@@ -74,7 +75,7 @@ The tool:
 
 1. Operator edits `nebula.hcl`.
 2. Operator runs the CLI (`nebula-pki` to reconcile; `nebula-pki --dry-run` to preview; `nebula-pki check` to validate config).
-3. CLI writes (or reuses) the CA, signs hosts, fans artifacts out to each host's `output_dirs`, updates `nebula-pki.json` (renameable via `storage.manifest_file`).
+3. CLI writes (or reuses) the CA, signs hosts to each host's configured `output_dir` (or the default `<storage.out_dir>/hosts`), updates `nebula-pki.json` (renameable via `storage.manifest_file`).
 4. Manifest and (encrypted) artifacts are committed to git.
 5. Downstream projects (Terraform, Ansible, custom scripts) read the artifacts directly from the per-provider output directories.
 

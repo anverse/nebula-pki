@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://anverse.dev/nebula-pki/hcl-schema.json",
   "title": "Nebula tool HCL configuration",
-  "description": "JSON Schema describing the HCL configuration once parsed to a JSON-equivalent object model. HCL block labels are represented as the field `label` on the corresponding object. The `name` field on `host` is the certificate common name and is optional; when omitted it defaults to the block label. Multiple blocks of the same type are represented as arrays. The only cross-block reference is `host.ca` (a bare CA label, with the CA whose `default` is true as the fallback when omitted), not a traversal expression. Hosts name destination directories directly via `output_dirs`.",
+  "description": "JSON Schema describing the HCL configuration once parsed to a JSON-equivalent object model. HCL block labels are represented as the field `label` on the corresponding object. The `name` field on `host` is the certificate common name and is optional; when omitted it defaults to the block label. Multiple blocks of the same type are represented as arrays. The only cross-block reference is `host.ca` (a bare CA label, with the CA whose `default` is true as the fallback when omitted), not a traversal expression. Hosts name a single destination directory via `output_dir`; `out_crt` and `out_key` are path components joined onto it.",
   "type": "object",
   "required": ["ca"],
   "additionalProperties": false,
@@ -155,22 +155,9 @@
         "out_key":         { "type": "string" },
         "out_qr":          { "type": "string" },
         "in_pub":          { "type": "string" },
-        "output_dirs": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        }
+        "output_dir":      { "type": "string", "minLength": 1 }
       },
       "allOf": [
-        {
-          "not": {
-            "allOf": [
-              { "anyOf": [ { "required": ["out_crt"] }, { "required": ["out_key"] } ] },
-              { "required": ["output_dirs"] }
-            ]
-          }
-        },
         {
           "not": {
             "allOf": [

@@ -53,13 +53,13 @@ When `in_pub` is set, on reconcile `nebula-pki`:
 1. Reads the PEM public key at the given path (relative to the config file, like other paths).
 2. Verifies its **curve matches the signing CA's curve**. Upstream `nebula-cert sign` rejects a curve mismatch (`curve of in-pub does not match ca`); `nebula-pki` performs the same check at validation/reconcile time and fails with a clear message.
 3. Signs a certificate for the host's `name`, `networks`, `groups`, `unsafe_networks`, and resolved `duration`, under the host's signing CA ([ADR-015](./015-multiple-cas-per-config.md)).
-4. Writes **only** the certificate (`<name>.crt`), fanned out across `output_dirs` like any other cert.
+4. Writes **only** the certificate (`<name>.crt`) to the host's configured `output_dir` (or the default placement), like any other cert.
 5. Writes **no** private key, and applies **no** encryption — there is no private material in this flow, so the encryption backends ([ADR-006](./006-storage-backend-extensibility.md)) and the `.key` suffix logic simply do not apply to this host.
 
 ### Mutual exclusions and provenance
 
 - `in_pub` is mutually exclusive with `host.out_key` — there is no key to write, so naming a key output path is a configuration error.
-- `in_pub` composes normally with `output_dirs` and `host.out_crt` (cert-only fan-out / cert path override).
+- `in_pub` composes normally with `output_dir` and `host.out_crt` (custom output dir / cert path component).
 - The manifest records the host with an `in_pub: true` provenance marker (or an `in_pub` source-path field) and **omits the key artifact**: each `artifacts` entry has a `cert_path` but no `key_path`. Downstream tooling reading the manifest can tell at a glance which hosts are self-keyed.
 
 ### Renewal

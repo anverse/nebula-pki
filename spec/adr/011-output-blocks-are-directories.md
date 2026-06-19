@@ -2,7 +2,9 @@
 
 ## Status
 
-accepted
+superseded by [ADR-020](./020-output-dir-per-host.md)
+
+`output_dirs` (the list field) has been replaced by a single `output_dir` string and composable `out_crt` / `out_key` path components. Multi-directory fan-out is deferred; the conditions under which it would be reintroduced are documented in ADR-020. The core conclusion of this ADR — no named `output` block — remains valid and is carried forward in ADR-020.
 
 ## Context
 
