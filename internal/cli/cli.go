@@ -95,6 +95,13 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 			fmt.Fprintf(w, "  key:  %s\n", a.KeyPath)
 		}
 	}
+	if len(rep.StaleArtifacts) > 0 {
+		fmt.Fprintln(w, "notice: the following files are no longer managed by this configuration.")
+		fmt.Fprintln(w, "  They can be deleted once you have confirmed the new location is correct:")
+		for _, p := range rep.StaleArtifacts {
+			fmt.Fprintf(w, "  %s\n", p)
+		}
+	}
 	fmt.Fprintf(w, "wrote manifest: %s\n", rep.ManifestPath)
 }
 

@@ -400,8 +400,8 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	certReal := cfg.Resolve(cfg.CACertPath())
 	keyReal := cfg.Resolve(cfg.CAKeyPath())
 	manReal := cfg.Resolve(cfg.ManifestPath())
-	hostCertReal := cfg.Resolve(cfg.HostCertPath(cfg.Hosts[0]))
-	hostKeyReal := cfg.Resolve(cfg.HostKeyPath(cfg.Hosts[0]))
+	hostCertReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath)
+	hostKeyReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath)
 
 	snapshots := map[string][]byte{
 		certReal:     mustRead(t, certReal),
@@ -464,15 +464,15 @@ func TestReconcile_AbsoluteConfigPathStillRecordsRelativeManifest(t *testing.T) 
 	}
 }
 
-// TestReconcile_FanOut verifies that output_dirs causes byte-identical cert
-// and key files to be written to every listed directory, that the manifest
-// records all artifacts, and that a second run is a noop.
-func TestReconcile_FanOut(t *testing.T) {
+// TestReconcile_OutputDir verifies that output_dir writes cert/key to the
+// configured directory, that the manifest records the artifact with dir set,
+// and that a second run is a noop.
+func TestReconcile_OutputDir(t *testing.T) {
 	cfg := writeConfig(t, `
 ca { name = "mesh" }
 host "node" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["dir-a", "dir-b"]
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
 }
 `)
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
@@ -489,33 +489,20 @@ host "node" {
 	if sh.Label != "node" {
 		t.Errorf("Label = %q, want node", sh.Label)
 	}
-	if len(sh.Artifacts) != 2 {
-		t.Fatalf("Artifacts = %d, want 2", len(sh.Artifacts))
+	if len(sh.Artifacts) != 1 {
+		t.Fatalf("Artifacts = %d, want 1", len(sh.Artifacts))
 	}
 
-	// All four files must exist on disk.
-	for _, a := range sh.Artifacts {
-		if _, err := os.Stat(cfg.Resolve(a.CertPath)); err != nil {
-			t.Errorf("cert %q missing: %v", a.CertPath, err)
-		}
-		if _, err := os.Stat(cfg.Resolve(a.KeyPath)); err != nil {
-			t.Errorf("key %q missing: %v", a.KeyPath, err)
-		}
+	// Files must exist on disk under dir-a.
+	a := sh.Artifacts[0]
+	if _, err := os.Stat(cfg.Resolve(a.CertPath)); err != nil {
+		t.Errorf("cert %q missing: %v", a.CertPath, err)
+	}
+	if _, err := os.Stat(cfg.Resolve(a.KeyPath)); err != nil {
+		t.Errorf("key %q missing: %v", a.KeyPath, err)
 	}
 
-	// Cert and key must be byte-identical across all dirs.
-	cert0 := mustRead(t, cfg.Resolve(sh.Artifacts[0].CertPath))
-	cert1 := mustRead(t, cfg.Resolve(sh.Artifacts[1].CertPath))
-	if string(cert0) != string(cert1) {
-		t.Error("cert in dir-a and dir-b differ; expected identical copies")
-	}
-	key0 := mustRead(t, cfg.Resolve(sh.Artifacts[0].KeyPath))
-	key1 := mustRead(t, cfg.Resolve(sh.Artifacts[1].KeyPath))
-	if string(key0) != string(key1) {
-		t.Error("key in dir-a and dir-b differ; expected identical copies")
-	}
-
-	// Manifest must record 2 artifacts for the host.
+	// Manifest must record exactly 1 artifact with dir = "dir-a".
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
@@ -524,24 +511,17 @@ host "node" {
 	if !ok {
 		t.Fatal("manifest missing host node")
 	}
-	if len(node.Artifacts) != 2 {
-		t.Fatalf("manifest artifacts = %d, want 2", len(node.Artifacts))
+	if len(node.Artifacts) != 1 {
+		t.Fatalf("manifest artifacts = %d, want 1", len(node.Artifacts))
 	}
-	for i, wantDir := range []string{"dir-a", "dir-b"} {
-		if node.Artifacts[i].Dir != wantDir {
-			t.Errorf("artifact[%d].Dir = %q, want %q", i, node.Artifacts[i].Dir, wantDir)
-		}
+	if node.Artifacts[0].Dir != "dir-a" {
+		t.Errorf("artifact.Dir = %q, want dir-a", node.Artifacts[0].Dir)
 	}
-
-	// Snapshot all fan-out files.
-	snap := map[string][]byte{}
-	for _, a := range sh.Artifacts {
-		snap[cfg.Resolve(a.CertPath)] = mustRead(t, cfg.Resolve(a.CertPath))
-		snap[cfg.Resolve(a.KeyPath)] = mustRead(t, cfg.Resolve(a.KeyPath))
-	}
-	manSnap := mustRead(t, cfg.Resolve(cfg.ManifestPath()))
 
 	// Second run must be a noop.
+	certSnap := mustRead(t, cfg.Resolve(a.CertPath))
+	manSnap := mustRead(t, cfg.Resolve(cfg.ManifestPath()))
+
 	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
 	if err != nil {
 		t.Fatalf("second Reconcile: %v", err)
@@ -549,21 +529,18 @@ host "node" {
 	if rep2.Changed {
 		t.Fatal("Changed = true on second run, want false (full idempotency)")
 	}
-	for path, before := range snap {
-		after := mustRead(t, path)
-		if string(after) != string(before) {
-			t.Errorf("%s changed on no-op run", path)
-		}
+	if got := mustRead(t, cfg.Resolve(a.CertPath)); string(got) != string(certSnap) {
+		t.Error("cert changed on no-op run")
 	}
 	if got := mustRead(t, cfg.Resolve(cfg.ManifestPath())); string(got) != string(manSnap) {
 		t.Error("manifest changed on no-op run")
 	}
 }
 
-// TestReconcile_FanOutAddDir verifies that adding a directory to output_dirs
-// between runs triggers a re-sign and writes byte-identical files to all
-// dirs, then the third run is a noop.
-func TestReconcile_FanOutAddDir(t *testing.T) {
+// TestReconcile_StaleArtifacts verifies that when output_dir changes between
+// runs, the report includes the old paths as stale — but only when the old
+// files are still present on disk.
+func TestReconcile_StaleArtifacts(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "nebula.hcl")
 
@@ -579,12 +556,98 @@ func TestReconcile_FanOutAddDir(t *testing.T) {
 		return cfg
 	}
 
-	// Run 1: single output dir.
+	// Run 1: write to dir-a.
 	cfg1 := loadHCL(`
 ca { name = "mesh" }
 host "node" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["dir-a"]
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
+}
+`)
+	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	// Verify the old files are on disk.
+	oldCert := filepath.Join(tmpDir, "dir-a", "node.crt")
+	oldKey := filepath.Join(tmpDir, "dir-a", "node.key")
+	if _, err := os.Stat(oldCert); err != nil {
+		t.Fatalf("expected old cert to exist: %v", err)
+	}
+
+	// Run 2: change to dir-b while old files remain.
+	cfg2 := loadHCL(`
+ca { name = "mesh" }
+host "node" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-b"
+}
+`)
+	rep2, err := Reconcile(cfg2, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	// Both old cert and key should be reported as stale.
+	if len(rep2.StaleArtifacts) != 2 {
+		t.Fatalf("StaleArtifacts = %v, want 2 paths (old cert + key)", rep2.StaleArtifacts)
+	}
+	for _, p := range rep2.StaleArtifacts {
+		if !strings.HasPrefix(p, "dir-a") {
+			t.Errorf("stale path %q does not start with dir-a", p)
+		}
+	}
+	// Old files are still on disk — the tool never deletes them.
+	if _, err := os.Stat(oldCert); err != nil {
+		t.Errorf("old cert was deleted, want it preserved: %v", err)
+	}
+	if _, err := os.Stat(oldKey); err != nil {
+		t.Errorf("old key was deleted, want it preserved: %v", err)
+	}
+
+	// Run 3: old files manually deleted before run — no stale notice.
+	if err := os.Remove(oldCert); err != nil {
+		t.Fatalf("remove old cert: %v", err)
+	}
+	if err := os.Remove(oldKey); err != nil {
+		t.Fatalf("remove old key: %v", err)
+	}
+	// cfg2 is unchanged and dir-b files exist → noop, so no re-sign, no stale.
+	rep3, err := Reconcile(cfg2, Options{Now: fixedNow.Add(2 * time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("third Reconcile: %v", err)
+	}
+	if rep3.Changed {
+		t.Fatal("third run: Changed = true, want false (noop)")
+	}
+	if len(rep3.StaleArtifacts) != 0 {
+		t.Errorf("third run: StaleArtifacts = %v, want none (old files gone)", rep3.StaleArtifacts)
+	}
+}
+
+// TestReconcile_OutputDirChange verifies that changing output_dir between
+// runs triggers a re-sign to the new location, and the third run is a noop.
+func TestReconcile_OutputDirChange(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "nebula.hcl")
+
+	loadHCL := func(src string) *config.Config {
+		t.Helper()
+		if err := os.WriteFile(configPath, []byte(src), 0o644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		return cfg
+	}
+
+	// Run 1: output_dir = dir-a.
+	cfg1 := loadHCL(`
+ca { name = "mesh" }
+host "node" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
 }
 `)
 	rep1, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion})
@@ -594,14 +657,13 @@ host "node" {
 	if !rep1.Changed {
 		t.Fatal("first run: Changed = false, want true")
 	}
-	certAfterRun1 := mustRead(t, filepath.Join(tmpDir, "dir-a", "node.crt"))
 
-	// Run 2: add dir-b. Plan must detect dir-b is missing and re-sign.
+	// Run 2: change to dir-b. Plan sees dir-b cert absent → re-sign.
 	cfg2 := loadHCL(`
 ca { name = "mesh" }
 host "node" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["dir-a", "dir-b"]
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-b"
 }
 `)
 	rep2, err := Reconcile(cfg2, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
@@ -609,19 +671,17 @@ host "node" {
 		t.Fatalf("second Reconcile: %v", err)
 	}
 	if !rep2.Changed {
-		t.Fatal("second run: Changed = false, want true (dir-b is new)")
+		t.Fatal("second run: Changed = false, want true (dir-b is new destination)")
 	}
 	if len(rep2.SignedHosts) != 1 {
 		t.Fatalf("second run: SignedHosts = %d, want 1", len(rep2.SignedHosts))
 	}
-	if len(rep2.SignedHosts[0].Artifacts) != 2 {
-		t.Fatalf("second run: Artifacts = %d, want 2", len(rep2.SignedHosts[0].Artifacts))
+	if len(rep2.SignedHosts[0].Artifacts) != 1 {
+		t.Fatalf("second run: Artifacts = %d, want 1", len(rep2.SignedHosts[0].Artifacts))
 	}
 
-	// Both dirs must have files after the second run.
+	// dir-b must have the new cert/key.
 	for _, p := range []string{
-		filepath.Join(tmpDir, "dir-a", "node.crt"),
-		filepath.Join(tmpDir, "dir-a", "node.key"),
 		filepath.Join(tmpDir, "dir-b", "node.crt"),
 		filepath.Join(tmpDir, "dir-b", "node.key"),
 	} {
@@ -630,28 +690,16 @@ host "node" {
 		}
 	}
 
-	// dir-a and dir-b are byte-identical (same signing event).
-	certA := mustRead(t, filepath.Join(tmpDir, "dir-a", "node.crt"))
-	certB := mustRead(t, filepath.Join(tmpDir, "dir-b", "node.crt"))
-	if string(certA) != string(certB) {
-		t.Error("dir-a and dir-b certs differ; fan-out must produce identical copies")
-	}
-	keyA := mustRead(t, filepath.Join(tmpDir, "dir-a", "node.key"))
-	keyB := mustRead(t, filepath.Join(tmpDir, "dir-b", "node.key"))
-	if string(keyA) != string(keyB) {
-		t.Error("dir-a and dir-b keys differ; fan-out must produce identical copies")
-	}
-
-	// The re-sign produced a new cert (different key material / issuance time).
-	_ = certAfterRun1
-
-	// Manifest records two artifacts.
+	// Manifest records exactly one artifact pointing at dir-b.
 	m, err := manifest.Load(cfg2.Resolve(cfg2.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if len(m.Hosts["node"].Artifacts) != 2 {
-		t.Fatalf("manifest artifacts = %d, want 2", len(m.Hosts["node"].Artifacts))
+	if len(m.Hosts["node"].Artifacts) != 1 {
+		t.Fatalf("manifest artifacts = %d, want 1", len(m.Hosts["node"].Artifacts))
+	}
+	if m.Hosts["node"].Artifacts[0].Dir != "dir-b" {
+		t.Errorf("artifact.Dir = %q, want dir-b", m.Hosts["node"].Artifacts[0].Dir)
 	}
 
 	// Run 3: must be a noop.
@@ -660,7 +708,59 @@ host "node" {
 		t.Fatalf("third Reconcile: %v", err)
 	}
 	if rep3.Changed {
-		t.Fatal("third run: Changed = true, want false (full noop after add-dir)")
+		t.Fatal("third run: Changed = true, want false (full noop after dir change)")
+	}
+}
+
+// TestReconcile_OutputDirWithOutCrt verifies that output_dir and out_crt
+// compose correctly: the cert lands at <output_dir>/<out_crt> and the key
+// at the default <output_dir>/<name>.key.
+func TestReconcile_OutputDirWithOutCrt(t *testing.T) {
+	cfg := writeConfig(t, `
+ca { name = "mesh" }
+host "node" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "deploy"
+  out_crt    = "nebula.crt"
+}
+`)
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true on first run")
+	}
+	if len(rep.SignedHosts) != 1 {
+		t.Fatalf("SignedHosts = %d, want 1", len(rep.SignedHosts))
+	}
+	a := rep.SignedHosts[0].Artifacts[0]
+
+	// Cert uses the overridden filename under output_dir.
+	wantCert := filepath.Join("deploy", "nebula.crt")
+	wantKey := filepath.Join("deploy", "node.key")
+	if a.CertPath != wantCert {
+		t.Errorf("CertPath = %q, want %q", a.CertPath, wantCert)
+	}
+	if a.KeyPath != wantKey {
+		t.Errorf("KeyPath = %q, want %q", a.KeyPath, wantKey)
+	}
+
+	// Both files exist on disk.
+	if _, err := os.Stat(cfg.Resolve(a.CertPath)); err != nil {
+		t.Errorf("cert %q missing: %v", a.CertPath, err)
+	}
+	if _, err := os.Stat(cfg.Resolve(a.KeyPath)); err != nil {
+		t.Errorf("key %q missing: %v", a.KeyPath, err)
+	}
+
+	// Second run must be a noop.
+	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep2.Changed {
+		t.Fatal("second run: Changed = true, want false (noop)")
 	}
 }
 

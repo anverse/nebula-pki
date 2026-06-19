@@ -78,52 +78,47 @@ func (c *Config) ManifestPath() string {
 	return c.Storage.ManifestFile
 }
 
-// HostCertPath returns the logical cert path for a host. If h.OutCRT is
-// set it is returned directly; otherwise the default is
-// <out_dir>/hosts/<h.Name>.crt.
-func (c *Config) HostCertPath(h Host) string {
-	if h.OutCRT != "" {
-		return h.OutCRT
-	}
-	return filepath.Join(c.Storage.OutDir, hostsSubdir, h.Name+defaultHostCertExt)
-}
-
-// HostKeyPath returns the logical key path for a host. If h.OutKey is
-// set it is returned directly; otherwise the default is
-// <out_dir>/hosts/<h.Name>.key.
-func (c *Config) HostKeyPath(h Host) string {
-	if h.OutKey != "" {
-		return h.OutKey
-	}
-	return filepath.Join(c.Storage.OutDir, hostsSubdir, h.Name+defaultHostKeyExt)
-}
-
-// ArtifactPath is one resolved (cert, key) destination for a host.
-// Dir is populated only for output_dirs fan-out entries; it is empty for
-// the default path and for explicit out_crt/out_key overrides.
+// ArtifactPath is the single (cert, key) destination for a host.
+// Dir is populated when host.output_dir is explicitly set; it is empty
+// when the default placement or out_crt/out_key-only paths are used.
 type ArtifactPath struct {
 	Dir      string
 	CertPath string
 	KeyPath  string
 }
 
-// HostArtifactPaths returns all the destinations a host's cert and key
-// should be written to. When output_dirs is set there is one entry per
-// directory; otherwise there is a single entry at the default or explicit
-// path. This is the single source of truth used by both plan and apply.
-func (c *Config) HostArtifactPaths(h Host) []ArtifactPath {
-	if len(h.OutputDirs) > 0 {
-		paths := make([]ArtifactPath, len(h.OutputDirs))
-		for i, dir := range h.OutputDirs {
-			paths[i] = ArtifactPath{
-				Dir:      dir,
-				CertPath: filepath.Join(dir, h.Name+defaultHostCertExt),
-				KeyPath:  filepath.Join(dir, h.Name+defaultHostKeyExt),
-			}
-		}
-		return paths
+// HostArtifactPath returns the single destination a host's cert and key
+// should be written to. This is the single source of truth used by both
+// plan and apply.
+//
+// Path resolution (per ADR-020):
+//
+//	base = output_dir when set, else <storage.out_dir>/hosts
+//	cert = filepath.Join(base, out_crt)  when out_crt is set
+//	     = filepath.Join(base, <name>.crt) otherwise
+//	key  = filepath.Join(base, out_key)  when out_key is set
+//	     = filepath.Join(base, <name>.key) otherwise
+func (c *Config) HostArtifactPath(h Host) ArtifactPath {
+	var base, dir string
+	if h.OutputDir != "" {
+		base = h.OutputDir
+		dir = h.OutputDir
+	} else {
+		base = filepath.Join(c.Storage.OutDir, hostsSubdir)
 	}
-	return []ArtifactPath{
-		{CertPath: c.HostCertPath(h), KeyPath: c.HostKeyPath(h)},
+
+	certCmp := h.Name + defaultHostCertExt
+	if h.OutCRT != "" {
+		certCmp = h.OutCRT
+	}
+	keyCmp := h.Name + defaultHostKeyExt
+	if h.OutKey != "" {
+		keyCmp = h.OutKey
+	}
+
+	return ArtifactPath{
+		Dir:      dir,
+		CertPath: filepath.Join(base, certCmp),
+		KeyPath:  filepath.Join(base, keyCmp),
 	}
 }

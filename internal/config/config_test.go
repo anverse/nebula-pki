@@ -79,7 +79,7 @@ host "edge" {
   groups          = ["app"]
   unsafe_networks = ["192.168.10.0/24"]
   duration        = "1h"
-  output_dirs     = ["a", "b"]
+  output_dir      = "a"
   out_qr          = "yes"
   in_pub          = "edge.pub"
 }
@@ -167,27 +167,6 @@ host "b" { networks = ["10.0.0.1/24"] }
 host "a" { networks = ["not-a-cidr"] }
 `,
 			wantErr: "invalid CIDR",
-		},
-		{
-			name: "host_out_crt_and_output_dirs",
-			src: minimalGenerate + `
-host "a" {
-  networks    = ["10.0.0.1/16"]
-  out_crt     = "x.crt"
-  output_dirs = ["dir1"]
-}
-`,
-			wantErr: "mutually exclusive",
-		},
-		{
-			name: "duplicate_output_dir",
-			src: minimalGenerate + `
-host "a" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["a", "a"]
-}
-`,
-			wantErr: "more than once",
 		},
 		{
 			name: "reference_mode_half_set",

@@ -51,10 +51,6 @@ storage { out_dir = "artifacts" }
 
 // TestCAKeyOverrideOnly is the mirror of the cert-override case: the
 // operator overrides only `out_key` and keeps the cert at the default.
-// Without this test the `c.CA.OutKey != ""` branch in CAKeyPath is
-// dead-coded as far as the suite is concerned, and a regression that
-// swaps the two helpers (returning OutCRT from CAKeyPath, say) would
-// silently pass.
 func TestCAKeyOverrideOnly(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca {
@@ -73,10 +69,7 @@ ca {
 }
 
 // TestCAReferencePaths checks that in reference mode the CA path helpers
-// return the operator-supplied cert_file/key_file verbatim, not the
-// generate-mode defaults under out_dir. apply uses these both to probe
-// for the files and to record them in the manifest, so they must point at
-// the source files the operator named.
+// return the operator-supplied cert_file/key_file verbatim.
 func TestCAReferencePaths(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca {
@@ -94,28 +87,26 @@ storage { out_dir = "artifacts" }
 	}
 }
 
-func TestHostArtifactPaths_Default(t *testing.T) {
+func TestHostArtifactPath_Default(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca { name = "m" }
 host "node" { networks = ["10.0.0.1/16"] }
 `)
 	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPaths(h)
-	if len(got) != 1 {
-		t.Fatalf("len = %d, want 1", len(got))
+	got := cfg.HostArtifactPath(h)
+
+	if got.Dir != "" {
+		t.Errorf("Dir = %q, want empty for default path", got.Dir)
 	}
-	if got[0].Dir != "" {
-		t.Errorf("Dir = %q, want empty for default path", got[0].Dir)
+	if want := filepath.Join("out", "hosts", "node.crt"); got.CertPath != want {
+		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
 	}
-	if want := cfg.HostCertPath(h); got[0].CertPath != want {
-		t.Errorf("CertPath = %q, want %q", got[0].CertPath, want)
-	}
-	if want := cfg.HostKeyPath(h); got[0].KeyPath != want {
-		t.Errorf("KeyPath = %q, want %q", got[0].KeyPath, want)
+	if want := filepath.Join("out", "hosts", "node.key"); got.KeyPath != want {
+		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
 	}
 }
 
-func TestHostArtifactPaths_ExplicitPaths(t *testing.T) {
+func TestHostArtifactPath_ExplicitPaths(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca { name = "m" }
 host "node" {
@@ -125,47 +116,117 @@ host "node" {
 }
 `)
 	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPaths(h)
-	if len(got) != 1 {
-		t.Fatalf("len = %d, want 1", len(got))
+	got := cfg.HostArtifactPath(h)
+
+	// No output_dir: Dir is empty; out_crt/out_key join onto the default base.
+	if got.Dir != "" {
+		t.Errorf("Dir = %q, want empty for out_crt/out_key-only paths", got.Dir)
 	}
-	if got[0].Dir != "" {
-		t.Errorf("Dir = %q, want empty for explicit paths", got[0].Dir)
+	if want := filepath.Join("out", "hosts", "custom/node.crt"); got.CertPath != want {
+		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
 	}
-	if got[0].CertPath != "custom/node.crt" {
-		t.Errorf("CertPath = %q, want custom/node.crt", got[0].CertPath)
-	}
-	if got[0].KeyPath != "custom/node.key" {
-		t.Errorf("KeyPath = %q, want custom/node.key", got[0].KeyPath)
+	if want := filepath.Join("out", "hosts", "custom/node.key"); got.KeyPath != want {
+		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
 	}
 }
 
-func TestHostArtifactPaths_OutputDirs(t *testing.T) {
+func TestHostArtifactPath_OutputDir(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca { name = "m" }
 host "node" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["dir-a", "dir-b"]
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
 }
 `)
 	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPaths(h)
-	if len(got) != 2 {
-		t.Fatalf("len = %d, want 2", len(got))
+	got := cfg.HostArtifactPath(h)
+
+	if got.Dir != "dir-a" {
+		t.Errorf("Dir = %q, want dir-a", got.Dir)
 	}
-	for i, want := range []struct{ dir, cert, key string }{
-		{"dir-a", filepath.Join("dir-a", "node.crt"), filepath.Join("dir-a", "node.key")},
-		{"dir-b", filepath.Join("dir-b", "node.crt"), filepath.Join("dir-b", "node.key")},
-	} {
-		if got[i].Dir != want.dir {
-			t.Errorf("[%d] Dir = %q, want %q", i, got[i].Dir, want.dir)
-		}
-		if got[i].CertPath != want.cert {
-			t.Errorf("[%d] CertPath = %q, want %q", i, got[i].CertPath, want.cert)
-		}
-		if got[i].KeyPath != want.key {
-			t.Errorf("[%d] KeyPath = %q, want %q", i, got[i].KeyPath, want.key)
-		}
+	if want := filepath.Join("dir-a", "node.crt"); got.CertPath != want {
+		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
+	}
+	if want := filepath.Join("dir-a", "node.key"); got.KeyPath != want {
+		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
+	}
+}
+
+func TestHostArtifactPath_OutputDirAndOutCrt(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca { name = "m" }
+host "node" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
+  out_crt    = "renamed.crt"
+}
+`)
+	h := cfg.Hosts[0]
+	got := cfg.HostArtifactPath(h)
+
+	if got.Dir != "dir-a" {
+		t.Errorf("Dir = %q, want dir-a", got.Dir)
+	}
+	// out_crt joins onto output_dir
+	if want := filepath.Join("dir-a", "renamed.crt"); got.CertPath != want {
+		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
+	}
+	// out_key not set: default name, still under output_dir
+	if want := filepath.Join("dir-a", "node.key"); got.KeyPath != want {
+		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
+	}
+}
+
+// TestHostArtifactPath_OutputDirAndOutKey mirrors the out_crt case: only
+// out_key is overridden and out_crt keeps the default name.
+func TestHostArtifactPath_OutputDirAndOutKey(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca { name = "m" }
+host "node" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
+  out_key    = "renamed.key"
+}
+`)
+	h := cfg.Hosts[0]
+	got := cfg.HostArtifactPath(h)
+
+	if got.Dir != "dir-a" {
+		t.Errorf("Dir = %q, want dir-a", got.Dir)
+	}
+	// out_cert not set: default name under output_dir
+	if want := filepath.Join("dir-a", "node.crt"); got.CertPath != want {
+		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
+	}
+	// out_key joins onto output_dir
+	if want := filepath.Join("dir-a", "renamed.key"); got.KeyPath != want {
+		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
+	}
+}
+
+// TestHostArtifactPath_OutputDirAndBoth covers the case where output_dir,
+// out_crt, and out_key are all set simultaneously.
+func TestHostArtifactPath_OutputDirAndBoth(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca { name = "m" }
+host "node" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
+  out_crt    = "node.crt"
+  out_key    = "node.key"
+}
+`)
+	h := cfg.Hosts[0]
+	got := cfg.HostArtifactPath(h)
+
+	if got.Dir != "dir-a" {
+		t.Errorf("Dir = %q, want dir-a", got.Dir)
+	}
+	if want := filepath.Join("dir-a", "node.crt"); got.CertPath != want {
+		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
+	}
+	if want := filepath.Join("dir-a", "node.key"); got.KeyPath != want {
+		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
 	}
 }
 

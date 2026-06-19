@@ -53,9 +53,9 @@ type Options struct {
 	Warn io.Writer
 }
 
-// SignedArtifact is one destination for a signed host's cert/key pair.
+// SignedArtifact is the destination for a signed host's cert/key pair.
 type SignedArtifact struct {
-	Dir      string // populated for output_dirs fan-out; empty for default/explicit
+	Dir      string // populated when host.output_dir is set; empty for default/out_crt-out_key-only
 	CertPath string
 	KeyPath  string
 }
@@ -87,6 +87,13 @@ type Report struct {
 	// SignedHosts is the set of hosts that were signed this run, in config
 	// order. Empty on a noop run.
 	SignedHosts []SignedHost
+
+	// StaleArtifacts is the list of logical paths from a previous run that
+	// are no longer written by the current configuration — for example, the
+	// old cert/key under a directory that was renamed via output_dir. The
+	// files are never deleted automatically; the operator must clean them up.
+	// Populated only when Changed is true and at least one stale file exists.
+	StaleArtifacts []string
 }
 
 // Reconcile brings the output tree in line with cfg and returns a Report.
@@ -168,7 +175,7 @@ func reconcileGenerate(cfg *config.Config, opts Options, report *Report, p plan.
 
 	next := newManifestFromGenerate(cfg, opts, report, caResult, current)
 
-	signed, err := applyHosts(cfg, opts, p.HostActions(), caCertPEM, caKeyPEM, current, next)
+	signed, stale, err := applyHosts(cfg, opts, p.HostActions(), caCertPEM, caKeyPEM, current, next)
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +191,7 @@ func reconcileGenerate(cfg *config.Config, opts Options, report *Report, p plan.
 		report.CAName = current.CA.Name
 	}
 	report.SignedHosts = signed
+	report.StaleArtifacts = stale
 	return report, nil
 }
 
@@ -224,7 +232,7 @@ func reconcileReference(cfg *config.Config, opts Options, report *Report, p plan
 
 	next := newManifestFromReference(cfg, opts, report, result)
 
-	signed, err := applyHosts(cfg, opts, p.HostActions(), certPEM, keyPEM, current, next)
+	signed, stale, err := applyHosts(cfg, opts, p.HostActions(), certPEM, keyPEM, current, next)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +251,7 @@ func reconcileReference(cfg *config.Config, opts Options, report *Report, p plan
 	}
 	report.Changed = true
 	report.SignedHosts = signed
+	report.StaleArtifacts = stale
 	return report, nil
 }
 
@@ -295,9 +304,11 @@ func newManifestFromReference(cfg *config.Config, opts Options, report *Report, 
 // applyHosts executes host actions: signs hosts with OpSign, carries
 // forward existing manifest entries for OpNoop. It writes cert and key
 // files for each signed host and populates next.Hosts. Returns the list
-// of newly signed hosts (in action order).
-func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caCertPEM, caKeyPEM []byte, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, error) {
+// of newly signed hosts (in action order) and any logical paths from a
+// previous run that are no longer written by the current configuration.
+func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caCertPEM, caKeyPEM []byte, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
 	var signed []SignedHost
+	var stale []string
 
 	// Build a label→Host lookup for quick access.
 	hostByLabel := make(map[string]*config.Host, len(cfg.Hosts))
@@ -308,7 +319,7 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 	for _, ha := range hostActions {
 		h := hostByLabel[ha.Label]
 		if h == nil {
-			return nil, fmt.Errorf("host action references unknown label %q", ha.Label)
+			return nil, nil, fmt.Errorf("host action references unknown label %q", ha.Label)
 		}
 
 		if ha.Op == plan.OpNoop {
@@ -318,33 +329,49 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 			continue
 		}
 
-		// OpSign: sign the host cert once, then fan out to all destinations.
-		result, err := pki.SignHost(caCertPEM, caKeyPEM, *h, opts.Now)
-		if err != nil {
-			return nil, err
+		// OpSign: before signing, check whether the previously recorded
+		// artifact paths differ from the newly resolved ones. If so, and
+		// the old files still exist on disk, record them as stale so the
+		// caller can notify the operator. (ADR-020: the tool never auto-
+		// deletes cert or key files.)
+		newArt := cfg.HostArtifactPath(*h)
+		if prev, ok := current.Hosts[h.Label]; ok {
+			for _, oldArt := range prev.Artifacts {
+				if oldArt.CertPath != "" && oldArt.CertPath != newArt.CertPath {
+					if fsutil.Exists(cfg.Resolve(oldArt.CertPath)) {
+						stale = append(stale, oldArt.CertPath)
+					}
+				}
+				if oldArt.KeyPath != "" && oldArt.KeyPath != newArt.KeyPath {
+					if fsutil.Exists(cfg.Resolve(oldArt.KeyPath)) {
+						stale = append(stale, oldArt.KeyPath)
+					}
+				}
+			}
 		}
 
-		artifactPaths := cfg.HostArtifactPaths(*h)
-		manifestArtifacts := make([]manifest.Artifact, 0, len(artifactPaths))
-		signedArtifacts := make([]SignedArtifact, 0, len(artifactPaths))
-		for _, a := range artifactPaths {
-			if err := fsutil.WriteFile(cfg.Resolve(a.CertPath), result.CertPEM, certMode); err != nil {
-				return nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
-			}
-			if err := fsutil.WriteFile(cfg.Resolve(a.KeyPath), result.KeyPEM, keyMode); err != nil {
-				return nil, fmt.Errorf("write host key %q: %w", h.Label, err)
-			}
-			manifestArtifacts = append(manifestArtifacts, manifest.Artifact{
-				Dir:      a.Dir,
-				CertPath: a.CertPath,
-				KeyPath:  a.KeyPath,
-			})
-			signedArtifacts = append(signedArtifacts, SignedArtifact{
-				Dir:      a.Dir,
-				CertPath: a.CertPath,
-				KeyPath:  a.KeyPath,
-			})
+		// Sign the host cert and write to the single destination.
+		result, err := pki.SignHost(caCertPEM, caKeyPEM, *h, opts.Now)
+		if err != nil {
+			return nil, nil, err
 		}
+
+		if err := fsutil.WriteFile(cfg.Resolve(newArt.CertPath), result.CertPEM, certMode); err != nil {
+			return nil, nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
+		}
+		if err := fsutil.WriteFile(cfg.Resolve(newArt.KeyPath), result.KeyPEM, keyMode); err != nil {
+			return nil, nil, fmt.Errorf("write host key %q: %w", h.Label, err)
+		}
+		manifestArtifacts := []manifest.Artifact{{
+			Dir:      newArt.Dir,
+			CertPath: newArt.CertPath,
+			KeyPath:  newArt.KeyPath,
+		}}
+		signedArtifacts := []SignedArtifact{{
+			Dir:      newArt.Dir,
+			CertPath: newArt.CertPath,
+			KeyPath:  newArt.KeyPath,
+		}}
 
 		durationStr := ""
 		if h.HasDuration {
@@ -366,7 +393,7 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 
 		signed = append(signed, SignedHost{Label: h.Label, Artifacts: signedArtifacts})
 	}
-	return signed, nil
+	return signed, stale, nil
 }
 
 // prefixesToStrings converts a slice of netip.Prefix to their string

@@ -202,8 +202,8 @@ func TestBuild_HostNoopWhenTrackedAndPresent(t *testing.T) {
 
 	exists := existsSet(
 		cfg.CACertPath(), cfg.CAKeyPath(),
-		cfg.HostCertPath(cfg.Hosts[0]), cfg.HostKeyPath(cfg.Hosts[0]),
-		cfg.HostCertPath(cfg.Hosts[1]), cfg.HostKeyPath(cfg.Hosts[1]),
+		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.HostArtifactPath(cfg.Hosts[1]).CertPath, cfg.HostArtifactPath(cfg.Hosts[1]).KeyPath,
 	)
 	p, err := Build(cfg, m, exists)
 	if err != nil {
@@ -252,7 +252,7 @@ func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
 
 	exists := existsSet(
 		cfg.CACertPath(), cfg.CAKeyPath(),
-		cfg.HostCertPath(cfg.Hosts[0]), // cert present
+		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, // cert present
 		// host key absent
 	)
 	p, err := Build(cfg, m, exists)
@@ -280,7 +280,7 @@ func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
 	exists := existsSet(
 		cfg.CACertPath(), cfg.CAKeyPath(),
 		// host cert absent
-		cfg.HostKeyPath(cfg.Hosts[0]), // key present
+		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath, // key present
 	)
 	p, err := Build(cfg, m, exists)
 	if err != nil {
@@ -306,7 +306,7 @@ func TestBuild_MultipleHostsMixedActions(t *testing.T) {
 
 	exists := existsSet(
 		cfg.CACertPath(), cfg.CAKeyPath(),
-		cfg.HostCertPath(cfg.Hosts[0]), cfg.HostKeyPath(cfg.Hosts[0]),
+		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 		// beta's files are absent
 	)
 	p, err := Build(cfg, m, exists)
@@ -347,65 +347,57 @@ func TestBuild_CANoopHostSign_ChangesTrue(t *testing.T) {
 	}
 }
 
-// --- Fan-out (output_dirs) --------------------------------------------
+// --- Custom output_dir ------------------------------------------------
 
-const fanOutHCL = `
+const outputDirHCL = `
 ca { name = "m" }
 host "node" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["dir-a", "dir-b"]
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
 }
 `
 
-func TestBuild_FanOutNoopWhenAllPresent(t *testing.T) {
-	cfg := parseCfg(t, fanOutHCL)
+func TestBuild_OutputDirNoopWhenPresent(t *testing.T) {
+	cfg := parseCfg(t, outputDirHCL)
 	m := manifest.New()
 	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
 	m.Hosts["node"] = manifest.Host{Name: "node"}
 
-	artifacts := cfg.HostArtifactPaths(cfg.Hosts[0])
-	exists := existsSet(
-		cfg.CACertPath(), cfg.CAKeyPath(),
-		artifacts[0].CertPath, artifacts[0].KeyPath,
-		artifacts[1].CertPath, artifacts[1].KeyPath,
-	)
+	a := cfg.HostArtifactPath(cfg.Hosts[0])
+	exists := existsSet(cfg.CACertPath(), cfg.CAKeyPath(), a.CertPath, a.KeyPath)
 	p, err := Build(cfg, m, exists)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if p.Changes() {
-		t.Fatalf("Changes() = true, want false when all fan-out artifacts present; actions = %+v", p.Actions)
+		t.Fatalf("Changes() = true, want false when output_dir artifacts present; actions = %+v", p.Actions)
 	}
-	for _, a := range p.HostActions() {
-		if a.Op != OpNoop {
-			t.Errorf("host %q: Op = %q, want noop", a.Label, a.Op)
+	for _, act := range p.HostActions() {
+		if act.Op != OpNoop {
+			t.Errorf("host %q: Op = %q, want noop", act.Label, act.Op)
 		}
 	}
 }
 
-func TestBuild_FanOutSignWhenArtifactMissing(t *testing.T) {
-	cfg := parseCfg(t, fanOutHCL)
+func TestBuild_OutputDirSignWhenFileMissing(t *testing.T) {
+	cfg := parseCfg(t, outputDirHCL)
 	m := manifest.New()
 	m.CA = &manifest.CA{Mode: "generate", Name: "m"}
 	m.Hosts["node"] = manifest.Host{Name: "node"}
 
-	// Only dir-a artifacts present; dir-b is missing.
-	artifacts := cfg.HostArtifactPaths(cfg.Hosts[0])
-	exists := existsSet(
-		cfg.CACertPath(), cfg.CAKeyPath(),
-		artifacts[0].CertPath, artifacts[0].KeyPath,
-		// artifacts[1] absent
-	)
+	// Cert present, key absent — must re-sign.
+	a := cfg.HostArtifactPath(cfg.Hosts[0])
+	exists := existsSet(cfg.CACertPath(), cfg.CAKeyPath(), a.CertPath)
 	p, err := Build(cfg, m, exists)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if !p.Changes() {
-		t.Fatal("Changes() = false, want true when a fan-out artifact is missing")
+		t.Fatal("Changes() = false, want true when output_dir key is missing")
 	}
-	for _, a := range p.HostActions() {
-		if a.Op != OpSign {
-			t.Errorf("host %q: Op = %q, want sign", a.Label, a.Op)
+	for _, act := range p.HostActions() {
+		if act.Op != OpSign {
+			t.Errorf("host %q: Op = %q, want sign", act.Label, act.Op)
 		}
 	}
 }

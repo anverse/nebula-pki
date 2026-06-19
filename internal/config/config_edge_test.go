@@ -308,41 +308,6 @@ ca {
 	}
 }
 
-// --- Host mutual exclusion: out_key alone should also trigger ----------------
-
-func TestParse_HostOutKeyOnlyWithOutputDirs(t *testing.T) {
-	src := minimalGenerate + `
-host "a" {
-  networks    = ["10.0.0.1/16"]
-  out_key     = "x.key"
-  output_dirs = ["d"]
-}`
-	_, err := Parse("t.hcl", []byte(src))
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Errorf("error = %q, want mutual-exclusion error", err.Error())
-	}
-}
-
-// --- output_dirs dedup respects path normalisation --------------------------
-
-func TestParse_OutputDirsDedupAfterNormalisation(t *testing.T) {
-	src := minimalGenerate + `
-host "a" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["a/", "./a"]
-}`
-	_, err := Parse("t.hcl", []byte(src))
-	if err == nil {
-		t.Fatal("expected dedup error, got nil")
-	}
-	if !strings.Contains(err.Error(), "more than once") {
-		t.Errorf("error = %q, want dedup error", err.Error())
-	}
-}
-
 // --- Missing host networks --------------------------------------------------
 
 func TestParse_HostWithoutNetworks(t *testing.T) {

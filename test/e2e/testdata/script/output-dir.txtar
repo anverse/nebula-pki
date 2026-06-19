@@ -1,36 +1,26 @@
-# Fan-out: output_dirs writes byte-identical cert/key copies to every listed
-# directory. Filename is always <host.name>.<ext> regardless of the dir.
+# output_dir: cert/key written to the configured directory with default names.
 
 exec nebula-pki
 stdout '^generated CA "mesh"$'
 stdout '^signed host "node"$'
 stdout '^  cert: dir-a/node\.crt$'
 stdout '^  key:  dir-a/node\.key$'
-stdout '^  cert: dir-b/node\.crt$'
-stdout '^  key:  dir-b/node\.key$'
 stdout '^wrote manifest: out/nebula-pki\.json$'
 ! stderr .
 
-# All artifact files exist.
+# Artifact files exist.
 exists dir-a/node.crt
 exists dir-a/node.key
-exists dir-b/node.crt
-exists dir-b/node.key
 
 # PEM material is present.
 grep 'NEBULA CERTIFICATE' dir-a/node.crt
 grep 'NEBULA ED25519 PRIVATE KEY' dir-a/node.key
 
-# Copies are byte-identical across dirs.
-cmp dir-a/node.crt dir-b/node.crt
-cmp dir-a/node.key dir-b/node.key
-
-# Manifest records both artifacts.
+# Manifest records the artifact with dir set.
 grep '"dir-a"' out/nebula-pki.json
-grep '"dir-b"' out/nebula-pki.json
 grep '"ca_fingerprint"' out/nebula-pki.json
 
-# Snapshot all artifacts.
+# Snapshot.
 cp dir-a/node.crt node.crt.first
 cp dir-a/node.key node.key.first
 cp out/nebula-pki.json manifest.first
@@ -41,11 +31,9 @@ stdout '^up to date; nothing to write$'
 ! stdout 'signed host'
 ! stderr .
 
-# Byte-identical.
+# Byte-identical on the second run.
 cmp dir-a/node.crt node.crt.first
 cmp dir-a/node.key node.key.first
-cmp dir-b/node.crt node.crt.first
-cmp dir-b/node.key node.key.first
 cmp out/nebula-pki.json manifest.first
 
 -- nebula.hcl --
@@ -54,6 +42,6 @@ ca {
 }
 
 host "node" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["dir-a", "dir-b"]
+  networks   = ["10.0.0.1/16"]
+  output_dir = "dir-a"
 }

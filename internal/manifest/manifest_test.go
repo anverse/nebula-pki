@@ -295,7 +295,7 @@ func TestArtifactDirOmitEmpty(t *testing.T) {
 		t.Errorf("normal artifact must contain key_path: %s", data)
 	}
 
-	// No-dir artifact (default path, no output_dirs): dir omitted.
+	// No-dir artifact (default path, no output_dir): dir omitted.
 	noDir := Artifact{CertPath: "x.crt", KeyPath: "x.key"}
 	data, err = json.Marshal(noDir)
 	if err != nil {

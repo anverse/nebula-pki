@@ -127,27 +127,17 @@ func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath str
 //   - tracked in manifest AND every artifact file present → noop
 //   - anything else (untracked, files absent, partial pair, new dir) → sign
 func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, exists func(string) bool) Action {
-	artifacts := cfg.HostArtifactPaths(*h)
-	primary := artifacts[0]
+	artifact := cfg.HostArtifactPath(*h)
 
 	tracked := m != nil && m.Hosts[h.Label].Name != ""
-	if tracked {
-		allPresent := true
-		for _, a := range artifacts {
-			if !exists(a.CertPath) || !exists(a.KeyPath) {
-				allPresent = false
-				break
-			}
-		}
-		if allPresent {
-			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
-		}
+	if tracked && exists(artifact.CertPath) && exists(artifact.KeyPath) {
+		return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
 	}
 	return Action{
 		Op:    OpSign,
 		Kind:  KindHost,
 		Label: h.Label,
-		Path:  primary.CertPath,
+		Path:  artifact.CertPath,
 		Desc:  fmt.Sprintf("sign host %q", h.Label),
 	}
 }

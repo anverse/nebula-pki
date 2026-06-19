@@ -116,7 +116,7 @@ type Host struct {
 	OutKey         string
 	OutQR          string
 	InPub          string
-	OutputDirs     []string
+	OutputDir      string
 }
 
 // Defaults applied when fields are omitted.
@@ -249,7 +249,7 @@ type rawHost struct {
 	OutKey         *string  `hcl:"out_key,optional"`
 	OutQR          *string  `hcl:"out_qr,optional"`
 	InPub          *string  `hcl:"in_pub,optional"`
-	OutputDirs     []string `hcl:"output_dirs,optional"`
+	OutputDir      *string  `hcl:"output_dir,optional"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
@@ -482,7 +482,9 @@ func decodeHost(filename string, r *rawHost) (*Host, error) {
 	if r.InPub != nil {
 		h.InPub = *r.InPub
 	}
-	h.OutputDirs = append(h.OutputDirs, r.OutputDirs...)
+	if r.OutputDir != nil {
+		h.OutputDir = *r.OutputDir
+	}
 
 	return h, nil
 }
@@ -592,15 +594,6 @@ func validateHosts(cfg *Config) error {
 			return err
 		}
 
-		hasExplicit := h.OutCRT != "" || h.OutKey != ""
-		if hasExplicit && len(h.OutputDirs) > 0 {
-			return fmt.Errorf("host %q: `out_crt`/`out_key` and `output_dirs` are mutually exclusive", h.Label)
-		}
-
-		if dup := firstDuplicateDir(h.OutputDirs); dup != "" {
-			return fmt.Errorf("host %q: `output_dirs` lists %q more than once", h.Label, dup)
-		}
-
 		if cfg.CA.Mode == CAModeGenerate {
 			if len(cfg.CA.Groups) > 0 {
 				if extra := groupsNotIn(h.Groups, cfg.CA.Groups); len(extra) > 0 {
@@ -638,18 +631,6 @@ func validateGroupStrings(field string, groups []string) error {
 		}
 	}
 	return nil
-}
-
-func firstDuplicateDir(dirs []string) string {
-	seen := make(map[string]string, len(dirs))
-	for _, d := range dirs {
-		n := filepath.Clean(d)
-		if orig, ok := seen[n]; ok {
-			return orig
-		}
-		seen[n] = d
-	}
-	return ""
 }
 
 func groupsNotIn(have, allowed []string) []string {

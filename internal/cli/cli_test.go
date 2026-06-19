@@ -312,8 +312,8 @@ func TestWriteReconcileSummary(t *testing.T) {
 			wantNot: []string{"up to date", "not yet reconciled"},
 		},
 		{
-			// Fan-out: each host emits one cert/key line per output_dirs entry.
-			name: "changed_fan_out",
+			// Custom output_dir: host cert/key land in the configured directory.
+			name: "changed_output_dir",
 			rep: apply.Report{
 				Changed:      true,
 				ManifestPath: "out/nebula-pki.json",
@@ -323,7 +323,6 @@ func TestWriteReconcileSummary(t *testing.T) {
 				SignedHosts: []apply.SignedHost{
 					{Label: "node", Artifacts: []apply.SignedArtifact{
 						{CertPath: "dir-a/node.crt", KeyPath: "dir-a/node.key"},
-						{CertPath: "dir-b/node.crt", KeyPath: "dir-b/node.key"},
 					}},
 				},
 			},
@@ -331,8 +330,6 @@ func TestWriteReconcileSummary(t *testing.T) {
 				`signed host "node"`,
 				"cert: dir-a/node.crt",
 				"key:  dir-a/node.key",
-				"cert: dir-b/node.crt",
-				"key:  dir-b/node.key",
 				"wrote manifest: out/nebula-pki.json",
 			},
 			wantNot: []string{"up to date"},
@@ -356,6 +353,32 @@ func TestWriteReconcileSummary(t *testing.T) {
 				"wrote manifest: out/nebula-pki.json",
 			},
 			wantNot: []string{"generated CA", "up to date"},
+		},
+		{
+			// Stale artifacts: output_dir changed; old cert/key still on disk.
+			name: "changed_with_stale_artifacts",
+			rep: apply.Report{
+				Changed:      true,
+				ManifestPath: "out/nebula-pki.json",
+				CACertPath:   "out/ca/ca.crt",
+				CAKeyPath:    "out/ca/ca.key",
+				CAName:       "mesh",
+				SignedHosts: []apply.SignedHost{
+					{Label: "node", Artifacts: []apply.SignedArtifact{
+						{CertPath: "dir-b/node.crt", KeyPath: "dir-b/node.key"},
+					}},
+				},
+				StaleArtifacts: []string{"dir-a/node.crt", "dir-a/node.key"},
+			},
+			wantContain: []string{
+				`signed host "node"`,
+				"cert: dir-b/node.crt",
+				"notice: the following files are no longer managed",
+				"dir-a/node.crt",
+				"dir-a/node.key",
+				"wrote manifest: out/nebula-pki.json",
+			},
+			wantNot: []string{"up to date"},
 		},
 		{
 			name: "noop_run",

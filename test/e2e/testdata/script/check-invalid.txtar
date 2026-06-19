@@ -9,18 +9,6 @@ stderr 'duplicate label'
 ! exec nebula-pki check -c dup-overlay.hcl
 stderr 'overlay address 10\.0\.0\.1 already used'
 
-# out_crt + output_dirs is mutually exclusive.
-! exec nebula-pki check -c mut-excl.hcl
-stderr 'mutually exclusive'
-
-# out_key + output_dirs is also mutually exclusive.
-! exec nebula-pki check -c mut-excl-key.hcl
-stderr 'mutually exclusive'
-
-# Duplicate output_dirs entries.
-! exec nebula-pki check -c dup-output-dirs.hcl
-stderr 'more than once'
-
 # Encryption block is parsed but rejected — ships in a later release.
 ! exec nebula-pki check -c encryption.hcl
 stderr 'encryption ships in a later release'
@@ -42,29 +30,6 @@ host "a" { networks = ["10.0.0.2/16"] }
 ca { name = "m" }
 host "a" { networks = ["10.0.0.1/16"] }
 host "b" { networks = ["10.0.0.1/24"] }
-
--- mut-excl.hcl --
-ca { name = "m" }
-host "a" {
-  networks    = ["10.0.0.1/16"]
-  out_crt     = "x.crt"
-  output_dirs = ["dir1"]
-}
-
--- mut-excl-key.hcl --
-ca { name = "m" }
-host "a" {
-  networks    = ["10.0.0.1/16"]
-  out_key     = "x.key"
-  output_dirs = ["dir1"]
-}
-
--- dup-output-dirs.hcl --
-ca { name = "m" }
-host "a" {
-  networks    = ["10.0.0.1/16"]
-  output_dirs = ["dir1", "dir1"]
-}
 
 -- encryption.hcl --
 ca { name = "m" }
