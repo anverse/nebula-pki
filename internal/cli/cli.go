@@ -68,7 +68,7 @@ func runReconcile(cmd *cobra.Command, configPath string) error {
 	if err != nil {
 		return err
 	}
-	writeReconcileSummary(cmd.OutOrStdout(), rep)
+	writeReconcileSummary(cmd.ErrOrStderr(), rep)
 	return nil
 }
 

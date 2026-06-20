@@ -240,6 +240,37 @@ ca {
 	}
 }
 
+// TestReconcileProgressOnStderr verifies that normal reconcile progress
+// (generated CA, signed host, wrote manifest) goes to stderr and stdout
+// stays empty, so the two streams can be redirected independently.
+func TestReconcileProgressOnStderr(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`
+ca { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"-c", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if stdout.String() != "" {
+		t.Errorf("stdout = %q, want empty (progress must go to stderr)", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "generated CA") {
+		t.Errorf("stderr = %q, want it to contain 'generated CA'", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "signed host") {
+		t.Errorf("stderr = %q, want it to contain 'signed host'", stderr.String())
+	}
+}
+
 // seedRefCA mints a CA and writes ca.crt / ca.key into dir, returning the
 // fingerprint so tests can assert it is surfaced.
 func seedRefCA(t *testing.T, dir, src string) string {

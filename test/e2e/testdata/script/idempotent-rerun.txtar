@@ -3,9 +3,9 @@
 
 # First run: CA and host cert are created.
 exec nebula-pki
-stdout '^generated CA "test-mesh"$'
-stdout '^signed host "alpha"$'
-! stderr .
+stderr '^generated CA "test-mesh"$'
+stderr '^signed host "alpha"$'
+! stdout .
 
 # Snapshot every artifact.
 cp out/ca/ca.crt ca.crt.first
@@ -16,10 +16,10 @@ cp out/nebula-pki.json manifest.first
 
 # Second run must report "up to date" and touch nothing.
 exec nebula-pki
-stdout '^up to date; nothing to write$'
-! stdout 'generated CA'
-! stdout 'signed host'
-! stderr .
+stderr '^up to date; nothing to write$'
+! stderr 'generated CA'
+! stderr 'signed host'
+! stdout .
 
 # All artifacts are byte-identical to the first run.
 cmp out/ca/ca.crt ca.crt.first

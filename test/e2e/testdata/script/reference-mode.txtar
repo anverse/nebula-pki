@@ -17,11 +17,11 @@ cp pki/ca.key want-ca.key
 
 # Reconcile in reference mode.
 exec nebula-pki -c reference.hcl
-stdout '^using referenced CA "ext-mesh"$'
-stdout '^  cert: pki/ca\.crt$'
-stdout '^  key:  pki/ca\.key$'
-stdout '^wrote manifest: refs/nebula-pki\.json$'
-! stderr .
+stderr '^using referenced CA "ext-mesh"$'
+stderr '^  cert: pki/ca\.crt$'
+stderr '^  key:  pki/ca\.key$'
+stderr '^wrote manifest: refs/nebula-pki\.json$'
+! stdout .
 
 # The referenced CA files are byte-for-byte unchanged.
 cmp pki/ca.crt want-ca.crt
@@ -41,8 +41,8 @@ grep '"key_path": "pki/ca\.key"' refs/nebula-pki.json
 # nothing and the manifest stays byte-identical.
 cp refs/nebula-pki.json want-manifest.json
 exec nebula-pki -c reference.hcl
-stdout '^up to date; nothing to write$'
-! stderr .
+stderr '^up to date; nothing to write$'
+! stdout .
 cmp refs/nebula-pki.json want-manifest.json
 
 -- gen.hcl --

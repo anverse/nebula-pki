@@ -1,12 +1,12 @@
 # output_dir: cert/key written to the configured directory with default names.
 
 exec nebula-pki
-stdout '^generated CA "mesh"$'
-stdout '^signed host "node"$'
-stdout '^  cert: dir-a/node\.crt$'
-stdout '^  key:  dir-a/node\.key$'
-stdout '^wrote manifest: out/nebula-pki\.json$'
-! stderr .
+stderr '^generated CA "mesh"$'
+stderr '^signed host "node"$'
+stderr '^  cert: dir-a/node\.crt$'
+stderr '^  key:  dir-a/node\.key$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
 
 # Artifact files exist.
 exists dir-a/node.crt
@@ -27,9 +27,9 @@ cp out/nebula-pki.json manifest.first
 
 # Second run: everything up to date, nothing written.
 exec nebula-pki
-stdout '^up to date; nothing to write$'
-! stdout 'signed host'
-! stderr .
+stderr '^up to date; nothing to write$'
+! stderr 'signed host'
+! stdout .
 
 # Byte-identical on the second run.
 cmp dir-a/node.crt node.crt.first

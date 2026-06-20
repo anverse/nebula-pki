@@ -3,14 +3,14 @@
 # tree gets a CA and one host cert on the first run.
 
 exec nebula-pki
-stdout '^generated CA "test-mesh"$'
-stdout '^  cert: out/ca/ca\.crt$'
-stdout '^  key:  out/ca/ca\.key$'
-stdout '^signed host "alpha"$'
-stdout '^  cert: out/hosts/alpha\.crt$'
-stdout '^  key:  out/hosts/alpha\.key$'
-stdout '^wrote manifest: out/nebula-pki\.json$'
-! stderr .
+stderr '^generated CA "test-mesh"$'
+stderr '^  cert: out/ca/ca\.crt$'
+stderr '^  key:  out/ca/ca\.key$'
+stderr '^signed host "alpha"$'
+stderr '^  cert: out/hosts/alpha\.crt$'
+stderr '^  key:  out/hosts/alpha\.key$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
 
 # CA and host artifacts exist.
 exists out/ca/ca.crt

@@ -3,15 +3,15 @@
 # records, and full idempotency on a second run.
 
 exec nebula-pki
-stdout '^generated CA "test-mesh"$'
-stdout '^signed host "lighthouse"$'
-stdout '^  cert: out/hosts/lighthouse\.crt$'
-stdout '^  key:  out/hosts/lighthouse\.key$'
-stdout '^signed host "server"$'
-stdout '^  cert: out/hosts/server\.crt$'
-stdout '^  key:  out/hosts/server\.key$'
-stdout '^wrote manifest: out/nebula-pki\.json$'
-! stderr .
+stderr '^generated CA "test-mesh"$'
+stderr '^signed host "lighthouse"$'
+stderr '^  cert: out/hosts/lighthouse\.crt$'
+stderr '^  key:  out/hosts/lighthouse\.key$'
+stderr '^signed host "server"$'
+stderr '^  cert: out/hosts/server\.crt$'
+stderr '^  key:  out/hosts/server\.key$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
 
 # All artifacts exist.
 exists out/ca/ca.crt
@@ -44,9 +44,9 @@ cp out/nebula-pki.json manifest.first
 
 # Second run: everything up to date, nothing written.
 exec nebula-pki
-stdout '^up to date; nothing to write$'
-! stdout 'signed host'
-! stderr .
+stderr '^up to date; nothing to write$'
+! stderr 'signed host'
+! stdout .
 
 # Byte-identical.
 cmp out/ca/ca.crt ca.crt.first
