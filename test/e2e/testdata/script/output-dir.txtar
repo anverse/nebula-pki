@@ -27,7 +27,7 @@ cp out/nebula-pki.json manifest.first
 
 # Second run: everything up to date, nothing written.
 exec nebula-pki
-stderr '^up to date; nothing to write$'
+stderr '^up to date; nothing to do$'
 ! stderr 'signed host'
 ! stdout .
 

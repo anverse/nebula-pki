@@ -41,7 +41,7 @@ grep '"key_path": "pki/ca\.key"' refs/nebula-pki.json
 # nothing and the manifest stays byte-identical.
 cp refs/nebula-pki.json want-manifest.json
 exec nebula-pki -c reference.hcl
-stderr '^up to date; nothing to write$'
+stderr '^up to date; nothing to do$'
 ! stdout .
 cmp refs/nebula-pki.json want-manifest.json
 

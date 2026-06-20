@@ -16,7 +16,7 @@ cp out/nebula-pki.json manifest.first
 
 # Second run must report "up to date" and touch nothing.
 exec nebula-pki
-stderr '^up to date; nothing to write$'
+stderr '^up to date; nothing to do$'
 ! stderr 'generated CA'
 ! stderr 'signed host'
 ! stdout .

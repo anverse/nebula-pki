@@ -91,7 +91,7 @@ func runReconcile(cmd *cobra.Command, configPath string, dryRun bool) error {
 // writeReconcileSummary prints a short human summary of a reconcile run.
 func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 	if !rep.Changed {
-		fmt.Fprintln(w, "up to date; nothing to write")
+		fmt.Fprintln(w, "up to date; nothing to do")
 		return
 	}
 

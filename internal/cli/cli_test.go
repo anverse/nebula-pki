@@ -496,7 +496,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 				ManifestPath: "out/nebula-pki.json",
 				CAName:       "mesh",
 			},
-			wantContain: []string{"up to date; nothing to write"},
+			wantContain: []string{"up to date; nothing to do"},
 			wantNot:     []string{"generated CA", "signed host"},
 		},
 	}
