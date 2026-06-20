@@ -479,14 +479,15 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan) {
 		writes = append(writes, cfg.CACertPath(), cfg.CAKeyPath())
 	}
 
+	hostByLabel := make(map[string]*config.Host, len(cfg.Hosts))
+	for i := range cfg.Hosts {
+		hostByLabel[cfg.Hosts[i].Label] = &cfg.Hosts[i]
+	}
 	for _, ha := range p.HostActions() {
 		if ha.Op == plan.OpSign {
-			for i := range cfg.Hosts {
-				if cfg.Hosts[i].Label == ha.Label {
-					art := cfg.HostArtifactPath(cfg.Hosts[i])
-					writes = append(writes, art.CertPath, art.KeyPath)
-					break
-				}
+			if h, ok := hostByLabel[ha.Label]; ok {
+				art := cfg.HostArtifactPath(*h)
+				writes = append(writes, art.CertPath, art.KeyPath)
 			}
 		}
 	}
