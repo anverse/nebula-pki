@@ -787,13 +787,15 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 		t.Fatal("Changed = true for dry run, want false")
 	}
 
-	// No files must exist.
+	// No files must exist — check CA, manifest, and every host.
 	for _, path := range []string{
 		cfg.Resolve(cfg.CACertPath()),
 		cfg.Resolve(cfg.CAKeyPath()),
 		cfg.Resolve(cfg.ManifestPath()),
 		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath),
 		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath),
+		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[1]).CertPath),
+		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[1]).KeyPath),
 	} {
 		if _, err := os.Stat(path); err == nil {
 			t.Errorf("%s was written during dry run", path)

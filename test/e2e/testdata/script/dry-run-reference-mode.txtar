@@ -1,0 +1,65 @@
+# --dry-run in reference mode prints host write lines on stdout, emits
+# nothing to stderr, and does not touch the filesystem. The CA files are
+# never listed in the preview: reference mode reads them in place but
+# does not write them.
+
+# Seed a real CA, then stage it where the reference config points.
+exec nebula-pki -c gen.hcl
+exists out/ca/ca.crt
+exists out/ca/ca.key
+! stdout .
+mkdir pki
+cp out/ca/ca.crt pki/ca.crt
+cp out/ca/ca.key pki/ca.key
+
+# --dry-run: new host alpha needs signing; CA lines must be absent.
+exec nebula-pki --dry-run
+stdout '^\+ write out/hosts/alpha\.crt$'
+stdout '^\+ write out/hosts/alpha\.key$'
+stdout '^\+ write refs/nebula-pki\.json$'
+! stdout 'ca\.crt'
+! stdout 'ca\.key'
+! stderr .
+
+# No host cert or reference manifest written.
+! exists out/hosts/alpha.crt
+! exists refs/nebula-pki.json
+
+# A real run materialises the host cert and manifest.
+exec nebula-pki
+exists out/hosts/alpha.crt
+exists refs/nebula-pki.json
+! stdout .
+
+# Snapshot to prove the second dry-run leaves everything untouched.
+cp out/hosts/alpha.crt alpha.crt.snap
+cp refs/nebula-pki.json manifest.snap
+
+# Up-to-date tree: dry-run reports nothing to do.
+exec nebula-pki --dry-run
+stdout '^up to date; nothing to do$'
+! stderr .
+
+cmp out/hosts/alpha.crt alpha.crt.snap
+cmp refs/nebula-pki.json manifest.snap
+
+# The referenced CA files remain untouched throughout.
+cmp pki/ca.crt out/ca/ca.crt
+cmp pki/ca.key out/ca/ca.key
+
+-- nebula.hcl --
+ca {
+  cert_file = "pki/ca.crt"
+  key_file  = "pki/ca.key"
+}
+
+storage {
+  manifest_file = "refs/nebula-pki.json"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- gen.hcl --
+ca { name = "test-mesh" }

@@ -1,0 +1,45 @@
+# --dry-run with output_dir shows the custom destination path in the
+# preview, not the default out/hosts path.
+
+# Fresh tree: preview lists the custom directory.
+exec nebula-pki --dry-run
+stdout '^\+ write out/ca/ca\.crt$'
+stdout '^\+ write out/ca/ca\.key$'
+stdout '^\+ write out/hetzner/lh-fra\.crt$'
+stdout '^\+ write out/hetzner/lh-fra\.key$'
+stdout '^\+ write out/nebula-pki\.json$'
+! stdout 'out/hosts'
+! stderr .
+
+# No files written.
+! exists out/hetzner/lh-fra.crt
+! exists out/ca/ca.crt
+
+# A real run materialises the tree.
+exec nebula-pki
+exists out/hetzner/lh-fra.crt
+exists out/hetzner/lh-fra.key
+! stdout .
+
+# Snapshot.
+cp out/hetzner/lh-fra.crt snap.crt
+cp out/nebula-pki.json snap.json
+
+# Up-to-date tree: dry-run reports nothing to do.
+exec nebula-pki --dry-run
+stdout '^up to date; nothing to do$'
+! stderr .
+
+cmp out/hetzner/lh-fra.crt snap.crt
+cmp out/nebula-pki.json snap.json
+
+-- nebula.hcl --
+ca {
+  name = "test-mesh"
+}
+
+host "lh_fra" {
+  name       = "lh-fra"
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out/hetzner"
+}
