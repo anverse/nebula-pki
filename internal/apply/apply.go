@@ -51,6 +51,12 @@ type Options struct {
 	// to stderr. apply never writes progress here itself — only genuine
 	// "you should know this" notices.
 	Warn io.Writer
+	// DryRun, when true, builds the plan and writes a preview to Out, then
+	// returns without modifying the filesystem (including the manifest).
+	DryRun bool
+	// Out receives the dry-run plan output when DryRun is true.
+	// When nil, dry-run output is discarded.
+	Out io.Writer
 }
 
 // SignedArtifact is the destination for a signed host's cert/key pair.
@@ -125,6 +131,11 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	p, err := plan.Build(cfg, current, exists)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.DryRun {
+		writeDryRunPlan(outWriter(opts.Out), cfg, p)
+		return report, nil
 	}
 
 	if cfg.CA.Mode == config.CAModeReference {
@@ -456,6 +467,47 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 		return fmt.Errorf("write manifest: %w", err)
 	}
 	return nil
+}
+
+// writeDryRunPlan writes a human-readable preview of what a real reconcile
+// would write. Each file is prefixed with "+ write ". When the plan has no
+// mutations (all noops or reference-only), it prints "up to date; nothing to do".
+func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan) {
+	var writes []string
+
+	if ca := p.CAAction(); ca.Op == plan.OpGenerate {
+		writes = append(writes, cfg.CACertPath(), cfg.CAKeyPath())
+	}
+
+	for _, ha := range p.HostActions() {
+		if ha.Op == plan.OpSign {
+			for i := range cfg.Hosts {
+				if cfg.Hosts[i].Label == ha.Label {
+					art := cfg.HostArtifactPath(cfg.Hosts[i])
+					writes = append(writes, art.CertPath, art.KeyPath)
+					break
+				}
+			}
+		}
+	}
+
+	if len(writes) == 0 {
+		fmt.Fprintln(w, "up to date; nothing to do")
+		return
+	}
+
+	for _, path := range writes {
+		fmt.Fprintf(w, "+ write %s\n", path)
+	}
+	fmt.Fprintf(w, "+ write %s\n", cfg.ManifestPath())
+}
+
+// outWriter returns w, or io.Discard when w is nil.
+func outWriter(w io.Writer) io.Writer {
+	if w == nil {
+		return io.Discard
+	}
+	return w
 }
 
 // warnWriter returns w, or io.Discard when w is nil, so callers can write

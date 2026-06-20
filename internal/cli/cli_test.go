@@ -240,6 +240,84 @@ ca {
 	}
 }
 
+// TestDryRunFlag_FreshDir verifies that --dry-run on a fresh tree prints
+// planned writes on stdout, leaves stderr empty, and creates no files.
+func TestDryRunFlag_FreshDir(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`
+ca { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"--dry-run", "-c", cfgPath})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\nstderr=%s", err, stderr.String())
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "+ write out/ca/ca.crt") {
+		t.Errorf("stdout = %q, want it to contain '+ write out/ca/ca.crt'", out)
+	}
+	if !strings.Contains(out, "+ write out/hosts/alpha.crt") {
+		t.Errorf("stdout = %q, want it to contain '+ write out/hosts/alpha.crt'", out)
+	}
+	if stderr.String() != "" {
+		t.Errorf("stderr = %q, want empty (dry-run emits no progress)", stderr.String())
+	}
+
+	// No files must exist.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != "nebula.hcl" {
+			t.Errorf("unexpected file after --dry-run: %s", e.Name())
+		}
+	}
+}
+
+// TestDryRunFlag_UpToDate verifies that --dry-run on a reconciled tree
+// prints "up to date; nothing to do" on stdout and nothing on stderr.
+func TestDryRunFlag_UpToDate(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`
+ca { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	// Real run to materialise the tree.
+	var discard bytes.Buffer
+	cmd := New(&discard, &discard)
+	cmd.SetArgs([]string{"-c", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("real run: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd2 := New(&stdout, &stderr)
+	cmd2.SetArgs([]string{"--dry-run", "-c", cfgPath})
+	if err := cmd2.Execute(); err != nil {
+		t.Fatalf("dry-run Execute: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "up to date; nothing to do") {
+		t.Errorf("stdout = %q, want 'up to date; nothing to do'", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 // TestReconcileProgressOnStderr verifies that normal reconcile progress
 // (generated CA, signed host, wrote manifest) goes to stderr and stdout
 // stays empty, so the two streams can be redirected independently.

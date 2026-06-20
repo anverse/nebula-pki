@@ -1,0 +1,47 @@
+# --dry-run builds the plan and prints it on stdout without writing any files.
+
+# On a fresh tree, dry-run shows what would be written.
+exec nebula-pki --dry-run
+stdout '^\+ write out/ca/ca\.crt$'
+stdout '^\+ write out/ca/ca\.key$'
+stdout '^\+ write out/hosts/alpha\.crt$'
+stdout '^\+ write out/hosts/alpha\.key$'
+stdout '^\+ write out/nebula-pki\.json$'
+! stderr .
+
+# No files must have been created.
+! exists out/ca/ca.crt
+! exists out/ca/ca.key
+! exists out/hosts/alpha.crt
+! exists out/hosts/alpha.key
+! exists out/nebula-pki.json
+
+# A real run materialises the tree.
+exec nebula-pki
+! stdout .
+stderr 'generated CA'
+exists out/ca/ca.crt
+exists out/hosts/alpha.crt
+exists out/nebula-pki.json
+
+# Snapshot to prove the second dry-run leaves everything byte-identical.
+cp out/ca/ca.crt ca.crt.snap
+cp out/nebula-pki.json manifest.snap
+
+# After a real run, dry-run reports nothing to do.
+exec nebula-pki --dry-run
+stdout '^up to date; nothing to do$'
+! stderr .
+
+# Tree is untouched.
+cmp out/ca/ca.crt ca.crt.snap
+cmp out/nebula-pki.json manifest.snap
+
+-- nebula.hcl --
+ca {
+  name = "test-mesh"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}

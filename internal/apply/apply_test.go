@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -761,6 +762,120 @@ host "node" {
 	}
 	if rep2.Changed {
 		t.Fatal("second run: Changed = true, want false (noop)")
+	}
+}
+
+// TestReconcile_DryRunWritesNothing verifies that DryRun=true builds the plan
+// and writes a preview without creating any files on disk.
+func TestReconcile_DryRunWritesNothing(t *testing.T) {
+	cfg := writeConfig(t, `
+ca { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+host "beta"  { networks = ["10.0.0.2/16"] }
+`)
+	var out bytes.Buffer
+	rep, err := Reconcile(cfg, Options{
+		Now:              fixedNow,
+		GeneratorVersion: genVersion,
+		DryRun:           true,
+		Out:              &out,
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Fatal("Changed = true for dry run, want false")
+	}
+
+	// No files must exist.
+	for _, path := range []string{
+		cfg.Resolve(cfg.CACertPath()),
+		cfg.Resolve(cfg.CAKeyPath()),
+		cfg.Resolve(cfg.ManifestPath()),
+		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath),
+		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath),
+	} {
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("%s was written during dry run", path)
+		}
+	}
+
+	// Preview must list CA, both hosts, and the manifest.
+	preview := out.String()
+	for _, want := range []string{
+		"+ write " + cfg.CACertPath(),
+		"+ write " + cfg.CAKeyPath(),
+		"+ write " + cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
+		"+ write " + cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		"+ write " + cfg.HostArtifactPath(cfg.Hosts[1]).CertPath,
+		"+ write " + cfg.HostArtifactPath(cfg.Hosts[1]).KeyPath,
+		"+ write " + cfg.ManifestPath(),
+	} {
+		if !strings.Contains(preview, want) {
+			t.Errorf("dry-run output = %q, want it to contain %q", preview, want)
+		}
+	}
+}
+
+// TestReconcile_DryRunOnUpToDateTree verifies that dry-run on a reconciled
+// tree prints "up to date; nothing to do" and leaves every file byte-identical.
+func TestReconcile_DryRunOnUpToDateTree(t *testing.T) {
+	cfg := writeConfig(t, `
+ca { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	manSnap := mustRead(t, cfg.Resolve(cfg.ManifestPath()))
+
+	var out bytes.Buffer
+	rep, err := Reconcile(cfg, Options{
+		Now:              fixedNow.Add(time.Hour),
+		GeneratorVersion: genVersion,
+		DryRun:           true,
+		Out:              &out,
+	})
+	if err != nil {
+		t.Fatalf("dry-run Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Fatal("Changed = true for dry run, want false")
+	}
+	if !strings.Contains(out.String(), "up to date; nothing to do") {
+		t.Errorf("dry-run output = %q, want 'up to date; nothing to do'", out.String())
+	}
+	if got := mustRead(t, cfg.Resolve(cfg.ManifestPath())); string(got) != string(manSnap) {
+		t.Error("manifest changed during dry run")
+	}
+}
+
+// TestReconcile_DryRunCAOnly verifies the preview for a config with no hosts:
+// only CA cert, key, and manifest lines appear.
+func TestReconcile_DryRunCAOnly(t *testing.T) {
+	cfg := writeConfig(t, `ca { name = "mesh" }`)
+	var out bytes.Buffer
+	if _, err := Reconcile(cfg, Options{
+		Now:              fixedNow,
+		GeneratorVersion: genVersion,
+		DryRun:           true,
+		Out:              &out,
+	}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	preview := out.String()
+	for _, want := range []string{
+		"+ write " + cfg.CACertPath(),
+		"+ write " + cfg.CAKeyPath(),
+		"+ write " + cfg.ManifestPath(),
+	} {
+		if !strings.Contains(preview, want) {
+			t.Errorf("dry-run output = %q, want it to contain %q", preview, want)
+		}
+	}
+	if strings.Contains(preview, "host") {
+		t.Errorf("dry-run output = %q, must not mention hosts for CA-only config", preview)
 	}
 }
 

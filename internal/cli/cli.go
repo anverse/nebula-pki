@@ -25,11 +25,21 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 	var (
 		showVersion bool
 		configPath  string
+		dryRun      bool
 	)
 
 	root := &cobra.Command{
-		Use:           "nebula-pki",
-		Short:         "Declarative wrapper around nebula-cert",
+		Use:   "nebula-pki",
+		Short: "Declarative PKI manager for Nebula mesh networks",
+		Long: `nebula-pki reconciles the PKI for a Nebula mesh network.
+
+On each run it reads nebula.hcl (or the path given by -c), generates or
+loads the CA, signs any host certificates that are new or missing, and
+records the result in a manifest. Runs are idempotent: an unchanged tree
+writes nothing.
+
+Progress is written to stderr. Use --dry-run to preview what would change
+without touching the filesystem.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -37,7 +47,7 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), buildinfo.String())
 				return nil
 			}
-			return runReconcile(cmd, configPath)
+			return runReconcile(cmd, configPath, dryRun)
 		},
 	}
 
@@ -45,6 +55,7 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 	root.SetErr(stderr)
 	root.PersistentFlags().BoolVar(&showVersion, "version", false, "print version and exit")
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "path to HCL configuration file")
+	root.Flags().BoolVar(&dryRun, "dry-run", false, "preview planned writes without modifying the filesystem")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newCheckCmd(&configPath))
@@ -55,7 +66,8 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 // runReconcile is the default action: load the configuration and bring the
 // output tree in line with it. It reconciles the CA in both generate and
 // reference mode, and signs any host certificates that are new or missing.
-func runReconcile(cmd *cobra.Command, configPath string) error {
+// When dryRun is true the plan is previewed on stdout without any writes.
+func runReconcile(cmd *cobra.Command, configPath string, dryRun bool) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -64,11 +76,15 @@ func runReconcile(cmd *cobra.Command, configPath string) error {
 		Now:              time.Now().UTC(),
 		GeneratorVersion: buildinfo.Version,
 		Warn:             cmd.ErrOrStderr(),
+		DryRun:           dryRun,
+		Out:              cmd.OutOrStdout(),
 	})
 	if err != nil {
 		return err
 	}
-	writeReconcileSummary(cmd.ErrOrStderr(), rep)
+	if !dryRun {
+		writeReconcileSummary(cmd.ErrOrStderr(), rep)
+	}
 	return nil
 }
 
