@@ -61,7 +61,6 @@ The tool:
 - [`adr/009-host-identifier-vs-cert-name.md`](./adr/009-host-identifier-vs-cert-name.md) — why each `host` block has both a label (manifest key) and an optional `name` field (cert CN).
 - [`adr/010-single-ca-per-config.md`](./adr/010-single-ca-per-config.md) — one CA per HCL file (superseded by ADR-015).
 - [`adr/011-output-blocks-are-directories.md`](./adr/011-output-blocks-are-directories.md) — fan-out design context (superseded by ADR-020).
-- [`adr/020-output-dir-per-host.md`](./adr/020-output-dir-per-host.md) — single `output_dir` per host replacing the `output_dirs` list; composable `out_crt` / `out_key` path components.
 - [`adr/012-upstream-nebula-coupling.md`](./adr/012-upstream-nebula-coupling.md) — compile-time coupling to `slackhq/nebula`, no runtime dependency, version-compatibility policy.
 - [`adr/013-atomic-artifact-writes.md`](./adr/013-atomic-artifact-writes.md) — crash-safe per-file writes via temp+rename; what it guarantees for operators and what it deliberately does not.
 - [`adr/014-flake-version-sync.md`](./adr/014-flake-version-sync.md) — pre-tag flake bump driven by `task release`; why the tag must already carry the new `version`/`vendorHash`.
@@ -70,6 +69,7 @@ The tool:
 - [`adr/017-host-renewal-threshold.md`](./adr/017-host-renewal-threshold.md) — `renew_before`; time-based re-signing before expiry.
 - [`adr/018-in-pub-air-gapped-signing.md`](./adr/018-in-pub-air-gapped-signing.md) — signing a device-supplied public key, config-only, no `keygen` subcommand.
 - [`adr/019-manifest-compactness.md`](./adr/019-manifest-compactness.md) — omit optional fields when empty; policy for which manifest fields carry `omitempty`.
+- [`adr/020-output-dir-per-host.md`](./adr/020-output-dir-per-host.md) — single `output_dir` per host replacing the `output_dirs` list; composable `out_crt` / `out_key` path components. Supersedes ADR-011.
 
 ## Operating model
 

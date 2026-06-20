@@ -11,7 +11,7 @@
 - **One config, whole mesh.** CA and every host in a single HCL. With `nebula-cert` you'd reconstruct that picture from shell history.
 - **Reviewable.** Cert changes flow through pull requests like any other code.
 - **Reproducible.** Same config in, same artifacts out. `nebula-cert` produces whatever you remembered to type that day.
-- **Multiple output directories.** One host's cert can land in several directories in a single run. No more shell loops copying files around.
+- **Per-host output directory.** Each host declares its own destination directory — fan out the whole mesh to different providers or projects in a single run.
 - **No flag juggling.** Each host's networks, groups, and duration sit next to its name. No more re-typing the right `-networks`, `-groups`, `-duration` combo per host.
 
 ## Install
