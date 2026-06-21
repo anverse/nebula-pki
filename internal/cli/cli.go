@@ -53,7 +53,7 @@ without touching the filesystem.`,
 
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.PersistentFlags().BoolVar(&showVersion, "version", false, "print version and exit")
+	root.Flags().BoolVar(&showVersion, "version", false, "print version and exit")
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "path to HCL configuration file")
 	root.Flags().BoolVar(&dryRun, "dry-run", false, "preview planned writes without modifying the filesystem")
 
