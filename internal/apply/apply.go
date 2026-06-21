@@ -134,7 +134,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	}
 
 	if opts.DryRun {
-		writeDryRunPlan(outWriter(opts.Out), cfg, p)
+		writeDryRunPlan(coalesceWriter(opts.Out), cfg, p)
 		return report, nil
 	}
 
@@ -230,7 +230,7 @@ func reconcileReference(cfg *config.Config, opts Options, report *Report, p plan
 
 	result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
 	if errors.Is(err, pki.ErrReferenceCAExpired) {
-		fmt.Fprintf(warnWriter(opts.Warn),
+		fmt.Fprintf(coalesceWriter(opts.Warn),
 			"warning: referenced CA %q is expired (not_after %s); recording it anyway\n",
 			result.Name, result.NotAfter.UTC().Format(time.RFC3339),
 		)
@@ -502,17 +502,9 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan) {
 	fmt.Fprintf(w, "+ write %s\n", cfg.ManifestPath())
 }
 
-// outWriter returns w, or io.Discard when w is nil.
-func outWriter(w io.Writer) io.Writer {
-	if w == nil {
-		return io.Discard
-	}
-	return w
-}
-
-// warnWriter returns w, or io.Discard when w is nil, so callers can write
-// diagnostics unconditionally.
-func warnWriter(w io.Writer) io.Writer {
+// coalesceWriter returns w, or io.Discard when w is nil, so callers can
+// write unconditionally without a nil check at each site.
+func coalesceWriter(w io.Writer) io.Writer {
 	if w == nil {
 		return io.Discard
 	}

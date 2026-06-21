@@ -14,6 +14,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -183,7 +184,7 @@ func diagsError(diags hcl.Diagnostics) error {
 			parts = append(parts, fmt.Sprintf("%s: %s", d.Summary, d.Detail))
 		}
 	}
-	return fmt.Errorf("%s", strings.Join(parts, "\n"))
+	return errors.New(strings.Join(parts, "\n"))
 }
 
 // ---------------------------------------------------------------------------
