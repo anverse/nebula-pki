@@ -12,7 +12,7 @@
 #
 # See ./example.md for the walkthrough.
 
-ca {
+ca "homelab-prod" {
   name     = "homelab-prod"
   duration = "26280h"     # ~3 years
   networks = ["172.16.0.0/16"]

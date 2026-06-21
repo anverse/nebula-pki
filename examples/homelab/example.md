@@ -74,8 +74,8 @@ homelab/
     dev/
       nebula-pki.json
       ca/
-        ca.crt
-        ca.key.enc
+        homelab-dev.crt
+        homelab-dev.key.enc
       cluster/                    # <- consumed by the cluster deploy
         node_1.crt
         node_1.key.enc
@@ -138,7 +138,7 @@ them is different from a laptop:
    key is still on the phone, where it has always been.
 
 5. **Back to the phone.** Send the signed `.crt` and the CA cert
-   (`out/dev/ca/ca.crt`) to the phone — AirDrop, signal-to-self, the
+   (`out/dev/ca/homelab-dev.crt`) to the phone — AirDrop, signal-to-self, the
    secure-share feature inside the Nebula app, whatever you trust. In
    the app: *Site → Certificate → Import* for the host cert, and
    *Site → CA → Import* for the CA cert.

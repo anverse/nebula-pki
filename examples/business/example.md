@@ -82,8 +82,8 @@ business/
   out/
     nebula-pki.json
     ca/
-      ca.crt
-      ca.key.enc
+      acme-mesh.crt
+      acme-mesh.key.enc
     sites/
       hq/
         lh_hq_1.crt        + .key.enc

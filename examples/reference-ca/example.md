@@ -21,7 +21,7 @@ For a from-scratch CA the tool generates and owns, see
 The CA block names two existing files and nothing else:
 
 ```hcl
-ca {
+ca "shared-root" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
 }

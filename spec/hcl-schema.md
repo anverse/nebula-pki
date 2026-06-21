@@ -12,7 +12,7 @@ The CLI is a thin declarative wrapper around `nebula-cert ca` and `nebula-cert s
 
 | Block | Cardinality | Purpose |
 |---|---|---|
-| `ca` | 1..N | Certificate authority — either generated or referenced from existing files. A single unlabelled `ca {}` is the common case; multiple `ca "<label>" {}` blocks enable CA rotation and multi-CA meshes. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
+| `ca` | 1..N | Certificate authority — either generated or referenced from existing files. Every `ca` block must carry a label: `ca "<label>" {}`. One or more labelled CAs enable CA rotation and multi-CA meshes in a single file. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
 | `storage` | 0..1 | Default output directory, trust-bundle path, and encryption backend. |
 | `host` | 0..N | A host certificate to sign. Maps 1:1 to `nebula-cert sign`. Selects a signing CA via `host.ca` when more than one CA exists. Each host's cert and key are written to a per-host `output_dir` (defaults to `<storage.out_dir>/hosts`). |
 
@@ -24,7 +24,7 @@ The signing-CA default is set with `default = true` on a `ca` block (see the `ca
 
 ### `ca`
 
-Defines a signing CA. A file may declare **one** unlabelled `ca {}` (the common case) or **one or more** labelled `ca "<label>" {}` blocks (for rotation and multi-CA meshes — see [ADR-015](./adr/015-multiple-cas-per-config.md)). Labelled and unlabelled forms must not be mixed in one file.
+Defines a signing CA. Every `ca` block must carry a label: `ca "<label>" {}`. A file may declare one or more labelled CAs. An unlabelled `ca {}` block is a parse error. See [ADR-015](./adr/015-multiple-cas-per-config.md).
 
 Each CA has two mutually exclusive modes:
 
@@ -33,8 +33,8 @@ Each CA has two mutually exclusive modes:
 
 | Field | Type | Required | Default | `nebula-cert ca` flag | Description |
 |---|---|---|---|---|---|
-| _label_ | identifier | no | — | — | CA label. Omit for a single-CA file; add (`ca "current" {}`) to opt into the multi-CA shape. Unique within the file; identifier rules `^[A-Za-z_][A-Za-z0-9_-]*$`. The label is the manifest key in `cas` and the target of `host.ca`. |
-| `default` | bool | no | `false` | — | Marks this CA as the default signing CA. Hosts that omit `host.ca` are signed by it. At most one CA may set `default = true`. Multi-CA shape only (forbidden on a lone unlabelled CA). See [ADR-015](./adr/015-multiple-cas-per-config.md). |
+| _label_ | identifier | **yes** | — | — | CA label. Required on every `ca` block. Unique within the file; identifier rules `^[A-Za-z_][A-Za-z0-9_-]*$`. The label is the manifest key in `cas` and the target of `host.ca`. |
+| `default` | bool | no | `false` | — | Marks this CA as the default signing CA. Hosts that omit `host.ca` are signed by it. At most one CA may set `default = true`. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
 | `name` | string | yes in generate mode | — | `-name` | CA name. Ignored in reference mode (CA is read as-is). |
 | `duration` | duration | no | `"8760h"` (1 year, matches `nebula-cert` default) | `-duration` | Validity. Generate mode only. |
 | `version` | number | no | `2` | `-version` | Certificate format version (1 or 2). Generate mode only. |
@@ -48,8 +48,8 @@ Each CA has two mutually exclusive modes:
 | `argon_parallelism` | number | no | `4` | `-argon-parallelism` | |
 | `renew_before` | duration | no | unset | — | Default renewal threshold for hosts signed by this CA. A host is re-signed when within this window of expiry. Overridden by `host.renew_before`. See [ADR-017](./adr/017-host-renewal-threshold.md). |
 | `archived` | bool | no | `false` | — | When `true`, this CA's certificate is excluded from the emitted trust bundle and the CA may not sign hosts. Its manifest record is kept (archiving never deletes history). Used to stage the final step of a rotation. See [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). |
-| `out_crt` | string | no | `<storage.out_dir>/ca/ca.crt` (single CA) or `<storage.out_dir>/ca/<label>.crt` (multi-CA) | `-out-crt` | Path for CA cert. Generate mode only. |
-| `out_key` | string | no | `<storage.out_dir>/ca/ca.key` (single CA) or `<storage.out_dir>/ca/<label>.key` (multi-CA) | `-out-key` | Path for CA private key. Generate mode only. |
+| `out_crt` | string | no | `<storage.out_dir>/ca/<label>.crt` | `-out-crt` | Path for CA cert. Generate mode only. |
+| `out_key` | string | no | `<storage.out_dir>/ca/<label>.key` | `-out-key` | Path for CA private key. Generate mode only. |
 | `out_qr` | string | no | unset | `-out-qr` | Optional PNG QR. Generate mode only. |
 | `cert_file` | string | no (yes for reference mode) | — | `-ca-crt` (on sign) | Path to an existing CA cert. Activates reference mode. |
 | `key_file` | string | no (yes for reference mode) | — | `-ca-key` (on sign) | Path to an existing CA key. Activates reference mode. |
@@ -58,15 +58,16 @@ Each CA has two mutually exclusive modes:
 
 **Generate-only fields** (`name` aside): `duration`, `version`, `curve`, `encrypt`, `argon_*`, `out_crt`, `out_key`, `out_qr`. Setting any of them in reference mode is an error.
 
-#### Multiple CAs and signing-CA selection
+#### Signing-CA selection
 
-When a file has more than one `ca` block, each host resolves to exactly one signing CA:
+Each host resolves to exactly one signing CA:
 
 1. `host.ca` if set;
 2. else the CA marked `default = true`, if any;
-3. else it is a validation error (ambiguous — name a CA or mark one default).
+3. else if exactly one CA is declared, that CA (no ambiguity);
+4. else it is a validation error (ambiguous — name a CA or mark one default).
 
-This mirrors Terraform's provider model: one CA is the default (here via `default = true`), the rest are aliases a host selects with `host.ca`, and a host that names nothing gets the default. In a single-CA file, `host.ca` and `ca.default` are forbidden (there is nothing to select among). Per-CA `groups` / `networks` / `unsafe_networks` restrictions are validated against each host **relative to the CA that signs it**. See [ADR-015](./adr/015-multiple-cas-per-config.md). For the rotation workflow built on this, see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md) and the [rotation example](#ca-rotation-example) below.
+This mirrors Terraform's provider model: one CA is the default (here via `default = true`), the rest are aliases a host selects with `host.ca`, and a host that names nothing gets the default. Per-CA `groups` / `networks` / `unsafe_networks` restrictions are validated against each host **relative to the CA that signs it**. See [ADR-015](./adr/015-multiple-cas-per-config.md). For the rotation workflow built on this, see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md) and the [rotation example](#ca-rotation-example) below.
 
 ### `storage`
 
@@ -129,7 +130,7 @@ Set the optional `name` field when the certificate CN needs characters HCL label
 |---|---|---|---|---|
 | _label_ | identifier | yes | — | HCL identifier; manifest key. Conventionally snake_case. |
 | `name` | string | no (defaults to label) | `-name` | Certificate common name. Use when label and CN should differ. |
-| `ca` | string | conditional | `-ca-crt`/`-ca-key` (selects which) | Label of the signing CA. Optional when a CA is marked `default = true` (omit to use the default); required when the file has >1 CA and none is default; forbidden when the file has a single CA. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
+| `ca` | string | conditional | `-ca-crt`/`-ca-key` (selects which) | Label of the signing CA. Optional when the file has exactly one CA or a CA is marked `default = true` (omit to use the default, or set explicitly); required when the file has more than one CA and none is marked `default`. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
 | `networks` | list(CIDR) | yes | `-networks` | Overlay addresses for this host. Each entry is a full CIDR, e.g. `"10.42.0.1/16"`. |
 | `groups` | list(string) | no | `-groups` | Free-form group tags. |
 | `unsafe_networks` | list(CIDR) | no | `-unsafe-networks` | Subnets this host may route for. |
@@ -167,7 +168,7 @@ When `in_pub` is set, no `.key` is written — only the `.crt` (and `.png`, if `
 ## Complete example
 
 ```hcl
-ca {
+ca "wiech-mesh" {
   name     = "wiech-mesh"
   duration = "26280h"   # 3 years
   curve    = "25519"
@@ -212,7 +213,7 @@ host "router_edge" {
 ## Reference-mode example
 
 ```hcl
-ca {
+ca "mesh" {
   cert_file = "../existing-pki/ca.crt"
   key_file  = "../existing-pki/ca.key"
 }
@@ -240,7 +241,7 @@ ca "current" {
   networks = ["10.42.0.0/16"]
 }
 
-host "app_01" { networks = ["10.42.1.10/16"] }   # ca resolves to "current" (only CA)
+host "app_01" { networks = ["10.42.1.10/16"] }   # only one CA, no host.ca needed
 ```
 
 `out/ca/bundle.crt` contains just `current`.
@@ -297,7 +298,7 @@ ca "current" {
 For hosts whose private key must never leave the device — mobile, HSM-backed, or separation-of-duties. The device generates its own keypair (`nebula-cert keygen` on the device, or the Mobile Nebula app) and exports only the public key. The operator drops that `.pub` where the config points; `nebula-pki` signs it and writes a cert only. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
 
 ```hcl
-ca {
+ca "mesh-2026" {
   name     = "mesh-2026"
   duration = "8760h"
 }
@@ -319,7 +320,7 @@ Each config must own a distinct manifest, and the resolved artifact paths must n
 `dev.hcl`:
 
 ```hcl
-ca { name = "dev-mesh" }
+ca "dev" { name = "dev-mesh" }
 
 storage {
   out_dir       = "out/dev"
@@ -332,7 +333,7 @@ host "app_01" { networks = ["10.99.0.10/16"] }
 `prod.hcl`:
 
 ```hcl
-ca { name = "prod-mesh" }
+ca "prod" { name = "prod-mesh" }
 
 storage {
   out_dir       = "out/prod"
@@ -357,8 +358,8 @@ The manifest's `config_path` field records which HCL file produced it; a future 
 out/
   nebula-pki.json
   ca/
-    ca.crt
-    ca.key.enc
+    wiech-mesh.crt
+    wiech-mesh.key.enc
     bundle.crt
   hetzner/
     lh-fra.crt
@@ -378,14 +379,12 @@ out/
 CA and multi-CA:
 
 - A configuration file declares zero `ca` blocks.
-- A file mixes a labelled `ca "<label>" {}` block with an unlabelled `ca {}` block.
+- A `ca` block has no label (unlabelled `ca {}` is a parse error; use `ca "<label>" {}`).
 - Two `ca` blocks share a label.
 - A `ca` label is not a valid identifier (`^[A-Za-z_][A-Za-z0-9_-]*$`).
 - More than one `ca` block sets `default = true`.
-- `default = true` is set on a lone unlabelled CA (nothing to default among).
-- `ca.default` or `host.ca` is set in a file that has a single (unlabelled) CA.
 - `host.ca` names a CA label that is not declared.
-- A host's signing CA is ambiguous: the file has >1 CA and the host has neither `host.ca` nor a CA marked `default = true`.
+- A host's signing CA is ambiguous: the file has >1 CA, the host has no `host.ca`, and no CA is marked `default = true`.
 - A host is signed by an `archived = true` CA (archived CAs may not sign).
 - `ca` is in reference mode but only one of `cert_file` / `key_file` is set.
 - `ca` is in reference mode and sets generate-only fields (`name`, `duration`, `curve`, `version`, `out_*`, `argon_*`, `encrypt`).

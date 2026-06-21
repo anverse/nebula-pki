@@ -18,8 +18,8 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
 <out_dir>/
   nebula-pki.json     # manifest; renameable via storage.manifest_file
   ca/
-    ca.crt
-    ca.key[.enc]
+    <label>.crt
+    <label>.key[.enc]
     bundle.crt        # concatenated PEM of active CA certs; renameable via storage.trust_bundle_file
   hosts/
     <name>.crt
@@ -28,7 +28,7 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
 
 `.enc` is appended by the active encryption backend (`none` writes plain `.key`). The suffix is configurable via `storage.encryption.<backend>.output_suffix`.
 
-With multiple labelled CAs ([ADR-015](./015-multiple-cas-per-config.md)), the default CA cert/key paths are `ca/<label>.crt` and `ca/<label>.key[.enc]`; `bundle.crt` still holds the concatenation of every active (non-`archived`) CA cert. The trust bundle is always written — with a single CA it is a one-cert file equal to `ca.crt` — so downstream `pki.ca` has one stable path before, during, and after a rotation. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
+Every `ca` block must carry a label ([ADR-015](./015-multiple-cas-per-config.md)), so CA cert/key paths are always `ca/<label>.crt` and `ca/<label>.key[.enc]`. `bundle.crt` holds the concatenation of every active (non-`archived`) CA cert and is always written — so downstream `pki.ca` has one stable path before, during, and after a rotation. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
 
 ### File modes
 
@@ -130,21 +130,21 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
 }
 ```
 
-For a single unlabelled CA, the manifest retains the legacy top-level `ca` object (the shape shown in earlier releases) instead of `cas`, for back-compat; `cas` is omitted, and no `default` marker appears (a lone CA is implicitly the signer). Tooling should read `cas` when present and fall back to `ca` otherwise. See [ADR-015](./015-multiple-cas-per-config.md).
+The manifest always uses the `cas` map — there is no legacy single-CA `ca` object. Every CA block requires a label ([ADR-015](./015-multiple-cas-per-config.md)), so `cas` is always present and always has at least one entry.
 
 #### Field rules
 
 - `schema_version` — integer. Bumped only when the manifest format changes incompatibly. Currently `1`.
 - `generator.nebula_library_version` — the `slackhq/nebula` Go module version pinned at build time. Matches the value reported by `nebula-pki --version`. See [ADR-012](./012-upstream-nebula-coupling.md). Optional in older manifests; written by all current builds.
 - `config_path` — path to the HCL config that produced this manifest, relative to the manifest's directory when possible (absolute fallback). Lets future tooling detect "wrong config writing to my manifest" without enforcing it at runtime.
-- `cas` — map of CA label → CA record, present when the config uses labelled CAs ([ADR-015](./015-multiple-cas-per-config.md)). Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, `archived`, validity window, and paths. For a single unlabelled CA, the legacy top-level `ca` object is written instead (same record shape, without `default`/`archived`). Exactly one of `ca` / `cas` is present.
+- `cas` — map of CA label → CA record. Always present; always has at least one entry. Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, `archived`, validity window, and paths. See [ADR-015](./015-multiple-cas-per-config.md).
 - `cas.<label>.default` — `true` for the one CA marked `default = true` in HCL (the signer for hosts that omit `host.ca`); `false` for the rest. At most one record has `true`. Absent in the legacy single-CA `ca` object. This replaces the earlier top-level `default_ca` field. See [ADR-015](./015-multiple-cas-per-config.md).
 - `trust_bundle` — `{ path, ca_fingerprints }`. `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in bundle order, the fingerprint of every active (non-`archived`) CA cert included. Lets downstream tooling verify what the mesh currently trusts without parsing the PEM. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
-- `cas.<label>.archived` / `ca` — `archived` is `true` when the CA is excluded from the trust bundle and barred from signing. The CA's record is retained either way (archiving never deletes history). The legacy single-CA `ca` object never carries `archived` (a lone CA is always active).
-- `ca.mode` / `cas.<label>.mode` — `"generate"` or `"reference"`.
+- `cas.<label>.archived` — `true` when the CA is excluded from the trust bundle and barred from signing. The CA's record is retained either way (archiving never deletes history).
+- `cas.<label>.mode` — `"generate"` or `"reference"`.
 - `*.fingerprint` (on `ca`, `cas.*`, and `hosts.*`) — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every host), not of the public key and not of any private material — so it is always safe to commit.
 - `hosts.*.name` — the cert Common Name. Equal to the host's HCL label unless `host.name` overrides it (see [ADR-009](./009-host-identifier-vs-cert-name.md)).
-- `hosts.*.ca` — the label of the CA that signed this host (the signing CA resolved from `host.ca`, or the CA marked `default = true`). Present with labelled CAs; omitted in the single-CA legacy shape. `hosts.*.ca_fingerprint` pins the exact CA cert regardless.
+- `hosts.*.ca` — the label of the CA that signed this host (the signing CA resolved from `host.ca`, or the CA marked `default = true`). `hosts.*.ca_fingerprint` pins the exact CA cert regardless.
 - `hosts.*.duration` — the literal value from HCL (e.g. `"8760h"`). **Omitted** when unset (the host co-expires with its CA). Used for idempotency; `not_after` is the resolved timestamp from the most recent sign.
 - `hosts.*.renew_before` — the resolved renewal threshold literal (from `host.renew_before` or the signing CA's `renew_before`). **Omitted** when neither is set. Recorded so the staleness verdict is reproducible. See [ADR-017](./017-host-renewal-threshold.md).
 - `hosts.*.in_pub` — `true` when the host was signed from an externally-supplied public key ([ADR-018](./018-in-pub-air-gapped-signing.md)). **Omitted** when false.

@@ -8,11 +8,10 @@
   "additionalProperties": false,
   "properties": {
     "ca": {
-      "description": "A single unlabelled CA object, or an array of labelled CA objects (each carrying a `label`). At most one labelled CA may set `default: true`. See ADR-015.",
-      "oneOf": [
-        { "$ref": "#/$defs/ca" },
-        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ca" } }
-      ]
+      "description": "One or more labelled CA objects. Every CA must carry a `label`; an unlabelled `ca {}` is a parse error. At most one CA may set `default: true`. See ADR-015.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/ca" }
     },
     "storage": { "$ref": "#/$defs/storage" },
     "host": {
@@ -43,7 +42,7 @@
     },
     "caGenerate": {
       "type": "object",
-      "required": ["name"],
+      "required": ["label", "name"],
       "additionalProperties": false,
       "properties": {
         "label":             { "type": "string", "minLength": 1, "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
@@ -74,7 +73,7 @@
     },
     "caReference": {
       "type": "object",
-      "required": ["cert_file", "key_file"],
+      "required": ["label", "cert_file", "key_file"],
       "additionalProperties": false,
       "properties": {
         "label":     { "type": "string", "minLength": 1, "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },

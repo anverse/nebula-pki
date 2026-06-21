@@ -25,7 +25,7 @@
 #
 # See ./example.md for the walkthrough.
 
-ca {
+ca "shared-root" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
 }

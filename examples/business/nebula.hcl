@@ -28,7 +28,7 @@
 #
 # See ./example.md for the walkthrough.
 
-ca {
+ca "acme-mesh" {
   name     = "acme-mesh"
   duration = "43800h"                  # ~5 years
   curve    = "25519"

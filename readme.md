@@ -60,7 +60,7 @@ The built-in sops backend uses the sops Go library — no external `sops` CLI re
 `nebula.hcl`:
 
 ```hcl
-ca {
+ca "my-mesh" {
   name     = "my-mesh"
   duration = "8760h"
 }

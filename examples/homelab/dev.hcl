@@ -14,7 +14,7 @@
 #
 # See ./example.md for the walkthrough, including the mobile workflow.
 
-ca {
+ca "homelab-dev" {
   name     = "homelab-dev"
   duration = "26280h"     # ~3 years
   networks = ["172.16.0.0/16"]
