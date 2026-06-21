@@ -20,7 +20,7 @@ cmp out/nebula-pki.json no-schema-manifest
 ! exists out/ca
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name = "test-mesh"
 }
 

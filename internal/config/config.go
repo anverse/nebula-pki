@@ -19,6 +19,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -35,9 +36,51 @@ type Config struct {
 	// known. Empty for in-memory loads via Parse.
 	Path string
 
-	CA      CA
+	// CAs holds all certificate authorities, in declaration order. Always
+	// at least one element. Single-CA configs have exactly one element.
+	CAs     []CA
 	Storage Storage
 	Hosts   []Host
+}
+
+// IsMultiCA reports whether the config declares more than one CA.
+func (c *Config) IsMultiCA() bool { return len(c.CAs) > 1 }
+
+// CAByLabel returns a pointer to the CA with the given label, or nil if
+// no such CA exists.
+func (c *Config) CAByLabel(label string) *CA {
+	for i := range c.CAs {
+		if c.CAs[i].Label == label {
+			return &c.CAs[i]
+		}
+	}
+	return nil
+}
+
+// DefaultCA returns the CA marked default = true, or the sole CA when
+// there is exactly one. Returns nil only if there are multiple CAs and
+// none is marked default — callers should ensure validate() has passed
+// before relying on non-nil semantics.
+func (c *Config) DefaultCA() *CA {
+	for i := range c.CAs {
+		if c.CAs[i].Default {
+			return &c.CAs[i]
+		}
+	}
+	if len(c.CAs) == 1 {
+		return &c.CAs[0]
+	}
+	return nil
+}
+
+// SigningCA returns the CA that should sign the given host. Returns nil
+// only when the signing CA is ambiguous — validate() rejects such configs,
+// so a nil return here indicates a bug in the caller.
+func (c *Config) SigningCA(h Host) *CA {
+	if h.CARef != "" {
+		return c.CAByLabel(h.CARef)
+	}
+	return c.DefaultCA()
 }
 
 // CAMode enumerates the two modes of the `ca` block.
@@ -67,6 +110,11 @@ func (m CAMode) String() string {
 // UnsafeNetworks, Groups, Curve and Version are passed through
 // unchanged. In reference mode only CertFile/KeyFile are meaningful.
 type CA struct {
+	// Label is the HCL block label (e.g. ca "mesh" → "mesh"). Always set.
+	Label string
+	// Default marks this CA as the default signing CA in multi-CA configs.
+	Default bool
+
 	Mode CAMode
 
 	// Generate-mode fields.
@@ -108,6 +156,10 @@ type Host struct {
 	// Name is the certificate CN. Defaults to Label.
 	Name string
 
+	// CARef is the value of the `ca` field on the host block — the label
+	// of the signing CA. Empty means "use the default (or sole) CA".
+	CARef string
+
 	Networks       []netip.Prefix
 	Groups         []string
 	UnsafeNetworks []netip.Prefix
@@ -125,6 +177,9 @@ const (
 	defaultOutDir       = "out"
 	defaultManifestName = "nebula-pki.json"
 )
+
+// caLabelRe is the identifier rule from spec/hcl-schema.md and ADR-015.
+var caLabelRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // hclCurveAliases maps the user-facing HCL curve strings to upstream
 // cert.Curve values. The schema documents "25519" and "P256"; upstream
@@ -193,12 +248,15 @@ func diagsError(diags hcl.Diagnostics) error {
 // ---------------------------------------------------------------------------
 
 type rawConfig struct {
-	CA      *rawCA      `hcl:"ca,block"`
+	CAs     []rawCA     `hcl:"ca,block"`
 	Storage *rawStorage `hcl:"storage,block"`
 	Hosts   []rawHost   `hcl:"host,block"`
 }
 
 type rawCA struct {
+	Label string `hcl:"label,label"`
+
+	Default          *bool    `hcl:"default,optional"`
 	Name             *string  `hcl:"name,optional"`
 	Duration         *string  `hcl:"duration,optional"`
 	Version          *int     `hcl:"version,optional"`
@@ -241,6 +299,7 @@ type rawEncryptionRaw struct {
 type rawHost struct {
 	Label string `hcl:"label,label"`
 
+	CARef          *string  `hcl:"ca,optional"`
 	Name           *string  `hcl:"name,optional"`
 	Networks       []string `hcl:"networks,optional"`
 	Groups         []string `hcl:"groups,optional"`
@@ -261,17 +320,21 @@ type rawHost struct {
 // ---------------------------------------------------------------------------
 
 func decode(filename string, raw *rawConfig) (*Config, error) {
-	if raw.CA == nil {
+	if len(raw.CAs) == 0 {
 		return nil, fmt.Errorf("%s: missing required `ca` block", filename)
 	}
 
 	cfg := &Config{Path: filename}
 
-	ca, err := decodeCA(filename, raw.CA)
-	if err != nil {
-		return nil, err
+	cas := make([]CA, 0, len(raw.CAs))
+	for i := range raw.CAs {
+		ca, err := decodeCA(filename, &raw.CAs[i])
+		if err != nil {
+			return nil, err
+		}
+		cas = append(cas, *ca)
 	}
-	cfg.CA = *ca
+	cfg.CAs = cas
 
 	storage, err := decodeStorage(filename, raw.Storage)
 	if err != nil {
@@ -293,7 +356,11 @@ func decode(filename string, raw *rawConfig) (*Config, error) {
 }
 
 func decodeCA(filename string, r *rawCA) (*CA, error) {
-	ca := &CA{}
+	ca := &CA{Label: r.Label}
+
+	if r.Default != nil {
+		ca.Default = *r.Default
+	}
 
 	hasCert := r.CertFile != nil && *r.CertFile != ""
 	hasKey := r.KeyFile != nil && *r.KeyFile != ""
@@ -321,7 +388,7 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 	if r.Duration != nil {
 		d, err := time.ParseDuration(*r.Duration)
 		if err != nil {
-			return nil, fmt.Errorf("%s: ca.duration: %w", filename, err)
+			return nil, fmt.Errorf("%s: ca %q.duration: %w", filename, r.Label, err)
 		}
 		ca.Duration = d
 		ca.HasDuration = true
@@ -329,7 +396,7 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 	if r.Version != nil {
 		v, ok := hclVersions[*r.Version]
 		if !ok {
-			return nil, fmt.Errorf("%s: ca.version must be 1 or 2, got %d", filename, *r.Version)
+			return nil, fmt.Errorf("%s: ca %q.version must be 1 or 2, got %d", filename, r.Label, *r.Version)
 		}
 		ca.Version = v
 		ca.HasVersion = true
@@ -337,20 +404,20 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 	if r.Curve != nil {
 		c, ok := hclCurveAliases[*r.Curve]
 		if !ok {
-			return nil, fmt.Errorf("%s: ca.curve must be \"25519\" or \"P256\", got %q", filename, *r.Curve)
+			return nil, fmt.Errorf("%s: ca %q.curve must be \"25519\" or \"P256\", got %q", filename, r.Label, *r.Curve)
 		}
 		ca.Curve = c
 		ca.HasCurve = true
 	}
 	ca.Groups = append(ca.Groups, r.Groups...)
 
-	nets, err := parsePrefixes(filename, "ca.networks", r.Networks)
+	nets, err := parsePrefixes(filename, fmt.Sprintf("ca %q.networks", r.Label), r.Networks)
 	if err != nil {
 		return nil, err
 	}
 	ca.Networks = nets
 
-	unets, err := parsePrefixes(filename, "ca.unsafe_networks", r.UnsafeNetworks)
+	unets, err := parsePrefixes(filename, fmt.Sprintf("ca %q.unsafe_networks", r.Label), r.UnsafeNetworks)
 	if err != nil {
 		return nil, err
 	}
@@ -392,19 +459,19 @@ func decodeArgon(filename string, r *rawCA) (*cert.Argon2Parameters, error) {
 	)
 	if r.ArgonMemory != nil {
 		if *r.ArgonMemory <= 0 {
-			return nil, fmt.Errorf("%s: ca.argon_memory must be positive", filename)
+			return nil, fmt.Errorf("%s: ca %q.argon_memory must be positive", filename, r.Label)
 		}
 		memory = uint32(*r.ArgonMemory)
 	}
 	if r.ArgonIterations != nil {
 		if *r.ArgonIterations <= 0 {
-			return nil, fmt.Errorf("%s: ca.argon_iterations must be positive", filename)
+			return nil, fmt.Errorf("%s: ca %q.argon_iterations must be positive", filename, r.Label)
 		}
 		iterations = uint32(*r.ArgonIterations)
 	}
 	if r.ArgonParallelism != nil {
 		if *r.ArgonParallelism <= 0 || *r.ArgonParallelism > 255 {
-			return nil, fmt.Errorf("%s: ca.argon_parallelism must be between 1 and 255", filename)
+			return nil, fmt.Errorf("%s: ca %q.argon_parallelism must be between 1 and 255", filename, r.Label)
 		}
 		parallelism = uint8(*r.ArgonParallelism)
 	}
@@ -447,6 +514,10 @@ func decodeHost(filename string, r *rawHost) (*Host, error) {
 		h.Name = *r.Name
 	} else {
 		h.Name = r.Label
+	}
+
+	if r.CARef != nil {
+		h.CARef = *r.CARef
 	}
 
 	nets, err := parsePrefixes(filename, fmt.Sprintf("host %q.networks", r.Label), r.Networks)
@@ -508,19 +579,48 @@ func parsePrefixes(filename, field string, raw []string) ([]netip.Prefix, error)
 // ---------------------------------------------------------------------------
 
 func validate(cfg *Config) error {
-	if err := validateCA(cfg); err != nil {
+	if err := validateCAs(cfg); err != nil {
 		return err
 	}
 	return validateHosts(cfg)
 }
 
-func validateCA(cfg *Config) error {
-	ca := &cfg.CA
+func validateCAs(cfg *Config) error {
+	seenLabels := make(map[string]struct{}, len(cfg.CAs))
+	defaultCount := 0
 
+	for i := range cfg.CAs {
+		ca := &cfg.CAs[i]
+
+		if !caLabelRe.MatchString(ca.Label) {
+			return fmt.Errorf("ca %q: label must match ^[A-Za-z_][A-Za-z0-9_-]*$", ca.Label)
+		}
+		if _, dup := seenLabels[ca.Label]; dup {
+			return fmt.Errorf("ca %q: duplicate label", ca.Label)
+		}
+		seenLabels[ca.Label] = struct{}{}
+
+		if ca.Default {
+			defaultCount++
+		}
+
+		if err := validateOneCA(cfg.Path, ca); err != nil {
+			return err
+		}
+	}
+
+	if defaultCount > 1 {
+		return fmt.Errorf("at most one ca block may have default = true")
+	}
+
+	return nil
+}
+
+func validateOneCA(filename string, ca *CA) error {
 	switch ca.Mode {
 	case CAModeReference:
 		if ca.CertFile == "" || ca.KeyFile == "" {
-			return fmt.Errorf("ca: reference mode requires both `cert_file` and `key_file`")
+			return fmt.Errorf("ca %q: reference mode requires both `cert_file` and `key_file`", ca.Label)
 		}
 		var bad []string
 		if ca.Name != "" {
@@ -551,14 +651,14 @@ func validateCA(cfg *Config) error {
 			bad = append(bad, "out_qr")
 		}
 		if len(bad) > 0 {
-			return fmt.Errorf("ca: reference mode does not allow generate-only fields: %s", strings.Join(bad, ", "))
+			return fmt.Errorf("ca %q: reference mode does not allow generate-only fields: %s", ca.Label, strings.Join(bad, ", "))
 		}
 
 	case CAModeGenerate:
 		if ca.Name == "" {
-			return fmt.Errorf("ca: `name` is required in generate mode")
+			return fmt.Errorf("ca %q: `name` is required in generate mode", ca.Label)
 		}
-		if err := validateGroupStrings("ca.groups", ca.Groups); err != nil {
+		if err := validateGroupStrings(fmt.Sprintf("ca %q.groups", ca.Label), ca.Groups); err != nil {
 			return err
 		}
 	}
@@ -595,28 +695,62 @@ func validateHosts(cfg *Config) error {
 			return err
 		}
 
-		if cfg.CA.Mode == CAModeGenerate {
-			if len(cfg.CA.Groups) > 0 {
-				if extra := groupsNotIn(h.Groups, cfg.CA.Groups); len(extra) > 0 {
-					return fmt.Errorf("host %q: groups %v not permitted by ca.groups", h.Label, extra)
+		// Resolve the signing CA for this host.
+		signingCA, err := resolveSigningCA(cfg, h)
+		if err != nil {
+			return err
+		}
+
+		// Per-CA restriction scoping: validate host fields against the
+		// signing CA's restrictions, not against some other CA.
+		if signingCA.Mode == CAModeGenerate {
+			if len(signingCA.Groups) > 0 {
+				if extra := groupsNotIn(h.Groups, signingCA.Groups); len(extra) > 0 {
+					return fmt.Errorf("host %q: groups %v not permitted by ca %q.groups", h.Label, extra, signingCA.Label)
 				}
 			}
-			if len(cfg.CA.Networks) > 0 {
-				if bad := prefixesNotContained(h.Networks, cfg.CA.Networks); bad != "" {
-					return fmt.Errorf("host %q: network %s not contained by any ca.networks prefix", h.Label, bad)
+			if len(signingCA.Networks) > 0 {
+				if bad := prefixesNotContained(h.Networks, signingCA.Networks); bad != "" {
+					return fmt.Errorf("host %q: network %s not contained by any ca %q.networks prefix", h.Label, bad, signingCA.Label)
 				}
 			}
-			if len(cfg.CA.UnsafeNetworks) > 0 {
-				if bad := prefixesNotContained(h.UnsafeNetworks, cfg.CA.UnsafeNetworks); bad != "" {
-					return fmt.Errorf("host %q: unsafe_network %s not contained by any ca.unsafe_networks prefix", h.Label, bad)
+			if len(signingCA.UnsafeNetworks) > 0 {
+				if bad := prefixesNotContained(h.UnsafeNetworks, signingCA.UnsafeNetworks); bad != "" {
+					return fmt.Errorf("host %q: unsafe_network %s not contained by any ca %q.unsafe_networks prefix", h.Label, bad, signingCA.Label)
 				}
 			}
-			if cfg.CA.HasDuration && h.HasDuration && h.Duration > cfg.CA.Duration {
-				return fmt.Errorf("host %q: duration %s exceeds ca.duration %s", h.Label, h.Duration, cfg.CA.Duration)
+			if signingCA.HasDuration && h.HasDuration && h.Duration > signingCA.Duration {
+				return fmt.Errorf("host %q: duration %s exceeds ca %q.duration %s", h.Label, h.Duration, signingCA.Label, signingCA.Duration)
 			}
 		}
 	}
 	return nil
+}
+
+// resolveSigningCA returns the CA that signs h, or an error if the
+// signing CA is ambiguous or undeclared. This is the single point of
+// CA-selection logic shared by validate and the callers in plan/apply.
+func resolveSigningCA(cfg *Config, h *Host) (*CA, error) {
+	if h.CARef != "" {
+		ca := cfg.CAByLabel(h.CARef)
+		if ca == nil {
+			return nil, fmt.Errorf("host %q: ca %q is not declared", h.Label, h.CARef)
+		}
+		return ca, nil
+	}
+	// No explicit ca on the host: use the default or the sole CA.
+	if len(cfg.CAs) == 1 {
+		return &cfg.CAs[0], nil
+	}
+	for i := range cfg.CAs {
+		if cfg.CAs[i].Default {
+			return &cfg.CAs[i], nil
+		}
+	}
+	return nil, fmt.Errorf(
+		"host %q: ambiguous signing ca (the config has %d CAs and none is marked default = true; set host.ca or add default = true to one ca block)",
+		h.Label, len(cfg.CAs),
+	)
 }
 
 func validateGroupStrings(field string, groups []string) error {

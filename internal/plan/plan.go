@@ -3,9 +3,8 @@
 // decides what should change; it performs no I/O of its own (callers
 // supply an existence probe) and never mutates anything.
 //
-// It plans both CA modes: generate (mint a fresh CA) and reference (use
-// an operator-supplied existing CA). It also plans host actions: sign a
-// new certificate or leave an existing one in place (noop).
+// It plans one action per CA (generate or reference) and one action per
+// host (sign or noop). Host actions always follow all CA actions.
 package plan
 
 import (
@@ -45,9 +44,8 @@ const (
 type Action struct {
 	Op   Op
 	Kind Kind
-	// Label is the config label for the artifact. Set for KindHost actions
-	// to identify which host config entry the action concerns; empty for
-	// KindCA.
+	// Label is the config label for the artifact (CA label for KindCA,
+	// host label for KindHost).
 	Label string
 	// Path is the primary logical artifact path, for display. Empty for
 	// no-ops.
@@ -57,6 +55,7 @@ type Action struct {
 }
 
 // Plan is the ordered set of actions a reconcile would perform.
+// CA actions appear before host actions.
 type Plan struct {
 	Actions []Action
 }
@@ -74,14 +73,15 @@ func (p Plan) Changes() bool {
 	return false
 }
 
-// CAAction returns the CA action. There is always exactly one per plan.
-func (p Plan) CAAction() Action {
+// CAActions returns all CA actions from the plan, in config order.
+func (p Plan) CAActions() []Action {
+	var cas []Action
 	for _, a := range p.Actions {
 		if a.Kind == KindCA {
-			return a
+			cas = append(cas, a)
 		}
 	}
-	return Action{Op: OpNoop, Kind: KindCA}
+	return cas
 }
 
 // HostActions returns all host actions from the plan, in config order.
@@ -100,19 +100,23 @@ func (p Plan) HostActions() []Action {
 // present on disk. The caller is responsible for resolving logical paths
 // to real ones inside exists.
 func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath string) bool) (Plan, error) {
-	var caAction Action
-	var err error
+	var actions []Action
 
-	if cfg.CA.Mode == config.CAModeReference {
-		caAction, err = planReferenceCA(cfg, m, exists)
-	} else {
-		caAction, err = planCA(cfg, m, exists)
-	}
-	if err != nil {
-		return Plan{}, err
+	for i := range cfg.CAs {
+		ca := &cfg.CAs[i]
+		var a Action
+		var err error
+		if ca.Mode == config.CAModeReference {
+			a, err = planReferenceCA(cfg, ca, exists)
+		} else {
+			a, err = planCA(cfg, ca, m, exists)
+		}
+		if err != nil {
+			return Plan{}, err
+		}
+		actions = append(actions, a)
 	}
 
-	actions := []Action{caAction}
 	for i := range cfg.Hosts {
 		ha := planHost(cfg, m, &cfg.Hosts[i], exists)
 		actions = append(actions, ha)
@@ -124,13 +128,16 @@ func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath str
 // precious as CAs (they can always be re-signed), so partial pairs and
 // untracked files are resolved by re-signing rather than erroring:
 //
-//   - tracked in manifest AND every artifact file present → noop
-//   - anything else (untracked, files absent, partial pair, new dir) → sign
+//   - tracked in manifest AND signing CA matches AND every artifact file present → noop
+//   - anything else (untracked, files absent, partial pair, new dir, CA changed) → sign
 func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, exists func(string) bool) Action {
 	artifact := cfg.HostArtifactPath(*h)
+	signingCA := cfg.SigningCA(*h)
 
 	tracked := m != nil && m.Hosts[h.Label].Name != ""
-	if tracked && exists(artifact.CertPath) && exists(artifact.KeyPath) {
+	caMatch := tracked && signingCA != nil && m.Hosts[h.Label].CA == signingCA.Label
+
+	if tracked && caMatch && exists(artifact.CertPath) && exists(artifact.KeyPath) {
 		return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
 	}
 	return Action{
@@ -158,40 +165,42 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, exists f
 // a byte-identical tree, while a swapped reference file is detected via
 // its changed fingerprint. Keeping plan pure (no cert parsing) is the
 // reason the OpReference action is not collapsed to a noop here.
-func planReferenceCA(cfg *config.Config, _ *manifest.Manifest, exists func(string) bool) (Action, error) {
-	certPath := cfg.CACertPath()
-	keyPath := cfg.CAKeyPath()
+func planReferenceCA(cfg *config.Config, ca *config.CA, exists func(string) bool) (Action, error) {
+	certPath := cfg.CACertPathForCA(*ca)
+	keyPath := cfg.CAKeyPathForCA(*ca)
 	haveCert := exists(certPath)
 	haveKey := exists(keyPath)
 
 	if !haveCert || !haveKey {
-		return Action{}, referenceMissingError(haveCert, haveKey, certPath, keyPath)
+		return Action{}, referenceMissingError(ca.Label, haveCert, haveKey, certPath, keyPath)
 	}
 
 	return Action{
-		Op:   OpReference,
-		Kind: KindCA,
-		Path: certPath,
-		Desc: fmt.Sprintf("use referenced CA %s", certPath),
+		Op:    OpReference,
+		Kind:  KindCA,
+		Label: ca.Label,
+		Path:  certPath,
+		Desc:  fmt.Sprintf("use referenced CA %q (%s)", ca.Label, certPath),
 	}, nil
 }
 
-func referenceMissingError(haveCert, haveKey bool, certPath, keyPath string) error {
+func referenceMissingError(label string, haveCert, haveKey bool, certPath, keyPath string) error {
 	switch {
 	case !haveCert && !haveKey:
 		return fmt.Errorf(
-			"referenced CA not found: neither cert_file %s nor key_file %s exists",
-			certPath, keyPath,
+			"ca %q: referenced CA not found: neither cert_file %s nor key_file %s exists",
+			label, certPath, keyPath,
 		)
 	case !haveCert:
-		return fmt.Errorf("referenced CA cert_file %s does not exist", certPath)
+		return fmt.Errorf("ca %q: referenced CA cert_file %s does not exist", label, certPath)
 	default:
-		return fmt.Errorf("referenced CA key_file %s does not exist", keyPath)
+		return fmt.Errorf("ca %q: referenced CA key_file %s does not exist", label, keyPath)
 	}
 }
 
-// planCA decides the CA action. The rule (spec/adr/002 idempotency, and
-// the "noop, never auto-overwrite" decision):
+// planCA decides the CA action for a generate-mode CA. The rule
+// (spec/adr/002 idempotency, and the "noop, never auto-overwrite"
+// decision):
 //
 //   - tracked in the manifest AND both files present  -> noop
 //   - neither file present                            -> generate
@@ -200,56 +209,50 @@ func referenceMissingError(haveCert, haveKey bool, certPath, keyPath string) err
 //
 // The tool never silently overwrites an existing CA, matching upstream
 // nebula-cert's refuse-to-overwrite behaviour.
-func planCA(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) (Action, error) {
-	certPath := cfg.CACertPath()
-	keyPath := cfg.CAKeyPath()
+func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func(string) bool) (Action, error) {
+	certPath := cfg.CACertPathForCA(*ca)
+	keyPath := cfg.CAKeyPathForCA(*ca)
 	haveCert := exists(certPath)
 	haveKey := exists(keyPath)
-	tracked := m != nil && m.CA != nil
+	tracked := m != nil && m.CAs[ca.Label] != nil
 
 	switch {
 	case tracked && haveCert && haveKey:
-		return Action{Op: OpNoop, Kind: KindCA, Desc: "CA up to date"}, nil
+		return Action{Op: OpNoop, Kind: KindCA, Label: ca.Label, Desc: fmt.Sprintf("CA %q up to date", ca.Label)}, nil
 	case !haveCert && !haveKey:
 		return Action{
-			Op:   OpGenerate,
-			Kind: KindCA,
-			Path: certPath,
-			Desc: fmt.Sprintf("generate CA %q", cfg.CA.Name),
+			Op:    OpGenerate,
+			Kind:  KindCA,
+			Label: ca.Label,
+			Path:  certPath,
+			Desc:  fmt.Sprintf("generate CA %q (%s)", ca.Label, ca.Name),
 		}, nil
 	default:
-		return Action{}, caStateError(tracked, haveCert, haveKey, certPath, keyPath)
+		return Action{}, caStateError(ca.Label, tracked, haveCert, haveKey, certPath, keyPath)
 	}
 }
 
-func caStateError(tracked, haveCert, haveKey bool, certPath, keyPath string) error {
+func caStateError(label string, tracked, haveCert, haveKey bool, certPath, keyPath string) error {
 	switch {
 	case haveCert && haveKey && !tracked:
 		return fmt.Errorf(
-			"refusing to overwrite an untracked CA: %s and %s exist on disk but the manifest has no CA record; remove them to regenerate, or restore the manifest that produced them",
-			certPath, keyPath,
+			"ca %q: refusing to overwrite an untracked CA: %s and %s exist on disk but the manifest has no CA record; remove them to regenerate, or restore the manifest that produced them",
+			label, certPath, keyPath,
 		)
 	case haveCert && !haveKey:
 		return fmt.Errorf(
-			"inconsistent CA state: certificate %s exists but key %s is missing; remove the certificate to regenerate the pair",
-			certPath, keyPath,
+			"ca %q: inconsistent CA state: certificate %s exists but key %s is missing; remove the certificate to regenerate the pair",
+			label, certPath, keyPath,
 		)
 	case haveKey && !haveCert:
 		return fmt.Errorf(
-			"inconsistent CA state: key %s exists but certificate %s is missing; remove the key to regenerate the pair",
-			keyPath, certPath,
+			"ca %q: inconsistent CA state: key %s exists but certificate %s is missing; remove the key to regenerate the pair",
+			label, keyPath, certPath,
 		)
 	default:
-		// Defensive: planCA's switch routes (haveCert==haveKey==true)
-		// and (haveCert==haveKey==false) elsewhere, and the three
-		// non-default cases above cover every remaining shape (cert
-		// only, key only, untracked-both). This arm is therefore
-		// unreachable today; it exists so a future change to planCA
-		// that introduces a new shape produces a usable error rather
-		// than a zero-value Action with a nil error.
 		return fmt.Errorf(
-			"inconsistent CA state for %s / %s; remove any remaining CA files to regenerate",
-			certPath, keyPath,
+			"ca %q: inconsistent CA state for %s / %s; remove any remaining CA files to regenerate",
+			label, certPath, keyPath,
 		)
 	}
 }

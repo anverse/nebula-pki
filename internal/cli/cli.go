@@ -95,14 +95,14 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		return
 	}
 
-	if rep.CAMode == "reference" {
-		fmt.Fprintf(w, "using referenced CA %q\n", rep.CAName)
-		fmt.Fprintf(w, "  cert: %s\n", rep.CACertPath)
-		fmt.Fprintf(w, "  key:  %s\n", rep.CAKeyPath)
-	} else {
-		fmt.Fprintf(w, "generated CA %q\n", rep.CAName)
-		fmt.Fprintf(w, "  cert: %s\n", rep.CACertPath)
-		fmt.Fprintf(w, "  key:  %s\n", rep.CAKeyPath)
+	for _, ca := range rep.CAs {
+		if ca.Mode == "reference" {
+			fmt.Fprintf(w, "using referenced CA %q (%s)\n", ca.Label, ca.Name)
+		} else {
+			fmt.Fprintf(w, "generated CA %q (%s)\n", ca.Label, ca.Name)
+		}
+		fmt.Fprintf(w, "  cert: %s\n", ca.CertPath)
+		fmt.Fprintf(w, "  key:  %s\n", ca.KeyPath)
 	}
 	for _, h := range rep.SignedHosts {
 		fmt.Fprintf(w, "signed host %q\n", h.Label)
@@ -159,56 +159,57 @@ func newCheckCmd(configPath *string) *cobra.Command {
 				return err
 			}
 			// This line reports that the *configuration* parsed and passed
-			// every validation rule. In reference mode the referenced CA is
-			// then read and verified separately; if that fails, the error
-			// follows this line — which is still accurate, the config is
-			// valid, the referenced files are the problem. Hence "config
-			// valid" rather than a blanket "ok" that would read as "the
-			// whole check passed" right before an error.
+			// every validation rule. Reference CAs are then read and verified
+			// separately; if that fails, the error follows this line — the
+			// config is valid, the referenced files are the problem.
 			fmt.Fprintf(cmd.OutOrStdout(),
-				"config valid: %s (ca mode=%s, hosts=%d)\n",
-				cfg.Path, cfg.CA.Mode, len(cfg.Hosts),
+				"config valid: %s (cas=%d, hosts=%d)\n",
+				cfg.Path, len(cfg.CAs), len(cfg.Hosts),
 			)
-			if cfg.CA.Mode == config.CAModeReference {
-				return checkReferenceCA(cmd, cfg)
+			for i := range cfg.CAs {
+				if cfg.CAs[i].Mode == config.CAModeReference {
+					if err := checkReferenceCA(cmd, cfg, &cfg.CAs[i]); err != nil {
+						return err
+					}
+				}
 			}
 			return nil
 		},
 	}
 }
 
-// checkReferenceCA reads and verifies the referenced CA, printing its
+// checkReferenceCA reads and verifies one reference-mode CA, printing its
 // fingerprint on success. It runs after the "config valid:" line, so a
 // failure here (missing files, not a CA, key/cert mismatch) surfaces as a
 // non-zero exit even though the configuration itself is well-formed — the
 // "config valid:" line above is about the HCL, this step is about the
 // files it points at. An expired CA is reported as a warning on stderr but
 // is not a check failure: the files are a coherent CA the operator owns.
-func checkReferenceCA(cmd *cobra.Command, cfg *config.Config) error {
-	certReal := cfg.Resolve(cfg.CACertPath())
-	keyReal := cfg.Resolve(cfg.CAKeyPath())
+func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) error {
+	certReal := cfg.Resolve(cfg.CACertPathForCA(*ca))
+	keyReal := cfg.Resolve(cfg.CAKeyPathForCA(*ca))
 
 	certPEM, err := os.ReadFile(certReal)
 	if err != nil {
-		return fmt.Errorf("read referenced CA certificate: %w", err)
+		return fmt.Errorf("ca %q: read referenced CA certificate: %w", ca.Label, err)
 	}
 	keyPEM, err := os.ReadFile(keyReal)
 	if err != nil {
-		return fmt.Errorf("read referenced CA key: %w", err)
+		return fmt.Errorf("ca %q: read referenced CA key: %w", ca.Label, err)
 	}
 
 	res, err := pki.LoadReferenceCA(certPEM, keyPEM, time.Now())
 	if errors.Is(err, pki.ErrReferenceCAExpired) {
 		fmt.Fprintf(cmd.ErrOrStderr(),
-			"warning: referenced CA %q is expired (not_after %s)\n",
-			res.Name, res.NotAfter.UTC().Format(time.RFC3339),
+			"warning: referenced CA %q (%s) is expired (not_after %s)\n",
+			ca.Label, res.Name, res.NotAfter.UTC().Format(time.RFC3339),
 		)
 	} else if err != nil {
 		return err
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(),
-		"  ca verified: name=%q fingerprint=%s\n", res.Name, res.Fingerprint,
+		"  ca %q verified: name=%q fingerprint=%s\n", ca.Label, res.Name, res.Fingerprint,
 	)
 	return nil
 }

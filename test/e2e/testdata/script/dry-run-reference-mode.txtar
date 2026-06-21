@@ -5,12 +5,12 @@
 
 # Seed a real CA, then stage it where the reference config points.
 exec nebula-pki -c gen.hcl
-exists out/ca/ca.crt
-exists out/ca/ca.key
+exists out/ca/gen.crt
+exists out/ca/gen.key
 ! stdout .
 mkdir pki
-cp out/ca/ca.crt pki/ca.crt
-cp out/ca/ca.key pki/ca.key
+cp out/ca/gen.crt pki/ca.crt
+cp out/ca/gen.key pki/ca.key
 
 # --dry-run: new host alpha needs signing; CA lines must be absent.
 exec nebula-pki --dry-run
@@ -44,11 +44,11 @@ cmp out/hosts/alpha.crt alpha.crt.snap
 cmp refs/nebula-pki.json manifest.snap
 
 # The referenced CA files remain untouched throughout.
-cmp pki/ca.crt out/ca/ca.crt
-cmp pki/ca.key out/ca/ca.key
+cmp pki/ca.crt out/ca/gen.crt
+cmp pki/ca.key out/ca/gen.key
 
 -- nebula.hcl --
-ca {
+ca "ref" {
   cert_file = "pki/ca.crt"
   key_file  = "pki/ca.key"
 }
@@ -62,4 +62,4 @@ host "alpha" {
 }
 
 -- gen.hcl --
-ca { name = "test-mesh" }
+ca "gen" { name = "test-mesh" }

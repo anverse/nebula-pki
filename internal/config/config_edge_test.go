@@ -45,7 +45,7 @@ func TestLoad_HCLSyntaxError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.hcl")
 	// Unterminated block — guaranteed parse error.
-	if err := os.WriteFile(path, []byte(`ca { name = "x"`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`ca "m" { name = "x"`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	_, err := Load(path)
@@ -66,15 +66,15 @@ func TestParse_CurveAliases(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.alias, func(t *testing.T) {
-			src := "ca {\n  name = \"m\"\n  curve = \"" + c.alias + "\"\n}\n"
+			src := "ca \"m\" {\n  name = \"m\"\n  curve = \"" + c.alias + "\"\n}\n"
 			cfg, err := Parse("t.hcl", []byte(src))
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
-			if got, want := cfg.CA.Curve, c.want; got != want {
+			if got, want := cfg.CAs[0].Curve, c.want; got != want {
 				t.Errorf("Curve = %v, want %v", got, want)
 			}
-			if !cfg.CA.HasCurve {
+			if !cfg.CAs[0].HasCurve {
 				t.Error("HasCurve = false, want true")
 			}
 		})
@@ -84,15 +84,15 @@ func TestParse_CurveAliases(t *testing.T) {
 func TestParse_VersionMapping(t *testing.T) {
 	for _, v := range []int{1, 2} {
 		t.Run("v"+string(rune('0'+v)), func(t *testing.T) {
-			src := "ca {\n  name = \"m\"\n  version = " + string(rune('0'+v)) + "\n}\n"
+			src := "ca \"m\" {\n  name = \"m\"\n  version = " + string(rune('0'+v)) + "\n}\n"
 			cfg, err := Parse("t.hcl", []byte(src))
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
-			if !cfg.CA.HasVersion {
+			if !cfg.CAs[0].HasVersion {
 				t.Error("HasVersion = false, want true")
 			}
-			if got, want := int(cfg.CA.Version), v; got != want {
+			if got, want := int(cfg.CAs[0].Version), v; got != want {
 				t.Errorf("Version = %d, want %d", got, want)
 			}
 		})
@@ -118,10 +118,8 @@ func TestCAModeString(t *testing.T) {
 // --- Argon parameters -------------------------------------------------------
 
 func TestParse_ArgonDefaultsWhenPartiallySet(t *testing.T) {
-	// Only iterations set: the other two should fall back to the upstream
-	// defaults encoded in decodeArgon.
 	src := `
-ca {
+ca "m" {
   name = "m"
   encrypt = true
   argon_iterations = 7
@@ -130,16 +128,16 @@ ca {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.CA.Argon == nil {
+	if cfg.CAs[0].Argon == nil {
 		t.Fatal("Argon = nil, want non-nil")
 	}
-	if got, want := cfg.CA.Argon.Iterations, uint32(7); got != want {
+	if got, want := cfg.CAs[0].Argon.Iterations, uint32(7); got != want {
 		t.Errorf("Iterations = %d, want %d", got, want)
 	}
-	if got, want := cfg.CA.Argon.Memory, uint32(2*1024*1024); got != want {
+	if got, want := cfg.CAs[0].Argon.Memory, uint32(2*1024*1024); got != want {
 		t.Errorf("Memory default = %d, want %d", got, want)
 	}
-	if got, want := cfg.CA.Argon.Parallelism, uint8(4); got != want {
+	if got, want := cfg.CAs[0].Argon.Parallelism, uint8(4); got != want {
 		t.Errorf("Parallelism default = %d, want %d", got, want)
 	}
 }
@@ -149,8 +147,8 @@ func TestParse_ArgonNilWhenNoneSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.CA.Argon != nil {
-		t.Errorf("Argon = %+v, want nil", cfg.CA.Argon)
+	if cfg.CAs[0].Argon != nil {
+		t.Errorf("Argon = %+v, want nil", cfg.CAs[0].Argon)
 	}
 }
 
@@ -163,7 +161,7 @@ func TestParse_ArgonRangeErrors(t *testing.T) {
 		{
 			name: "memory_zero",
 			src: `
-ca {
+ca "m" {
   name = "m"
   argon_memory = 0
 }`,
@@ -172,7 +170,7 @@ ca {
 		{
 			name: "iterations_negative",
 			src: `
-ca {
+ca "m" {
   name = "m"
   argon_iterations = -1
 }`,
@@ -181,7 +179,7 @@ ca {
 		{
 			name: "parallelism_zero",
 			src: `
-ca {
+ca "m" {
   name = "m"
   argon_parallelism = 0
 }`,
@@ -190,7 +188,7 @@ ca {
 		{
 			name: "parallelism_too_large",
 			src: `
-ca {
+ca "m" {
   name = "m"
   argon_parallelism = 256
 }`,
@@ -220,7 +218,7 @@ func TestParse_InvalidDurations(t *testing.T) {
 		{
 			name: "ca_duration",
 			src: `
-ca {
+ca "m" {
   name = "m"
   duration = "not-a-duration"
 }`,
@@ -248,7 +246,7 @@ host "a" {
 
 func TestParse_ManifestDefaultsToCustomOutDir(t *testing.T) {
 	src := `
-ca { name = "m" }
+ca "m" { name = "m" }
 storage { out_dir = "build/dev" }
 `
 	cfg, err := Parse("t.hcl", []byte(src))
@@ -275,7 +273,7 @@ func TestParse_StorageOmittedKeepsDefaults(t *testing.T) {
 
 func TestParse_ReferenceModeRejectsEachGenerateField(t *testing.T) {
 	base := `
-ca {
+ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
   %s
@@ -340,7 +338,7 @@ host "a" { networks = [] }
 
 func TestParse_IPv6ContainmentHappyPath(t *testing.T) {
 	src := `
-ca {
+ca "m" {
   name     = "m"
   networks = ["fd42::/16"]
 }
@@ -354,7 +352,7 @@ host "a" {
 
 func TestParse_HostNetworkFamilyMismatchAgainstCA(t *testing.T) {
 	src := `
-ca {
+ca "m" {
   name     = "m"
   networks = ["10.0.0.0/8"]
 }
@@ -365,7 +363,7 @@ host "a" {
 	if err == nil {
 		t.Fatal("expected containment error, got nil")
 	}
-	if !strings.Contains(err.Error(), "not contained by any ca.networks") {
+	if !strings.Contains(err.Error(), "not contained by any ca") {
 		t.Errorf("error = %q, want containment error", err.Error())
 	}
 }
@@ -374,7 +372,7 @@ host "a" {
 
 func TestParse_CAGroupsWithComma(t *testing.T) {
 	src := `
-ca {
+ca "m" {
   name = "m"
   groups = ["bad,group"]
 }`
@@ -387,56 +385,30 @@ ca {
 	}
 }
 
-// --- Full multi-host happy path ---------------------------------------------
+// --- Multi-CA per-CA restriction scoping -----------------------------------
 
-func TestParse_MultipleHostsHappyPath(t *testing.T) {
+// TestParse_HostValidatedAgainstItsSigningCA ensures that host restriction
+// checks use the host's signing CA, not some other CA in the config.
+func TestParse_HostValidatedAgainstItsSigningCA(t *testing.T) {
 	src := `
-ca {
-  name     = "m"
-  groups   = ["app", "lh"]
-  networks = ["10.0.0.0/8"]
+ca "permissive" {
+  name    = "permissive"
+  default = true
+  groups  = ["any"]
 }
-host "a" {
+ca "strict" {
+  name   = "strict"
+  groups = ["only-this"]
+}
+host "h" {
   networks = ["10.0.0.1/16"]
-  groups   = ["app"]
-}
-host "b" {
-  networks = ["10.0.0.2/16"]
-  groups   = ["lh"]
-}
-host "c" {
-  networks = ["10.0.0.3/16"]
-  groups   = ["app", "lh"]
+  groups   = ["any"]
+  ca       = "permissive"
 }
 `
-	cfg, err := Parse("t.hcl", []byte(src))
-	if err != nil {
+	// h uses "permissive" which allows "any" — should succeed even though
+	// "strict" does not allow "any".
+	if _, err := Parse("t.hcl", []byte(src)); err != nil {
 		t.Fatalf("Parse: %v", err)
-	}
-	if got, want := len(cfg.Hosts), 3; got != want {
-		t.Fatalf("len(Hosts) = %d, want %d", got, want)
-	}
-	for i, label := range []string{"a", "b", "c"} {
-		if got, want := cfg.Hosts[i].Label, label; got != want {
-			t.Errorf("Hosts[%d].Label = %q, want %q", i, got, want)
-		}
-		if got, want := cfg.Hosts[i].Name, label; got != want {
-			t.Errorf("Hosts[%d].Name = %q (default to label), want %q", i, got, want)
-		}
-	}
-}
-
-// --- groupsNotIn helper deterministic ordering ------------------------------
-
-func TestGroupsNotIn_Sorted(t *testing.T) {
-	got := groupsNotIn([]string{"z", "a", "m"}, []string{"x"})
-	want := []string{"a", "m", "z"}
-	if len(got) != len(want) {
-		t.Fatalf("len = %d, want %d (%v)", len(got), len(want), got)
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Errorf("[%d] = %q, want %q", i, got[i], want[i])
-		}
 	}
 }

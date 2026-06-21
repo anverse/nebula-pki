@@ -12,14 +12,10 @@ import "path/filepath"
 // file's directory unless absolute. Resolve turns a logical path into an
 // absolute-or-cwd-relative path suitable for actual I/O.
 
-// CA artifact default sub-paths under storage.out_dir.
-const (
-	defaultCACertName = "ca.crt"
-	defaultCAKeyName  = "ca.key"
-	caSubdir          = "ca"
-)
+// CA artifact sub-directory under storage.out_dir.
+const caSubdir = "ca"
 
-// Host artifact default sub-paths under storage.out_dir.
+// Host artifact defaults.
 const (
 	hostsSubdir        = "hosts"
 	defaultHostCertExt = ".crt"
@@ -43,32 +39,32 @@ func (c *Config) Resolve(p string) string {
 	return filepath.Join(c.baseDir(), p)
 }
 
-// CACertPath returns the logical path of the CA certificate. In reference
-// mode it is the operator-supplied ca.cert_file (read in place, never
-// rewritten). In generate mode it is the explicit ca.out_crt when set,
-// otherwise <out_dir>/ca/ca.crt.
-func (c *Config) CACertPath() string {
-	if c.CA.Mode == CAModeReference {
-		return c.CA.CertFile
+// CACertPathForCA returns the logical path of the CA certificate for ca.
+// In reference mode it is the operator-supplied cert_file (read in place,
+// never rewritten). In generate mode it is the explicit out_crt when set,
+// otherwise <out_dir>/ca/<label>.crt.
+func (c *Config) CACertPathForCA(ca CA) string {
+	if ca.Mode == CAModeReference {
+		return ca.CertFile
 	}
-	if c.CA.OutCRT != "" {
-		return c.CA.OutCRT
+	if ca.OutCRT != "" {
+		return ca.OutCRT
 	}
-	return filepath.Join(c.Storage.OutDir, caSubdir, defaultCACertName)
+	return filepath.Join(c.Storage.OutDir, caSubdir, ca.Label+".crt")
 }
 
-// CAKeyPath returns the logical path of the CA private key. In reference
-// mode it is the operator-supplied ca.key_file (read in place, never
-// rewritten). In generate mode it is the explicit ca.out_key when set,
-// otherwise <out_dir>/ca/ca.key.
-func (c *Config) CAKeyPath() string {
-	if c.CA.Mode == CAModeReference {
-		return c.CA.KeyFile
+// CAKeyPathForCA returns the logical path of the CA private key for ca.
+// In reference mode it is the operator-supplied key_file (read in place,
+// never rewritten). In generate mode it is the explicit out_key when set,
+// otherwise <out_dir>/ca/<label>.key.
+func (c *Config) CAKeyPathForCA(ca CA) string {
+	if ca.Mode == CAModeReference {
+		return ca.KeyFile
 	}
-	if c.CA.OutKey != "" {
-		return c.CA.OutKey
+	if ca.OutKey != "" {
+		return ca.OutKey
 	}
-	return filepath.Join(c.Storage.OutDir, caSubdir, defaultCAKeyName)
+	return filepath.Join(c.Storage.OutDir, caSubdir, ca.Label+".key")
 }
 
 // ManifestPath returns the logical path of the manifest. Storage decoding

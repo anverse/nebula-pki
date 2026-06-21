@@ -22,17 +22,17 @@ stderr 'missing required `ca` block'
 stderr 'generate-only fields'
 
 -- dup-label.hcl --
-ca { name = "m" }
+ca "m" { name = "m" }
 host "a" { networks = ["10.0.0.1/16"] }
 host "a" { networks = ["10.0.0.2/16"] }
 
 -- dup-overlay.hcl --
-ca { name = "m" }
+ca "m" { name = "m" }
 host "a" { networks = ["10.0.0.1/16"] }
 host "b" { networks = ["10.0.0.1/24"] }
 
 -- encryption.hcl --
-ca { name = "m" }
+ca "m" { name = "m" }
 storage {
   encryption "sops" {}
 }
@@ -43,7 +43,7 @@ host "a" {
 }
 
 -- ref-with-gen.hcl --
-ca {
+ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
   duration  = "1h"

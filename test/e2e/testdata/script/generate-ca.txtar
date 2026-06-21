@@ -3,9 +3,9 @@
 # tree gets a CA and one host cert on the first run.
 
 exec nebula-pki
-stderr '^generated CA "test-mesh"$'
-stderr '^  cert: out/ca/ca\.crt$'
-stderr '^  key:  out/ca/ca\.key$'
+stderr '^generated CA "test-mesh" \(test-mesh\)$'
+stderr '^  cert: out/ca/test-mesh\.crt$'
+stderr '^  key:  out/ca/test-mesh\.key$'
 stderr '^signed host "alpha"$'
 stderr '^  cert: out/hosts/alpha\.crt$'
 stderr '^  key:  out/hosts/alpha\.key$'
@@ -13,15 +13,15 @@ stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
 # CA and host artifacts exist.
-exists out/ca/ca.crt
-exists out/ca/ca.key
+exists out/ca/test-mesh.crt
+exists out/ca/test-mesh.key
 exists out/hosts/alpha.crt
 exists out/hosts/alpha.key
 exists out/nebula-pki.json
 
 # Real PEM material was written.
-grep 'NEBULA CERTIFICATE' out/ca/ca.crt
-grep 'NEBULA ED25519 PRIVATE KEY' out/ca/ca.key
+grep 'NEBULA CERTIFICATE' out/ca/test-mesh.crt
+grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-mesh.key
 grep 'NEBULA CERTIFICATE' out/hosts/alpha.crt
 grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key
 
@@ -33,13 +33,13 @@ grep '"mode": "generate"' out/nebula-pki.json
 grep '"name": "test-mesh"' out/nebula-pki.json
 grep '"curve": "25519"' out/nebula-pki.json
 grep '"config_path": "\.\./nebula\.hcl"' out/nebula-pki.json
-grep '"cert_path": "out/ca/ca\.crt"' out/nebula-pki.json
-grep '"key_path": "out/ca/ca\.key"' out/nebula-pki.json
+grep '"cert_path": "out/ca/test-mesh\.crt"' out/nebula-pki.json
+grep '"key_path": "out/ca/test-mesh\.key"' out/nebula-pki.json
 grep '"alpha"' out/nebula-pki.json
 grep '"ca_fingerprint"' out/nebula-pki.json
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name = "test-mesh"
 }
 

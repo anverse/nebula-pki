@@ -22,7 +22,7 @@ func seedReferenceCA(t *testing.T, dir, src string) *pki.CAResult {
 	if err != nil {
 		t.Fatalf("parse seed CA: %v", err)
 	}
-	res, err := pki.GenerateCA(cfg.CA, fixedNow)
+	res, err := pki.GenerateCA(cfg.CAs[0], fixedNow)
 	if err != nil {
 		t.Fatalf("GenerateCA seed: %v", err)
 	}
@@ -44,7 +44,7 @@ func writeRefConfig(t *testing.T, seedSrc string) (*config.Config, *pki.CAResult
 
 	path := filepath.Join(dir, "nebula.hcl")
 	src := `
-ca {
+ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
 }`
@@ -59,10 +59,10 @@ ca {
 }
 
 func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
-	cfg, seed := writeRefConfig(t, `ca { name = "ref-mesh" }`)
+	cfg, seed := writeRefConfig(t, `ca "mesh" { name = "ref-mesh" }`)
 
-	certReal := cfg.Resolve(cfg.CACertPath())
-	keyReal := cfg.Resolve(cfg.CAKeyPath())
+	certReal := cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0]))
+	keyReal := cfg.Resolve(cfg.CAKeyPathForCA(cfg.CAs[0]))
 	certBefore := mustRead(t, certReal)
 	keyBefore := mustRead(t, keyReal)
 	certStatBefore := mustStat(t, certReal)
@@ -75,11 +75,14 @@ func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
 	if !rep.Changed {
 		t.Fatal("Changed = false, want true on the first reference run")
 	}
-	if rep.CAMode != "reference" {
-		t.Errorf("CAMode = %q, want reference", rep.CAMode)
+	if len(rep.CAs) != 1 {
+		t.Fatalf("CAs = %d, want 1", len(rep.CAs))
 	}
-	if rep.CAName != "ref-mesh" {
-		t.Errorf("CAName = %q, want ref-mesh", rep.CAName)
+	if rep.CAs[0].Mode != "reference" {
+		t.Errorf("CAs[0].Mode = %q, want reference", rep.CAs[0].Mode)
+	}
+	if rep.CAs[0].Name != "ref-mesh" {
+		t.Errorf("CAs[0].Name = %q, want ref-mesh", rep.CAs[0].Name)
 	}
 
 	// The referenced files must be byte-for-byte untouched, and their
@@ -109,24 +112,25 @@ func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.CA == nil {
-		t.Fatal("manifest CA is nil")
+	mCA := m.CAs["ref"]
+	if mCA == nil {
+		t.Fatal("manifest CAs[ref] is nil")
 	}
-	if m.CA.Mode != "reference" {
-		t.Errorf("CA mode = %q, want reference", m.CA.Mode)
+	if mCA.Mode != "reference" {
+		t.Errorf("CA mode = %q, want reference", mCA.Mode)
 	}
-	if m.CA.Name != "ref-mesh" {
-		t.Errorf("CA name = %q, want ref-mesh", m.CA.Name)
+	if mCA.Name != "ref-mesh" {
+		t.Errorf("CA name = %q, want ref-mesh", mCA.Name)
 	}
-	if m.CA.Fingerprint != seed.Fingerprint {
-		t.Errorf("CA fingerprint = %q, want %q (the source CA's)", m.CA.Fingerprint, seed.Fingerprint)
+	if mCA.Fingerprint != seed.Fingerprint {
+		t.Errorf("CA fingerprint = %q, want %q (the source CA's)", mCA.Fingerprint, seed.Fingerprint)
 	}
 	// Paths point at the referenced files, not out/ca defaults.
-	if m.CA.CertPath != "ca.crt" || m.CA.KeyPath != "ca.key" {
-		t.Errorf("CA paths = %q/%q, want ca.crt/ca.key", m.CA.CertPath, m.CA.KeyPath)
+	if mCA.CertPath != "ca.crt" || mCA.KeyPath != "ca.key" {
+		t.Errorf("CA paths = %q/%q, want ca.crt/ca.key", mCA.CertPath, mCA.KeyPath)
 	}
-	if !m.CA.NotAfter.Equal(seed.NotAfter.UTC()) {
-		t.Errorf("CA not_after = %s, want %s", m.CA.NotAfter, seed.NotAfter.UTC())
+	if !mCA.NotAfter.Equal(seed.NotAfter.UTC()) {
+		t.Errorf("CA not_after = %s, want %s", mCA.NotAfter, seed.NotAfter.UTC())
 	}
 }
 
@@ -134,7 +138,7 @@ func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
 // property for reference mode: a second run against an unchanged
 // referenced CA writes nothing and leaves the manifest byte-identical.
 func TestReconcile_ReferenceIdempotentRerun(t *testing.T) {
-	cfg, _ := writeRefConfig(t, `ca { name = "ref-mesh" }`)
+	cfg, _ := writeRefConfig(t, `ca "mesh" { name = "ref-mesh" }`)
 
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("first Reconcile: %v", err)
@@ -161,7 +165,7 @@ func TestReconcile_ReferenceIdempotentRerun(t *testing.T) {
 // operator points cert_file/key_file at a different CA, the manifest's
 // fingerprint must update.
 func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
-	cfg, first := writeRefConfig(t, `ca { name = "first-ca" }`)
+	cfg, first := writeRefConfig(t, `ca "mesh" { name = "first-ca" }`)
 
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("first Reconcile: %v", err)
@@ -169,7 +173,7 @@ func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
 
 	// Swap the referenced files for a different CA in place.
 	dir := filepath.Dir(cfg.Path)
-	second := seedReferenceCA(t, dir, `ca { name = "second-ca" }`)
+	second := seedReferenceCA(t, dir, `ca "mesh" { name = "second-ca" }`)
 	if first.Fingerprint == second.Fingerprint {
 		t.Fatal("test setup: the two CAs share a fingerprint")
 	}
@@ -185,11 +189,15 @@ func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.CA.Fingerprint != second.Fingerprint {
-		t.Errorf("CA fingerprint = %q, want the swapped-in CA's %q", m.CA.Fingerprint, second.Fingerprint)
+	mCA := m.CAs["ref"]
+	if mCA == nil {
+		t.Fatal("manifest CAs[ref] is nil")
 	}
-	if m.CA.Name != "second-ca" {
-		t.Errorf("CA name = %q, want second-ca", m.CA.Name)
+	if mCA.Fingerprint != second.Fingerprint {
+		t.Errorf("CA fingerprint = %q, want the swapped-in CA's %q", mCA.Fingerprint, second.Fingerprint)
+	}
+	if mCA.Name != "second-ca" {
+		t.Errorf("CA name = %q, want second-ca", mCA.Name)
 	}
 }
 
@@ -198,7 +206,7 @@ func TestReconcile_ReferenceMissingFilesErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nebula.hcl")
 	src := `
-ca {
+ca "ref" {
   cert_file = "absent.crt"
   key_file  = "absent.key"
 }`
@@ -236,7 +244,7 @@ func TestReconcile_ReferenceInvalidCAErrors(t *testing.T) {
 	}
 	path := filepath.Join(dir, "nebula.hcl")
 	src := `
-ca {
+ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
 }`
@@ -260,7 +268,7 @@ ca {
 // and does not depend on the wall clock advancing.
 func TestReconcile_ReferenceExpiredWarnsButRecords(t *testing.T) {
 	cfg, seed := writeRefConfig(t, `
-ca {
+ca "mesh" {
   name     = "old-mesh"
   duration = "1h"
 }`)
@@ -286,7 +294,8 @@ ca {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.CA == nil || m.CA.Fingerprint != seed.Fingerprint {
+	mCA := m.CAs["ref"]
+	if mCA == nil || mCA.Fingerprint != seed.Fingerprint {
 		t.Error("expired CA not recorded with its fingerprint")
 	}
 }
@@ -301,7 +310,7 @@ ca {
 func TestReconcile_ReferenceValidEmitsNoExpiryWarning(t *testing.T) {
 	// 1h CA, evaluated 30 minutes after issuance: comfortably valid.
 	cfg, _ := writeRefConfig(t, `
-ca {
+ca "mesh" {
   name     = "fresh-mesh"
   duration = "1h"
 }`)
@@ -328,11 +337,11 @@ ca {
 // rewritten) and that a second run is byte-identical.
 func TestReconcile_ReferenceWithHosts(t *testing.T) {
 	dir := t.TempDir()
-	seed := seedReferenceCA(t, dir, `ca { name = "ref-mesh" }`)
+	seed := seedReferenceCA(t, dir, `ca "mesh" { name = "ref-mesh" }`)
 
 	path := filepath.Join(dir, "nebula.hcl")
 	src := `
-ca {
+ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
 }

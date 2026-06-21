@@ -14,7 +14,7 @@ cmp out/nebula-pki.json bad-manifest
 ! exists out/ca
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name = "test-mesh"
 }
 

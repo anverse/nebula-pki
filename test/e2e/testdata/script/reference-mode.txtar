@@ -5,11 +5,11 @@
 
 # Mint a real CA, then stage it as the "external" CA we will reference.
 exec nebula-pki -c gen.hcl
-exists out/ca/ca.crt
-exists out/ca/ca.key
+exists out/ca/ext.crt
+exists out/ca/ext.key
 mkdir pki
-cp out/ca/ca.crt pki/ca.crt
-cp out/ca/ca.key pki/ca.key
+cp out/ca/ext.crt pki/ca.crt
+cp out/ca/ext.key pki/ca.key
 
 # Snapshot the referenced files so we can prove they are untouched.
 cp pki/ca.crt want-ca.crt
@@ -17,7 +17,7 @@ cp pki/ca.key want-ca.key
 
 # Reconcile in reference mode.
 exec nebula-pki -c reference.hcl
-stderr '^using referenced CA "ext-mesh"$'
+stderr '^using referenced CA "ref" \(ext-mesh\)$'
 stderr '^  cert: pki/ca\.crt$'
 stderr '^  key:  pki/ca\.key$'
 stderr '^wrote manifest: refs/nebula-pki\.json$'
@@ -46,12 +46,12 @@ stderr '^up to date; nothing to do$'
 cmp refs/nebula-pki.json want-manifest.json
 
 -- gen.hcl --
-ca {
+ca "ext" {
   name = "ext-mesh"
 }
 
 -- reference.hcl --
-ca {
+ca "ref" {
   cert_file = "pki/ca.crt"
   key_file  = "pki/ca.key"
 }

@@ -15,13 +15,13 @@ var fixedTime = time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 
 func TestGenerateCA_Curve25519(t *testing.T) {
 	cfg := mustParseCA(t, `
-ca {
+ca "mesh" {
   name     = "test-mesh"
   groups   = ["lighthouse", "app"]
   networks = ["10.42.0.0/16"]
 }`)
 
-	res, err := GenerateCA(cfg.CA, fixedTime)
+	res, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
@@ -50,7 +50,6 @@ ca {
 		t.Errorf("NotAfter() = %v, want %v (default 8760h)", c.NotAfter(), want)
 	}
 
-	// Metadata returned must match the signed certificate exactly.
 	if !res.NotBefore.Equal(c.NotBefore()) || !res.NotAfter.Equal(c.NotAfter()) {
 		t.Error("CAResult validity window does not match the certificate")
 	}
@@ -59,7 +58,6 @@ ca {
 		t.Errorf("Fingerprint = %q, want %q", res.Fingerprint, fp)
 	}
 
-	// The key must round-trip as a plaintext Ed25519 signing key.
 	_, _, kcurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(res.KeyPEM)
 	if err != nil {
 		t.Fatalf("UnmarshalSigningPrivateKeyFromPEM: %v", err)
@@ -71,14 +69,14 @@ ca {
 
 func TestGenerateCA_CurveP256AndDuration(t *testing.T) {
 	cfg := mustParseCA(t, `
-ca {
+ca "p256" {
   name     = "p256-mesh"
   curve    = "P256"
   version  = 2
   duration = "26280h"
 }`)
 
-	res, err := GenerateCA(cfg.CA, fixedTime)
+	res, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
@@ -107,11 +105,11 @@ ca {
 // on the certificate.
 func TestGenerateCA_NetworksRoundTrip(t *testing.T) {
 	cfg := mustParseCA(t, `
-ca {
+ca "m" {
   name     = "m"
   networks = ["10.42.0.0/16"]
 }`)
-	res, err := GenerateCA(cfg.CA, fixedTime)
+	res, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
@@ -122,21 +120,17 @@ ca {
 	}
 }
 
-// TestGenerateCA_GroupsAndUnsafeNetworksRoundTrip pins the two
-// constraint fields that the manifest will eventually mirror back into
-// host certs. Without this test, a regression that drops `Groups:` or
-// `UnsafeNetworks:` from the TBSCertificate would silently produce a
-// permissive CA — which is the worst kind of bug for a tool whose job
-// is restricting trust.
+// TestGenerateCA_GroupsAndUnsafeNetworksRoundTrip pins the two constraint
+// fields that the manifest will eventually mirror back into host certs.
 func TestGenerateCA_GroupsAndUnsafeNetworksRoundTrip(t *testing.T) {
 	cfg := mustParseCA(t, `
-ca {
+ca "m" {
   name            = "m"
   groups          = ["lighthouse", "edge", "app"]
   networks        = ["10.42.0.0/16"]
   unsafe_networks = ["192.168.10.0/24", "192.168.11.0/24"]
 }`)
-	res, err := GenerateCA(cfg.CA, fixedTime)
+	res, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
@@ -160,25 +154,24 @@ ca {
 
 func TestGenerateCA_EncryptRejected(t *testing.T) {
 	cfg := mustParseCA(t, `
-ca {
+ca "m" {
   name    = "m"
   encrypt = true
 }`)
-	_, err := GenerateCA(cfg.CA, fixedTime)
+	_, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err == nil {
 		t.Fatal("GenerateCA: want error for ca.encrypt, got nil")
 	}
 }
 
-// TestGenerateCA_Distinct ensures key material is freshly generated each
-// call (no accidental determinism / shared buffer).
+// TestGenerateCA_Distinct ensures key material is freshly generated each call.
 func TestGenerateCA_Distinct(t *testing.T) {
-	cfg := mustParseCA(t, `ca { name = "m" }`)
-	a, err := GenerateCA(cfg.CA, fixedTime)
+	cfg := mustParseCA(t, `ca "m" { name = "m" }`)
+	a, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA a: %v", err)
 	}
-	b, err := GenerateCA(cfg.CA, fixedTime)
+	b, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA b: %v", err)
 	}
@@ -187,21 +180,15 @@ func TestGenerateCA_Distinct(t *testing.T) {
 	}
 }
 
-// TestGenerateCA_DistinctNamesProduceDistinctCerts complements
-// TestGenerateCA_Distinct by varying the CA name as well as the random
-// material. The fingerprint is content-addressed (SHA256 of the cert
-// blob), so this is mostly a redundant sanity check — but it catches a
-// regression where a future refactor caches the TBSCertificate across
-// calls and reuses the previous Name.
 func TestGenerateCA_DistinctNamesProduceDistinctCerts(t *testing.T) {
-	cfgA := mustParseCA(t, `ca { name = "alpha" }`)
-	cfgB := mustParseCA(t, `ca { name = "beta" }`)
+	cfgA := mustParseCA(t, `ca "alpha" { name = "alpha" }`)
+	cfgB := mustParseCA(t, `ca "beta" { name = "beta" }`)
 
-	a, err := GenerateCA(cfgA.CA, fixedTime)
+	a, err := GenerateCA(cfgA.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA alpha: %v", err)
 	}
-	b, err := GenerateCA(cfgB.CA, fixedTime)
+	b, err := GenerateCA(cfgB.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA beta: %v", err)
 	}
@@ -219,7 +206,7 @@ func TestGenerateCA_DistinctNamesProduceDistinctCerts(t *testing.T) {
 func mustSignHost(t *testing.T, caSrc, hostSrc string) (*CAResult, *HostResult) {
 	t.Helper()
 	caCfg := mustParseCA(t, caSrc)
-	ca, err := GenerateCA(caCfg.CA, fixedTime)
+	ca, err := GenerateCA(caCfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
@@ -236,8 +223,8 @@ func mustSignHost(t *testing.T, caSrc, hostSrc string) (*CAResult, *HostResult) 
 
 func TestSignHost_CNAndNotACA(t *testing.T) {
 	_, hr := mustSignHost(t,
-		`ca { name = "mesh" }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }`,
+		`ca "mesh" { name = "mesh" }
 host "h" {
   name     = "my-host"
   networks = ["10.0.0.1/16"]
@@ -258,12 +245,12 @@ host "h" {
 
 func TestSignHost_CurveAndVersionInheritedFromCA(t *testing.T) {
 	_, hr := mustSignHost(t,
-		`ca {
+		`ca "mesh" {
   name    = "mesh"
   curve   = "25519"
   version = 2
 }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }
 host "h" { networks = ["10.0.0.1/16"] }`)
 
 	if hr.Curve != "25519" {
@@ -276,13 +263,13 @@ host "h" { networks = ["10.0.0.1/16"] }`)
 
 func TestSignHost_NetworksGroupsUnsafeNetworksRoundTrip(t *testing.T) {
 	_, hr := mustSignHost(t,
-		`ca {
+		`ca "mesh" {
   name            = "mesh"
   groups          = ["edge", "app"]
   networks        = ["10.0.0.0/16"]
   unsafe_networks = ["192.168.1.0/24"]
 }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }
 host "h" {
   networks        = ["10.0.0.1/16"]
   groups          = ["edge"]
@@ -307,16 +294,14 @@ host "h" {
 
 func TestSignHost_DefaultDurationMatchesCAExpiry(t *testing.T) {
 	ca, hr := mustSignHost(t,
-		`ca { name = "mesh" }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }`,
+		`ca "mesh" { name = "mesh" }
 host "h" { networks = ["10.0.0.1/16"] }`)
 
-	// Without host.duration the host cert should expire when the CA does.
 	wantNotAfter := fixedTime.Add(defaultCADuration)
 	if !hr.NotAfter.Equal(wantNotAfter) {
 		t.Errorf("NotAfter = %v, want %v (same as CA)", hr.NotAfter, wantNotAfter)
 	}
-	// Sanity: matches the CA NotAfter.
 	if !hr.NotAfter.Equal(ca.NotAfter) {
 		t.Errorf("host NotAfter %v != CA NotAfter %v", hr.NotAfter, ca.NotAfter)
 	}
@@ -324,11 +309,11 @@ host "h" { networks = ["10.0.0.1/16"] }`)
 
 func TestSignHost_ExplicitDuration(t *testing.T) {
 	_, hr := mustSignHost(t,
-		`ca {
+		`ca "mesh" {
   name     = "mesh"
   duration = "8760h"
 }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }
 host "h" {
   networks = ["10.0.0.1/16"]
   duration = "1h"
@@ -342,8 +327,8 @@ host "h" {
 
 func TestSignHost_CAFingerprintMatches(t *testing.T) {
 	ca, hr := mustSignHost(t,
-		`ca { name = "mesh" }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }`,
+		`ca "mesh" { name = "mesh" }
 host "h" { networks = ["10.0.0.1/16"] }`)
 
 	if hr.CAFingerprint == "" {
@@ -355,15 +340,12 @@ host "h" { networks = ["10.0.0.1/16"] }`)
 }
 
 func TestSignHost_DurationCappedToCACertExpiry(t *testing.T) {
-	// CA with a short explicit duration; host requests a duration that
-	// exceeds the CA's lifetime. The host cert must be capped to the CA's
-	// notAfter, not truncated to now+hostDuration.
 	ca, hr := mustSignHost(t,
-		`ca {
+		`ca "mesh" {
   name     = "mesh"
   duration = "1h"
 }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }
 host "h" {
   networks = ["10.0.0.1/16"]
   duration = "100h"
@@ -380,14 +362,12 @@ host "h" {
 }
 
 func TestSignHost_DurationShorterThanCAIsHonoured(t *testing.T) {
-	// When the host duration fits within the CA's lifetime it must be used
-	// as-is and not capped.
 	ca, hr := mustSignHost(t,
-		`ca {
+		`ca "mesh" {
   name     = "mesh"
   duration = "100h"
 }`,
-		`ca { name = "mesh" }
+		`ca "mesh" { name = "mesh" }
 host "h" {
   networks = ["10.0.0.1/16"]
   duration = "1h"
@@ -403,13 +383,13 @@ host "h" {
 }
 
 func TestSignHost_Distinct(t *testing.T) {
-	caCfg := mustParseCA(t, `ca { name = "mesh" }`)
-	ca, err := GenerateCA(caCfg.CA, fixedTime)
+	caCfg := mustParseCA(t, `ca "mesh" { name = "mesh" }`)
+	ca, err := GenerateCA(caCfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
 	hCfg, _ := config.Parse("n.hcl", []byte(`
-ca { name = "m" }
+ca "m" { name = "m" }
 host "h" { networks = ["10.0.0.1/16"] }
 `))
 

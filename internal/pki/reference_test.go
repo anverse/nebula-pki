@@ -17,7 +17,7 @@ import (
 func generateCAForRef(t *testing.T, src string) *CAResult {
 	t.Helper()
 	cfg := mustParseCA(t, src)
-	res, err := GenerateCA(cfg.CA, fixedTime)
+	res, err := GenerateCA(cfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
@@ -26,7 +26,7 @@ func generateCAForRef(t *testing.T, src string) *CAResult {
 
 func TestLoadReferenceCA_RoundTripCurve25519(t *testing.T) {
 	gen := generateCAForRef(t, `
-ca {
+ca "m" {
   name     = "ref-mesh"
   groups   = ["lighthouse"]
   networks = ["10.42.0.0/16"]
@@ -59,7 +59,7 @@ ca {
 
 func TestLoadReferenceCA_RoundTripP256(t *testing.T) {
 	gen := generateCAForRef(t, `
-ca {
+ca "m" {
   name  = "ref-p256"
   curve = "P256"
 }`)
@@ -77,14 +77,14 @@ ca {
 }
 
 func TestLoadReferenceCA_CorruptCertPEM(t *testing.T) {
-	gen := generateCAForRef(t, `ca { name = "x" }`)
+	gen := generateCAForRef(t, `ca "m" { name = "x" }`)
 	if _, err := LoadReferenceCA([]byte("not a pem block"), gen.KeyPEM, fixedTime); err == nil {
 		t.Fatal("LoadReferenceCA: want error for corrupt cert PEM, got nil")
 	}
 }
 
 func TestLoadReferenceCA_CorruptKeyPEM(t *testing.T) {
-	gen := generateCAForRef(t, `ca { name = "x" }`)
+	gen := generateCAForRef(t, `ca "m" { name = "x" }`)
 	if _, err := LoadReferenceCA(gen.CertPEM, []byte("not a pem block"), fixedTime); err == nil {
 		t.Fatal("LoadReferenceCA: want error for corrupt key PEM, got nil")
 	}
@@ -98,7 +98,7 @@ func TestLoadReferenceCA_NotACA(t *testing.T) {
 	hostCertPEM, _ := mintHostCert(t)
 	// Pair it with any syntactically valid signing key so the failure is
 	// the IsCA check, not a key parse error.
-	gen := generateCAForRef(t, `ca { name = "x" }`)
+	gen := generateCAForRef(t, `ca "m" { name = "x" }`)
 
 	_, err := LoadReferenceCA(hostCertPEM, gen.KeyPEM, fixedTime)
 	if err == nil {
@@ -131,9 +131,9 @@ func TestLoadReferenceCA_BadSelfSignature(t *testing.T) {
 
 // TestLoadReferenceCA_CurveMismatch pairs a 25519 cert with a P256 key.
 func TestLoadReferenceCA_CurveMismatch(t *testing.T) {
-	ca25519 := generateCAForRef(t, `ca { name = "a" }`)
+	ca25519 := generateCAForRef(t, `ca "a" { name = "a" }`)
 	caP256 := generateCAForRef(t, `
-ca {
+ca "b" {
   name  = "b"
   curve = "P256"
 }`)
@@ -151,8 +151,8 @@ ca {
 // key from a different CA. Curves agree, so this exercises the public-key
 // equality check specifically.
 func TestLoadReferenceCA_KeyDoesNotMatchCert(t *testing.T) {
-	caA := generateCAForRef(t, `ca { name = "a" }`)
-	caB := generateCAForRef(t, `ca { name = "b" }`)
+	caA := generateCAForRef(t, `ca "a" { name = "a" }`)
+	caB := generateCAForRef(t, `ca "b" { name = "b" }`)
 
 	_, err := LoadReferenceCA(caA.CertPEM, caB.KeyPEM, fixedTime)
 	if err == nil {
@@ -169,7 +169,7 @@ func TestLoadReferenceCA_KeyDoesNotMatchCert(t *testing.T) {
 // passed explicitly, so the verdict never depends on the wall clock.
 func TestLoadReferenceCA_Expired(t *testing.T) {
 	gen := generateCAForRef(t, `
-ca {
+ca "m" {
   name     = "old-mesh"
   duration = "1h"
 }`)
@@ -193,7 +193,7 @@ ca {
 // false-positive expiry: a freshly generated CA evaluated inside its
 // validity window must not be flagged.
 func TestLoadReferenceCA_NotExpiredWhenValid(t *testing.T) {
-	gen := generateCAForRef(t, `ca { name = "fresh" }`)
+	gen := generateCAForRef(t, `ca "m" { name = "fresh" }`)
 
 	if _, err := LoadReferenceCA(gen.CertPEM, gen.KeyPEM, fixedTime.Add(time.Hour)); err != nil {
 		t.Fatalf("LoadReferenceCA: %v", err)
@@ -207,7 +207,7 @@ func TestLoadReferenceCA_NotExpiredWhenValid(t *testing.T) {
 // testable without racing wall-clock time.
 func TestLoadReferenceCA_ExpiresExactlyAtNotAfter(t *testing.T) {
 	gen := generateCAForRef(t, `
-ca {
+ca "m" {
   name     = "boundary"
   duration = "1h"
 }`)
@@ -230,8 +230,8 @@ ca {
 func mintHostCert(t *testing.T) (certPEM, keyPEM []byte) {
 	t.Helper()
 
-	ca := mustParseCA(t, `ca { name = "issuer" }`)
-	caRes, err := GenerateCA(ca.CA, fixedTime)
+	ca := mustParseCA(t, `ca "m" { name = "issuer" }`)
+	caRes, err := GenerateCA(ca.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA issuer: %v", err)
 	}
@@ -291,8 +291,8 @@ func mintBadSelfSignedCA(t *testing.T) (certPEM, keyPEM []byte) {
 	t.Helper()
 
 	// Key A signs; key B's public key is embedded in the certificate.
-	caA := generateCAForRef(t, `ca { name = "signer-a" }`)
-	caB := generateCAForRef(t, `ca { name = "victim-b" }`)
+	caA := generateCAForRef(t, `ca "a" { name = "signer-a" }`)
+	caB := generateCAForRef(t, `ca "b" { name = "victim-b" }`)
 
 	keyA, _, curveA, err := cert.UnmarshalSigningPrivateKeyFromPEM(caA.KeyPEM)
 	if err != nil {

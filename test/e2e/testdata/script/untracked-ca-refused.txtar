@@ -10,22 +10,22 @@
 
 # Pre-seed both halves of the CA pair without a manifest.
 mkdir out/ca
-cp seed-cert out/ca/ca.crt
-cp seed-key  out/ca/ca.key
+cp seed-cert out/ca/test-mesh.crt
+cp seed-key  out/ca/test-mesh.key
 
 ! exec nebula-pki
 stderr 'untracked CA'
 stderr 'remove them to regenerate, or restore the manifest that produced them'
 
 # Crucial: the pre-seeded files were not touched.
-cmp out/ca/ca.crt seed-cert
-cmp out/ca/ca.key seed-key
+cmp out/ca/test-mesh.crt seed-cert
+cmp out/ca/test-mesh.key seed-key
 
 # And no manifest was conjured up to mask the problem.
 ! exists out/nebula-pki.json
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name = "test-mesh"
 }
 

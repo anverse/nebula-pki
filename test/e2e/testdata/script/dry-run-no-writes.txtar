@@ -2,16 +2,16 @@
 
 # On a fresh tree, dry-run shows what would be written.
 exec nebula-pki --dry-run
-stdout '^\+ write out/ca/ca\.crt$'
-stdout '^\+ write out/ca/ca\.key$'
+stdout '^\+ write out/ca/test-mesh\.crt$'
+stdout '^\+ write out/ca/test-mesh\.key$'
 stdout '^\+ write out/hosts/alpha\.crt$'
 stdout '^\+ write out/hosts/alpha\.key$'
 stdout '^\+ write out/nebula-pki\.json$'
 ! stderr .
 
 # No files must have been created.
-! exists out/ca/ca.crt
-! exists out/ca/ca.key
+! exists out/ca/test-mesh.crt
+! exists out/ca/test-mesh.key
 ! exists out/hosts/alpha.crt
 ! exists out/hosts/alpha.key
 ! exists out/nebula-pki.json
@@ -20,12 +20,12 @@ stdout '^\+ write out/nebula-pki\.json$'
 exec nebula-pki
 ! stdout .
 stderr 'generated CA'
-exists out/ca/ca.crt
+exists out/ca/test-mesh.crt
 exists out/hosts/alpha.crt
 exists out/nebula-pki.json
 
 # Snapshot to prove the second dry-run leaves everything byte-identical.
-cp out/ca/ca.crt ca.crt.snap
+cp out/ca/test-mesh.crt ca.crt.snap
 cp out/nebula-pki.json manifest.snap
 
 # After a real run, dry-run reports nothing to do.
@@ -34,11 +34,11 @@ stdout '^up to date; nothing to do$'
 ! stderr .
 
 # Tree is untouched.
-cmp out/ca/ca.crt ca.crt.snap
+cmp out/ca/test-mesh.crt ca.crt.snap
 cmp out/nebula-pki.json manifest.snap
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name = "test-mesh"
 }
 

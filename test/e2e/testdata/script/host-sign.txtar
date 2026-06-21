@@ -3,7 +3,7 @@
 # records, and full idempotency on a second run.
 
 exec nebula-pki
-stderr '^generated CA "test-mesh"$'
+stderr '^generated CA "test-mesh" \(test-mesh\)$'
 stderr '^signed host "lighthouse"$'
 stderr '^  cert: out/hosts/lighthouse\.crt$'
 stderr '^  key:  out/hosts/lighthouse\.key$'
@@ -14,8 +14,8 @@ stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
 # All artifacts exist.
-exists out/ca/ca.crt
-exists out/ca/ca.key
+exists out/ca/test-mesh.crt
+exists out/ca/test-mesh.key
 exists out/hosts/lighthouse.crt
 exists out/hosts/lighthouse.key
 exists out/hosts/server.crt
@@ -34,8 +34,8 @@ grep '"server"' out/nebula-pki.json
 grep '"ca_fingerprint"' out/nebula-pki.json
 
 # Snapshot all artifacts.
-cp out/ca/ca.crt ca.crt.first
-cp out/ca/ca.key ca.key.first
+cp out/ca/test-mesh.crt ca.crt.first
+cp out/ca/test-mesh.key ca.key.first
 cp out/hosts/lighthouse.crt lighthouse.crt.first
 cp out/hosts/lighthouse.key lighthouse.key.first
 cp out/hosts/server.crt server.crt.first
@@ -49,8 +49,8 @@ stderr '^up to date; nothing to do$'
 ! stdout .
 
 # Byte-identical.
-cmp out/ca/ca.crt ca.crt.first
-cmp out/ca/ca.key ca.key.first
+cmp out/ca/test-mesh.crt ca.crt.first
+cmp out/ca/test-mesh.key ca.key.first
 cmp out/hosts/lighthouse.crt lighthouse.crt.first
 cmp out/hosts/lighthouse.key lighthouse.key.first
 cmp out/hosts/server.crt server.crt.first
@@ -58,7 +58,7 @@ cmp out/hosts/server.key server.key.first
 cmp out/nebula-pki.json manifest.first
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name     = "test-mesh"
   groups   = ["lighthouse", "app"]
   networks = ["10.0.0.0/16"]

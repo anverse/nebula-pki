@@ -5,33 +5,33 @@
 
 # Cert without key.
 mkdir out/ca
-cp seed-cert out/ca/ca.crt
+cp seed-cert out/ca/test-mesh.crt
 
 ! exec nebula-pki
 stderr 'inconsistent CA state'
-stderr 'certificate out/ca/ca\.crt exists but key out/ca/ca\.key is missing'
+stderr 'certificate out/ca/test-mesh\.crt exists but key out/ca/test-mesh\.key is missing'
 stderr 'remove the certificate to regenerate the pair'
 
 # The pre-seeded cert is left exactly as it was.
-cmp out/ca/ca.crt seed-cert
-! exists out/ca/ca.key
+cmp out/ca/test-mesh.crt seed-cert
+! exists out/ca/test-mesh.key
 ! exists out/nebula-pki.json
 
 # Mirror: key without cert. Reset, swap which file is present.
-rm out/ca/ca.crt
-cp seed-key out/ca/ca.key
+rm out/ca/test-mesh.crt
+cp seed-key out/ca/test-mesh.key
 
 ! exec nebula-pki
 stderr 'inconsistent CA state'
-stderr 'key out/ca/ca\.key exists but certificate out/ca/ca\.crt is missing'
+stderr 'key out/ca/test-mesh\.key exists but certificate out/ca/test-mesh\.crt is missing'
 stderr 'remove the key to regenerate the pair'
 
-cmp out/ca/ca.key seed-key
-! exists out/ca/ca.crt
+cmp out/ca/test-mesh.key seed-key
+! exists out/ca/test-mesh.crt
 ! exists out/nebula-pki.json
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name = "test-mesh"
 }
 

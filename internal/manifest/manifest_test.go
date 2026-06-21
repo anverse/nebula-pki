@@ -14,8 +14,8 @@ func TestLoadMissingFileReturnsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load missing: %v", err)
 	}
-	if m.CA != nil {
-		t.Error("CA = non-nil for missing manifest, want nil")
+	if len(m.CAs) != 0 {
+		t.Error("CAs = non-empty for missing manifest, want empty map")
 	}
 	if m.Hosts == nil {
 		t.Error("Hosts = nil, want initialised empty map")
@@ -28,7 +28,7 @@ func TestMarshalLoadRoundTrip(t *testing.T) {
 	orig.GeneratedAt = t0
 	orig.Generator.Version = "v0.0.3"
 	orig.ConfigPath = "../nebula.hcl"
-	orig.CA = &CA{
+	orig.CAs["mesh"] = &CA{
 		Mode:        "generate",
 		Name:        "test-mesh",
 		Fingerprint: "f2a1c9deadbeef",
@@ -36,8 +36,8 @@ func TestMarshalLoadRoundTrip(t *testing.T) {
 		Version:     2,
 		NotBefore:   t0,
 		NotAfter:    t0.Add(8760 * time.Hour),
-		CertPath:    filepath.Join("out", "ca", "ca.crt"),
-		KeyPath:     filepath.Join("out", "ca", "ca.key"),
+		CertPath:    filepath.Join("out", "ca", "mesh.crt"),
+		KeyPath:     filepath.Join("out", "ca", "mesh.key"),
 	}
 
 	data, err := Marshal(orig)
@@ -60,17 +60,17 @@ func TestMarshalLoadRoundTrip(t *testing.T) {
 	if got.SchemaVersion != SchemaVersion {
 		t.Errorf("SchemaVersion = %d, want %d", got.SchemaVersion, SchemaVersion)
 	}
-	if got.CA == nil || got.CA.Name != "test-mesh" || got.CA.Fingerprint != "f2a1c9deadbeef" {
-		t.Errorf("CA round-trip mismatch: %+v", got.CA)
+	ca := got.CAs["mesh"]
+	if ca == nil || ca.Name != "test-mesh" || ca.Fingerprint != "f2a1c9deadbeef" {
+		t.Errorf("CAs[mesh] round-trip mismatch: %+v", ca)
 	}
-	if !got.CA.NotAfter.Equal(orig.CA.NotAfter) {
-		t.Errorf("NotAfter = %v, want %v", got.CA.NotAfter, orig.CA.NotAfter)
+	if !ca.NotAfter.Equal(orig.CAs["mesh"].NotAfter) {
+		t.Errorf("NotAfter = %v, want %v", ca.NotAfter, orig.CAs["mesh"].NotAfter)
 	}
 }
 
-// TestHostsSerialiseAsObject guards against the empty hosts map encoding
-// as null, which would break downstream `jq`-style consumers.
-func TestHostsSerialiseAsObject(t *testing.T) {
+// TestCAsSerialiseAsObject guards against the empty CAs map encoding as null.
+func TestCAsSerialiseAsObject(t *testing.T) {
 	data, err := Marshal(New())
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
@@ -79,12 +79,11 @@ func TestHostsSerialiseAsObject(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
+	if string(raw["cas"]) != "{}" {
+		t.Errorf("cas = %s, want {}", raw["cas"])
+	}
 	if string(raw["hosts"]) != "{}" {
 		t.Errorf("hosts = %s, want {}", raw["hosts"])
-	}
-	// CA is omitempty, so an empty manifest must not carry a ca key.
-	if _, ok := raw["ca"]; ok {
-		t.Error("empty manifest unexpectedly contains a ca key")
 	}
 }
 
@@ -118,9 +117,7 @@ func TestLoadRejectsZeroSchema(t *testing.T) {
 }
 
 // TestLoadRejectsCorruptJSON covers the ReadFile-succeeds /
-// Unmarshal-fails branch. A truncated or hand-edited manifest must not
-// crash and must not be silently treated as an empty manifest (which
-// would erase the next reconcile's planning input).
+// Unmarshal-fails branch.
 func TestLoadRejectsCorruptJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nebula-pki.json")
 	if err := os.WriteFile(path, []byte(`{"schema_version": 1, "hosts": {`), 0o644); err != nil {
@@ -136,11 +133,7 @@ func TestLoadRejectsCorruptJSON(t *testing.T) {
 }
 
 // TestHostsAndArtifactsRoundTrip pins the JSON shape of the host /
-// artifact records. v0.0.3 doesn't write hosts yet, but the schema is
-// frozen from day one (see spec/milestones/v0.1.md): a v0.0.5 release
-// that decides to rename `cert_path` to `crt_path` would silently
-// invalidate every committed manifest. This test fails loudly the moment
-// any of those tags drift.
+// artifact records.
 func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	t0 := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	orig := New()
@@ -148,6 +141,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	orig.Generator.Version = "v0.0.3"
 	orig.Hosts = map[string]Host{
 		"alpha": {
+			CA:             "mesh",
 			Name:           "alpha.mesh",
 			Fingerprint:    "abc123",
 			Networks:       []string{"10.0.0.1/16"},
@@ -169,11 +163,9 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	// Decode into a generic map and assert the JSON tag names rather
-	// than just the round-tripped struct, so a tag rename is caught
-	// even if the Go struct still works.
 	var raw struct {
 		Hosts map[string]struct {
+			CA             string   `json:"ca"`
 			Name           string   `json:"name"`
 			Fingerprint    string   `json:"fingerprint"`
 			Networks       []string `json:"networks"`
@@ -195,6 +187,9 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("hosts.alpha missing from JSON")
 	}
+	if alpha.CA != "mesh" {
+		t.Errorf("hosts.alpha.ca = %q, want mesh", alpha.CA)
+	}
 	if alpha.Name != "alpha.mesh" {
 		t.Errorf("hosts.alpha.name = %q, want alpha.mesh", alpha.Name)
 	}
@@ -211,7 +206,6 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 		t.Errorf("artifact[0] = %+v", alpha.Artifacts[0])
 	}
 
-	// And: full struct round-trip via Load.
 	path := filepath.Join(t.TempDir(), "nebula-pki.json")
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -230,17 +224,18 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	if gotHost.Duration != "8760h" {
 		t.Errorf("duration after load = %q, want 8760h", gotHost.Duration)
 	}
+	if gotHost.CA != "mesh" {
+		t.Errorf("ca after load = %q, want mesh", gotHost.CA)
+	}
 }
 
 // TestHostOptionalFieldsOmitEmpty pins the omitempty behaviour for
-// optional host fields (Groups, UnsafeNetworks). A host with no groups and
-// no unsafe_networks must produce JSON without those keys — emitting null
-// for every host would be noise in every manifest diff.
-// Required fields (Networks, Artifacts, CAFingerprint …) must remain present.
+// optional host fields (Groups, UnsafeNetworks).
 func TestHostOptionalFieldsOmitEmpty(t *testing.T) {
 	t0 := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
 	m := New()
 	m.Hosts["bare"] = Host{
+		CA:          "mesh",
 		Name:        "bare",
 		Fingerprint: "fp",
 		Networks:    []string{"10.0.0.1/16"},
@@ -263,7 +258,6 @@ func TestHostOptionalFieldsOmitEmpty(t *testing.T) {
 	if strings.Contains(s, `"unsafe_networks"`) {
 		t.Errorf("JSON must not contain unsafe_networks key when empty:\n%s", s)
 	}
-	// Required fields must always be present.
 	if !strings.Contains(s, `"networks"`) {
 		t.Errorf("JSON must contain networks key:\n%s", s)
 	}
@@ -276,13 +270,7 @@ func TestHostOptionalFieldsOmitEmpty(t *testing.T) {
 }
 
 // TestArtifactDirOmitEmpty pins the omitempty behaviour for Artifact fields.
-//
-//   - Dir is omitted when empty (single-destination hosts have no dir).
-//   - KeyPath is omitted when empty (in_pub hosts: cert only, no key written).
-//   - CertPath is always present (required for all artifact types).
-//   - KeyPath is present for normal (non-in_pub) hosts.
 func TestArtifactDirOmitEmpty(t *testing.T) {
-	// Normal artifact: all three fields.
 	normal := Artifact{Dir: "out/hosts", CertPath: "x.crt", KeyPath: "x.key"}
 	data, err := json.Marshal(normal)
 	if err != nil {
@@ -295,7 +283,6 @@ func TestArtifactDirOmitEmpty(t *testing.T) {
 		t.Errorf("normal artifact must contain key_path: %s", data)
 	}
 
-	// No-dir artifact (default path, no output_dir): dir omitted.
 	noDir := Artifact{CertPath: "x.crt", KeyPath: "x.key"}
 	data, err = json.Marshal(noDir)
 	if err != nil {
@@ -311,7 +298,6 @@ func TestArtifactDirOmitEmpty(t *testing.T) {
 		t.Errorf("no-dir artifact must contain key_path: %s", data)
 	}
 
-	// in_pub artifact: key_path omitted (cert only, no key written).
 	inPub := Artifact{Dir: "out/hosts", CertPath: "x.crt"}
 	data, err = json.Marshal(inPub)
 	if err != nil {
@@ -325,14 +311,8 @@ func TestArtifactDirOmitEmpty(t *testing.T) {
 	}
 }
 
-// TestRoundTripNormalisesNonUTCTime documents what currently happens to
-// a time loaded from JSON: encoding/json renders time.Time as RFC3339,
-// which preserves the instant but expresses it in UTC on the way back.
-// internal/apply normalises to UTC explicitly before marshalling, so
-// callers should rely on `.Equal()` rather than struct equality. This
-// test pins that rule so a future refactor that switches to
-// reflect.DeepEqual on Manifest (which would silently fail on tz drift)
-// is caught immediately.
+// TestRoundTripNormalisesNonUTCTime documents that encoding/json renders
+// time.Time as RFC3339; internal/apply normalises to UTC before marshalling.
 func TestRoundTripNormalisesNonUTCTime(t *testing.T) {
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -342,7 +322,7 @@ func TestRoundTripNormalisesNonUTCTime(t *testing.T) {
 
 	orig := New()
 	orig.GeneratedAt = t0
-	orig.CA = &CA{
+	orig.CAs["tz"] = &CA{
 		Mode:      "generate",
 		Name:      "tz-test",
 		NotBefore: t0,
@@ -361,12 +341,14 @@ func TestRoundTripNormalisesNonUTCTime(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	// The instant survives — Equal compares wall-clock instants, not
-	// monotonic / location identity.
 	if !got.GeneratedAt.Equal(t0) {
 		t.Errorf("GeneratedAt instant changed: got %v, want %v", got.GeneratedAt, t0)
 	}
-	if !got.CA.NotBefore.Equal(t0) {
-		t.Errorf("NotBefore instant changed: got %v, want %v", got.CA.NotBefore, t0)
+	tzCA := got.CAs["tz"]
+	if tzCA == nil {
+		t.Fatal("CAs[tz] missing after round-trip")
+	}
+	if !tzCA.NotBefore.Equal(t0) {
+		t.Errorf("NotBefore instant changed: got %v, want %v", tzCA.NotBefore, t0)
 	}
 }

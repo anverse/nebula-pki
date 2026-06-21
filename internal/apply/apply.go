@@ -1,6 +1,6 @@
 // Package apply is the only component in nebula-pki that mutates the
 // filesystem. It loads the current manifest, asks internal/plan what must
-// change, and — when something must — generates or loads the CA via
+// change, and — when something must — generates or loads each CA via
 // internal/pki and persists the manifest via internal/fsutil.
 //
 // Everything upstream of apply (config, pki, manifest, plan) is pure and
@@ -8,8 +8,8 @@
 // the tool small and auditable, and makes idempotency a property of plan
 // rather than of scattered I/O.
 //
-// It reconciles the CA in both modes and signs host certificates under the
-// loaded or generated CA. All artifact writes are atomic via fsutil.
+// It reconciles each CA in both modes and signs host certificates under
+// the appropriate CA. All artifact writes are atomic via fsutil.
 package apply
 
 import (
@@ -61,7 +61,7 @@ type Options struct {
 
 // SignedArtifact is the destination for a signed host's cert/key pair.
 type SignedArtifact struct {
-	Dir      string // populated when host.output_dir is set; empty for default/out_crt-out_key-only
+	Dir      string
 	CertPath string
 	KeyPath  string
 }
@@ -70,6 +70,15 @@ type SignedArtifact struct {
 type SignedHost struct {
 	Label     string
 	Artifacts []SignedArtifact
+}
+
+// CAReport summarises the reconciled state of one CA.
+type CAReport struct {
+	Label    string
+	Mode     string
+	Name     string
+	CertPath string
+	KeyPath  string
 }
 
 // Report summarises what a reconcile did, for the CLI to present. Paths
@@ -81,14 +90,10 @@ type Report struct {
 	// manifest) was touched.
 	Changed bool
 
-	// CAMode is the reconciled CA mode ("generate" or "reference"), so the
-	// CLI can phrase its summary correctly ("generated" vs "using").
-	CAMode string
+	// CAs holds one entry per reconciled CA, in config order.
+	CAs []CAReport
 
 	ManifestPath string
-	CACertPath   string
-	CAKeyPath    string
-	CAName       string
 
 	// SignedHosts is the set of hosts that were signed this run, in config
 	// order. Empty on a noop run.
@@ -102,22 +107,23 @@ type Report struct {
 	StaleArtifacts []string
 }
 
+// caPEMs holds the PEM bytes for one CA, used to sign hosts.
+type caPEMs struct {
+	cert []byte
+	key  []byte
+}
+
 // Reconcile brings the output tree in line with cfg and returns a Report.
 //
-// It loads the manifest, builds a plan, and dispatches on the CA mode.
-// In every mode an up-to-date tree stays byte-identical across runs:
-// nothing — not even the manifest — is rewritten when the recorded state
-// already matches (spec/adr/002).
+// It loads the manifest, builds a plan, executes each CA action in order,
+// then signs any hosts that need signing. In every mode an up-to-date tree
+// stays byte-identical across runs: nothing — not even the manifest — is
+// rewritten when the recorded state already matches (spec/adr/002).
 func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	manifestLogical := cfg.ManifestPath()
 	manifestReal := cfg.Resolve(manifestLogical)
 
-	report := &Report{
-		CAMode:       cfg.CA.Mode.String(),
-		ManifestPath: manifestLogical,
-		CACertPath:   cfg.CACertPath(),
-		CAKeyPath:    cfg.CAKeyPath(),
-	}
+	report := &Report{ManifestPath: manifestLogical}
 
 	current, err := manifest.Load(manifestReal)
 	if err != nil {
@@ -138,121 +144,53 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return report, nil
 	}
 
-	if cfg.CA.Mode == config.CAModeReference {
-		return reconcileReference(cfg, opts, report, p, current, manifestReal)
-	}
-	return reconcileGenerate(cfg, opts, report, p, current, manifestReal)
-}
+	// Collect CA PEM bytes while executing CA actions. Reference CAs must
+	// always be processed so their fingerprint can be compared to what is
+	// already in the manifest — generate-mode CAs that are up-to-date are
+	// read from disk.
+	caKeys := make(map[string]caPEMs, len(cfg.CAs))
+	next := newManifest(cfg, opts)
 
-// reconcileGenerate handles generate mode: mint a fresh CA if needed,
-// sign any hosts that need signing, then write the manifest last so a
-// crash mid-run never records artifacts that were not fully written.
-func reconcileGenerate(cfg *config.Config, opts Options, report *Report, p plan.Plan, current *manifest.Manifest, manifestReal string) (*Report, error) {
-	if !p.Changes() {
-		report.CAName = cfg.CA.Name
-		return report, nil
-	}
-
-	var caCertPEM, caKeyPEM []byte
-	var caResult *pki.CAResult
-
-	if p.CAAction().Op == plan.OpGenerate {
-		result, err := pki.GenerateCA(cfg.CA, opts.Now)
+	hasAnyChange := false
+	for _, caAction := range p.CAActions() {
+		ca := cfg.CAByLabel(caAction.Label)
+		result, pems, err := reconcileOneCA(cfg, ca, caAction, opts, current, next)
 		if err != nil {
 			return nil, err
 		}
-		if err := fsutil.WriteFile(cfg.Resolve(report.CACertPath), result.CertPEM, certMode); err != nil {
-			return nil, fmt.Errorf("write CA certificate: %w", err)
+		caKeys[ca.Label] = pems
+		if caAction.Op != plan.OpNoop {
+			hasAnyChange = true
 		}
-		if err := fsutil.WriteFile(cfg.Resolve(report.CAKeyPath), result.KeyPEM, keyMode); err != nil {
-			return nil, fmt.Errorf("write CA key: %w", err)
-		}
-		caCertPEM = result.CertPEM
-		caKeyPEM = result.KeyPEM
-		caResult = result
-	} else {
-		// CA is up to date; read it from disk so we can sign hosts.
-		var err error
-		caCertPEM, err = os.ReadFile(cfg.Resolve(report.CACertPath))
-		if err != nil {
-			return nil, fmt.Errorf("read existing CA certificate for host signing: %w", err)
-		}
-		caKeyPEM, err = os.ReadFile(cfg.Resolve(report.CAKeyPath))
-		if err != nil {
-			return nil, fmt.Errorf("read existing CA key for host signing: %w", err)
-		}
+		report.CAs = append(report.CAs, CAReport{
+			Label:    ca.Label,
+			Mode:     ca.Mode.String(),
+			Name:     result.Name,
+			CertPath: cfg.CACertPathForCA(*ca),
+			KeyPath:  cfg.CAKeyPathForCA(*ca),
+		})
 	}
 
-	next := newManifestFromGenerate(cfg, opts, report, caResult, current)
-
-	signed, stale, err := applyHosts(cfg, opts, p.HostActions(), caCertPEM, caKeyPEM, current, next)
+	signed, stale, err := applyHosts(cfg, opts, p.HostActions(), caKeys, current, next)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := writeManifest(manifestReal, next); err != nil {
-		return nil, err
+	if len(signed) > 0 {
+		hasAnyChange = true
 	}
 
-	report.Changed = true
-	if caResult != nil {
-		report.CAName = caResult.Name
-	} else {
-		report.CAName = current.CA.Name
-	}
-	report.SignedHosts = signed
-	report.StaleArtifacts = stale
-	return report, nil
-}
-
-// reconcileReference handles reference mode: read the operator-supplied CA
-// in place, verify it, sign any hosts that need signing, and record
-// everything in the manifest. The source CA files are never rewritten
-// (spec/adr/002).
-//
-// Idempotency for the CA record is by rebuild-and-compare: plan cannot
-// read the certificate, so apply builds the candidate manifest and writes
-// only when it differs from what is already on disk. Host signing follows
-// the plan's OpSign/OpNoop verdict. The combined candidate manifest is
-// compared to the current one to decide whether to write.
-func reconcileReference(cfg *config.Config, opts Options, report *Report, p plan.Plan, current *manifest.Manifest, manifestReal string) (*Report, error) {
-	certReal := cfg.Resolve(report.CACertPath)
-	keyReal := cfg.Resolve(report.CAKeyPath)
-
-	certPEM, err := os.ReadFile(certReal)
-	if err != nil {
-		return nil, fmt.Errorf("read referenced CA certificate: %w", err)
-	}
-	keyPEM, err := os.ReadFile(keyReal)
-	if err != nil {
-		return nil, fmt.Errorf("read referenced CA key: %w", err)
+	// For all-generate configs without any changes: skip the manifest write.
+	// For configs with reference CAs: always compare, since plan cannot
+	// check fingerprints.
+	if !hasAnyChange && !hasReferenceCA(cfg) {
+		return report, nil
 	}
 
-	result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
-	if errors.Is(err, pki.ErrReferenceCAExpired) {
-		fmt.Fprintf(coalesceWriter(opts.Warn),
-			"warning: referenced CA %q is expired (not_after %s); recording it anyway\n",
-			result.Name, result.NotAfter.UTC().Format(time.RFC3339),
-		)
-	} else if err != nil {
-		return nil, err
-	}
-
-	report.CAName = result.Name
-
-	next := newManifestFromReference(cfg, opts, report, result)
-
-	signed, stale, err := applyHosts(cfg, opts, p.HostActions(), certPEM, keyPEM, current, next)
-	if err != nil {
-		return nil, err
-	}
-
-	// Rebuild-and-compare: if the candidate manifest would be identical to
-	// what is already recorded (ignoring the wall-clock generated_at),
-	// carry over the previous generated_at and write nothing.
-	if unchanged, prev := referenceManifestUnchanged(current, next); unchanged {
+	// Rebuild-and-compare: if the candidate manifest is identical to what
+	// is already recorded (ignoring generated_at), skip the write so the
+	// on-disk bytes stay stable.
+	if unchanged, prev := manifestUnchanged(current, next); unchanged {
 		next.GeneratedAt = prev
-		report.Changed = false
 		return report, nil
 	}
 
@@ -265,50 +203,98 @@ func reconcileReference(cfg *config.Config, opts Options, report *Report, p plan
 	return report, nil
 }
 
-// newManifestFromGenerate builds the candidate manifest for generate mode.
-// When caResult is nil the CA action was a noop and the CA record is
-// copied from current.
-func newManifestFromGenerate(cfg *config.Config, opts Options, report *Report, caResult *pki.CAResult, current *manifest.Manifest) *manifest.Manifest {
-	m := manifest.New()
-	m.GeneratedAt = opts.Now.UTC()
-	m.Generator.Version = opts.GeneratorVersion
-	m.ConfigPath = manifestRelConfigPath(cfg, cfg.Resolve(cfg.ManifestPath()))
-	if caResult != nil {
-		m.CA = &manifest.CA{
-			Mode:        config.CAModeGenerate.String(),
-			Name:        caResult.Name,
-			Fingerprint: caResult.Fingerprint,
-			Curve:       caResult.Curve,
-			Version:     caResult.Version,
-			NotBefore:   caResult.NotBefore.UTC(),
-			NotAfter:    caResult.NotAfter.UTC(),
-			CertPath:    report.CACertPath,
-			KeyPath:     report.CAKeyPath,
+// hasReferenceCA reports whether cfg contains at least one reference-mode CA.
+func hasReferenceCA(cfg *config.Config) bool {
+	for i := range cfg.CAs {
+		if cfg.CAs[i].Mode == config.CAModeReference {
+			return true
 		}
-	} else if current != nil && current.CA != nil {
-		m.CA = current.CA
 	}
-	return m
+	return false
 }
 
-// newManifestFromReference builds the candidate manifest for reference mode.
-func newManifestFromReference(cfg *config.Config, opts Options, report *Report, result *pki.CAResult) *manifest.Manifest {
-	m := manifest.New()
-	m.GeneratedAt = opts.Now.UTC()
-	m.Generator.Version = opts.GeneratorVersion
-	m.ConfigPath = manifestRelConfigPath(cfg, cfg.Resolve(cfg.ManifestPath()))
-	m.CA = &manifest.CA{
-		Mode:        config.CAModeReference.String(),
+// reconcileOneCA executes one CA action and returns the CA metadata plus
+// the PEM bytes needed to sign hosts. It also populates next.CAs for the
+// given CA label.
+func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, opts Options, current *manifest.Manifest, next *manifest.Manifest) (*pki.CAResult, caPEMs, error) {
+	certPath := cfg.CACertPathForCA(*ca)
+	keyPath := cfg.CAKeyPathForCA(*ca)
+
+	switch caAction.Op {
+	case plan.OpGenerate:
+		result, err := pki.GenerateCA(*ca, opts.Now)
+		if err != nil {
+			return nil, caPEMs{}, err
+		}
+		if err := fsutil.WriteFile(cfg.Resolve(certPath), result.CertPEM, certMode); err != nil {
+			return nil, caPEMs{}, fmt.Errorf("write CA %q certificate: %w", ca.Label, err)
+		}
+		if err := fsutil.WriteFile(cfg.Resolve(keyPath), result.KeyPEM, keyMode); err != nil {
+			return nil, caPEMs{}, fmt.Errorf("write CA %q key: %w", ca.Label, err)
+		}
+		next.CAs[ca.Label] = caResultToManifest(ca, result, certPath, keyPath)
+		return result, caPEMs{cert: result.CertPEM, key: result.KeyPEM}, nil
+
+	case plan.OpNoop:
+		// CA is up to date; read from disk so we can sign hosts.
+		certPEM, err := os.ReadFile(cfg.Resolve(certPath))
+		if err != nil {
+			return nil, caPEMs{}, fmt.Errorf("read CA %q certificate: %w", ca.Label, err)
+		}
+		keyPEM, err := os.ReadFile(cfg.Resolve(keyPath))
+		if err != nil {
+			return nil, caPEMs{}, fmt.Errorf("read CA %q key: %w", ca.Label, err)
+		}
+		// Carry the existing manifest entry forward unchanged.
+		if rec := current.CAs[ca.Label]; rec != nil {
+			next.CAs[ca.Label] = rec
+		}
+		// We need the result for the report's Name field; parse it minimally.
+		result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
+		if err != nil && !errors.Is(err, pki.ErrReferenceCAExpired) {
+			return nil, caPEMs{}, fmt.Errorf("read CA %q for host signing: %w", ca.Label, err)
+		}
+		return result, caPEMs{cert: certPEM, key: keyPEM}, nil
+
+	case plan.OpReference:
+		certPEM, err := os.ReadFile(cfg.Resolve(certPath))
+		if err != nil {
+			return nil, caPEMs{}, fmt.Errorf("read referenced CA %q certificate: %w", ca.Label, err)
+		}
+		keyPEM, err := os.ReadFile(cfg.Resolve(keyPath))
+		if err != nil {
+			return nil, caPEMs{}, fmt.Errorf("read referenced CA %q key: %w", ca.Label, err)
+		}
+		result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
+		if errors.Is(err, pki.ErrReferenceCAExpired) {
+			fmt.Fprintf(coalesceWriter(opts.Warn),
+				"warning: referenced CA %q is expired (not_after %s); recording it anyway\n",
+				ca.Label, result.NotAfter.UTC().Format(time.RFC3339),
+			)
+		} else if err != nil {
+			return nil, caPEMs{}, err
+		}
+		next.CAs[ca.Label] = caResultToManifest(ca, result, certPath, keyPath)
+		return result, caPEMs{cert: certPEM, key: keyPEM}, nil
+
+	default:
+		return nil, caPEMs{}, fmt.Errorf("ca %q: unexpected plan op %q", ca.Label, caAction.Op)
+	}
+}
+
+func caResultToManifest(ca *config.CA, result *pki.CAResult, certPath, keyPath string) *manifest.CA {
+	return &manifest.CA{
+		Mode:        ca.Mode.String(),
 		Name:        result.Name,
 		Fingerprint: result.Fingerprint,
 		Curve:       result.Curve,
 		Version:     result.Version,
 		NotBefore:   result.NotBefore.UTC(),
 		NotAfter:    result.NotAfter.UTC(),
-		CertPath:    report.CACertPath,
-		KeyPath:     report.CAKeyPath,
+		CertPath:    certPath,
+		KeyPath:     keyPath,
+		Default:     ca.Default,
 	}
-	return m
 }
 
 // applyHosts executes host actions: signs hosts with OpSign, carries
@@ -316,11 +302,10 @@ func newManifestFromReference(cfg *config.Config, opts Options, report *Report, 
 // files for each signed host and populates next.Hosts. Returns the list
 // of newly signed hosts (in action order) and any logical paths from a
 // previous run that are no longer written by the current configuration.
-func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caCertPEM, caKeyPEM []byte, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
+func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
 	var signed []SignedHost
 	var stale []string
 
-	// Build a label→Host lookup for quick access.
 	hostByLabel := make(map[string]*config.Host, len(cfg.Hosts))
 	for i := range cfg.Hosts {
 		hostByLabel[cfg.Hosts[i].Label] = &cfg.Hosts[i]
@@ -339,11 +324,7 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 			continue
 		}
 
-		// OpSign: before signing, check whether the previously recorded
-		// artifact paths differ from the newly resolved ones. If so, and
-		// the old files still exist on disk, record them as stale so the
-		// caller can notify the operator. (ADR-020: the tool never auto-
-		// deletes cert or key files.)
+		// OpSign: check for stale artifact paths before re-signing.
 		newArt := cfg.HostArtifactPath(*h)
 		if prev, ok := current.Hosts[h.Label]; ok {
 			for _, oldArt := range prev.Artifacts {
@@ -360,8 +341,16 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 			}
 		}
 
-		// Sign the host cert and write to the single destination.
-		result, err := pki.SignHost(caCertPEM, caKeyPEM, *h, opts.Now)
+		signingCA := cfg.SigningCA(*h)
+		if signingCA == nil {
+			return nil, nil, fmt.Errorf("host %q: cannot determine signing CA (should have been caught in validation)", h.Label)
+		}
+		pems, ok := caKeys[signingCA.Label]
+		if !ok {
+			return nil, nil, fmt.Errorf("host %q: signing CA %q PEM not available", h.Label, signingCA.Label)
+		}
+
+		result, err := pki.SignHost(pems.cert, pems.key, *h, opts.Now)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -372,16 +361,6 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 		if err := fsutil.WriteFile(cfg.Resolve(newArt.KeyPath), result.KeyPEM, keyMode); err != nil {
 			return nil, nil, fmt.Errorf("write host key %q: %w", h.Label, err)
 		}
-		manifestArtifacts := []manifest.Artifact{{
-			Dir:      newArt.Dir,
-			CertPath: newArt.CertPath,
-			KeyPath:  newArt.KeyPath,
-		}}
-		signedArtifacts := []SignedArtifact{{
-			Dir:      newArt.Dir,
-			CertPath: newArt.CertPath,
-			KeyPath:  newArt.KeyPath,
-		}}
 
 		durationStr := ""
 		if h.HasDuration {
@@ -389,6 +368,7 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 		}
 
 		next.Hosts[h.Label] = manifest.Host{
+			CA:             signingCA.Label,
 			Name:           result.Name,
 			Fingerprint:    result.Fingerprint,
 			Networks:       prefixesToStrings(h.Networks),
@@ -398,10 +378,21 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caC
 			NotBefore:      result.NotBefore.UTC(),
 			NotAfter:       result.NotAfter.UTC(),
 			CAFingerprint:  result.CAFingerprint,
-			Artifacts:      manifestArtifacts,
+			Artifacts: []manifest.Artifact{{
+				Dir:      newArt.Dir,
+				CertPath: newArt.CertPath,
+				KeyPath:  newArt.KeyPath,
+			}},
 		}
 
-		signed = append(signed, SignedHost{Label: h.Label, Artifacts: signedArtifacts})
+		signed = append(signed, SignedHost{
+			Label: h.Label,
+			Artifacts: []SignedArtifact{{
+				Dir:      newArt.Dir,
+				CertPath: newArt.CertPath,
+				KeyPath:  newArt.KeyPath,
+			}},
+		})
 	}
 	return signed, stale, nil
 }
@@ -419,19 +410,25 @@ func prefixesToStrings(prefixes []netip.Prefix) []string {
 	return out
 }
 
-// referenceManifestUnchanged reports whether the candidate manifest is, in
-// every committed field except generated_at, identical to the current one.
-// When true it also returns the current generated_at so the caller can
-// preserve it and keep the on-disk bytes stable. A nil or CA-less current
-// manifest (first reference run) is always "changed".
-func referenceManifestUnchanged(current, candidate *manifest.Manifest) (bool, time.Time) {
-	if current == nil || current.CA == nil {
+// newManifest builds an empty candidate manifest with the metadata fields
+// filled in. CA and host records are populated by reconcileOneCA /
+// applyHosts.
+func newManifest(cfg *config.Config, opts Options) *manifest.Manifest {
+	m := manifest.New()
+	m.GeneratedAt = opts.Now.UTC()
+	m.Generator.Version = opts.GeneratorVersion
+	m.ConfigPath = manifestRelConfigPath(cfg, cfg.Resolve(cfg.ManifestPath()))
+	return m
+}
+
+// manifestUnchanged reports whether the candidate manifest is, in every
+// committed field except generated_at, identical to the current one. When
+// true it also returns the current generated_at so the caller can preserve
+// it and keep the on-disk bytes stable.
+func manifestUnchanged(current, candidate *manifest.Manifest) (bool, time.Time) {
+	if current == nil || len(current.CAs) == 0 {
 		return false, time.Time{}
 	}
-	// Compare by marshalling both with a pinned generated_at, so the only
-	// remaining differences are the fields we actually care about. This
-	// reuses the canonical JSON encoding rather than enumerating fields,
-	// so new manifest fields are covered automatically.
 	pinned := current.GeneratedAt
 	a := withGeneratedAt(current, pinned)
 	b := withGeneratedAt(candidate, pinned)
@@ -446,17 +443,14 @@ func referenceManifestUnchanged(current, candidate *manifest.Manifest) (bool, ti
 	return true, pinned
 }
 
-// withGeneratedAt returns a shallow copy of m with GeneratedAt overridden,
-// so comparisons can ignore the wall-clock timestamp without mutating the
-// originals.
+// withGeneratedAt returns a shallow copy of m with GeneratedAt overridden.
 func withGeneratedAt(m *manifest.Manifest, t time.Time) *manifest.Manifest {
 	cp := *m
 	cp.GeneratedAt = t
 	return &cp
 }
 
-// writeManifest marshals and atomically writes the manifest. It is the
-// commit record for a run (spec/adr/002, spec/adr/013).
+// writeManifest marshals and atomically writes the manifest.
 func writeManifest(manifestReal string, m *manifest.Manifest) error {
 	data, err := manifest.Marshal(m)
 	if err != nil {
@@ -470,12 +464,17 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 
 // writeDryRunPlan writes a human-readable preview of what a real reconcile
 // would write. Each file is prefixed with "+ write ". When the plan has no
-// mutations (all noops or reference-only), it prints "up to date; nothing to do".
+// mutations (all noops), it prints "up to date; nothing to do".
 func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan) {
 	var writes []string
 
-	if ca := p.CAAction(); ca.Op == plan.OpGenerate {
-		writes = append(writes, cfg.CACertPath(), cfg.CAKeyPath())
+	for _, caAction := range p.CAActions() {
+		if caAction.Op == plan.OpGenerate {
+			ca := cfg.CAByLabel(caAction.Label)
+			if ca != nil {
+				writes = append(writes, cfg.CACertPathForCA(*ca), cfg.CAKeyPathForCA(*ca))
+			}
+		}
 	}
 
 	hostByLabel := make(map[string]*config.Host, len(cfg.Hosts))
@@ -502,8 +501,7 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan) {
 	fmt.Fprintf(w, "+ write %s\n", cfg.ManifestPath())
 }
 
-// coalesceWriter returns w, or io.Discard when w is nil, so callers can
-// write unconditionally without a nil check at each site.
+// coalesceWriter returns w, or io.Discard when w is nil.
 func coalesceWriter(w io.Writer) io.Writer {
 	if w == nil {
 		return io.Discard
@@ -511,11 +509,7 @@ func coalesceWriter(w io.Writer) io.Writer {
 	return w
 }
 
-// manifestRelConfigPath computes the manifest's config_path field: the
-// path to the HCL config relative to the manifest's directory when
-// possible, with an absolute path as the fallback (spec/adr/002). Keeping
-// it relative makes the committed manifest reproducible regardless of
-// where the repository is checked out.
+// manifestRelConfigPath computes the manifest's config_path field.
 func manifestRelConfigPath(cfg *config.Config, manifestReal string) string {
 	absConfig, err := filepath.Abs(cfg.Path)
 	if err != nil {

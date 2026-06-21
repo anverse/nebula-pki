@@ -3,8 +3,8 @@
 
 # Fresh tree: preview lists the custom directory.
 exec nebula-pki --dry-run
-stdout '^\+ write out/ca/ca\.crt$'
-stdout '^\+ write out/ca/ca\.key$'
+stdout '^\+ write out/ca/test-mesh\.crt$'
+stdout '^\+ write out/ca/test-mesh\.key$'
 stdout '^\+ write out/hetzner/lh-fra\.crt$'
 stdout '^\+ write out/hetzner/lh-fra\.key$'
 stdout '^\+ write out/nebula-pki\.json$'
@@ -13,7 +13,7 @@ stdout '^\+ write out/nebula-pki\.json$'
 
 # No files written.
 ! exists out/hetzner/lh-fra.crt
-! exists out/ca/ca.crt
+! exists out/ca/test-mesh.crt
 
 # A real run materialises the tree.
 exec nebula-pki
@@ -34,7 +34,7 @@ cmp out/hetzner/lh-fra.crt snap.crt
 cmp out/nebula-pki.json snap.json
 
 -- nebula.hcl --
-ca {
+ca "test-mesh" {
   name = "test-mesh"
 }
 

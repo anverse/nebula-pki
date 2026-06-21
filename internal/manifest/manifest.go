@@ -34,7 +34,7 @@ type Manifest struct {
 	GeneratedAt   time.Time       `json:"generated_at"`
 	Generator     Generator       `json:"generator"`
 	ConfigPath    string          `json:"config_path"`
-	CA            *CA             `json:"ca,omitempty"`
+	CAs           map[string]*CA  `json:"cas"`
 	Hosts         map[string]Host `json:"hosts"`
 }
 
@@ -57,10 +57,12 @@ type CA struct {
 	NotAfter    time.Time `json:"not_after"`
 	CertPath    string    `json:"cert_path"`
 	KeyPath     string    `json:"key_path"`
+	Default     bool      `json:"default,omitempty"`
 }
 
 // Host is a signed host record.
 type Host struct {
+	CA             string     `json:"ca"`
 	Name           string     `json:"name"`
 	Fingerprint    string     `json:"fingerprint"`
 	Networks       []string   `json:"networks"`
@@ -82,21 +84,21 @@ type Artifact struct {
 	KeyPath  string `json:"key_path,omitempty"`
 }
 
-// New returns an empty manifest with the current schema version and an
-// initialised (non-nil) hosts map, so it marshals hosts as {} rather than
-// null.
+// New returns an empty manifest with the current schema version and
+// initialised (non-nil) maps, so they marshal as {} rather than null.
 func New() *Manifest {
 	return &Manifest{
 		SchemaVersion: SchemaVersion,
 		Generator:     Generator{Name: GeneratorName},
+		CAs:           map[string]*CA{},
 		Hosts:         map[string]Host{},
 	}
 }
 
 // Load reads and parses the manifest at path. A missing file is not an
-// error: it returns a fresh empty manifest (CA == nil), which callers
-// treat as "nothing has been produced yet". A present file with an
-// unsupported schema_version is an error.
+// error: it returns a fresh empty manifest, which callers treat as
+// "nothing has been produced yet". A present file with an unsupported
+// schema_version is an error.
 func Load(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -115,6 +117,9 @@ func Load(path string) (*Manifest, error) {
 			"manifest %s has schema_version %d, but this build of nebula-pki supports %d",
 			path, m.SchemaVersion, SchemaVersion,
 		)
+	}
+	if m.CAs == nil {
+		m.CAs = map[string]*CA{}
 	}
 	if m.Hosts == nil {
 		m.Hosts = map[string]Host{}

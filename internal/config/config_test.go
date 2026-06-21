@@ -10,7 +10,7 @@ import (
 // minimalGenerate is the smallest HCL that should parse cleanly in
 // generate mode. Tests append/override on top of this.
 const minimalGenerate = `
-ca {
+ca "test" {
   name = "test-mesh"
 }
 `
@@ -20,11 +20,17 @@ func TestParse_MinimalGenerateMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if got, want := cfg.CA.Mode, CAModeGenerate; got != want {
-		t.Errorf("CA.Mode = %v, want %v", got, want)
+	if len(cfg.CAs) != 1 {
+		t.Fatalf("len(CAs) = %d, want 1", len(cfg.CAs))
 	}
-	if got, want := cfg.CA.Name, "test-mesh"; got != want {
-		t.Errorf("CA.Name = %q, want %q", got, want)
+	if got, want := cfg.CAs[0].Mode, CAModeGenerate; got != want {
+		t.Errorf("CAs[0].Mode = %v, want %v", got, want)
+	}
+	if got, want := cfg.CAs[0].Name, "test-mesh"; got != want {
+		t.Errorf("CAs[0].Name = %q, want %q", got, want)
+	}
+	if got, want := cfg.CAs[0].Label, "test"; got != want {
+		t.Errorf("CAs[0].Label = %q, want %q", got, want)
 	}
 	if got, want := cfg.Storage.OutDir, "out"; got != want {
 		t.Errorf("Storage.OutDir = %q, want %q", got, want)
@@ -36,7 +42,7 @@ func TestParse_MinimalGenerateMode(t *testing.T) {
 
 func TestParse_ReferenceMode(t *testing.T) {
 	src := `
-ca {
+ca "ref" {
   cert_file = "/path/ca.crt"
   key_file  = "/path/ca.key"
 }
@@ -45,14 +51,14 @@ ca {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if got, want := cfg.CA.Mode, CAModeReference; got != want {
-		t.Errorf("CA.Mode = %v, want %v", got, want)
+	if got, want := cfg.CAs[0].Mode, CAModeReference; got != want {
+		t.Errorf("CAs[0].Mode = %v, want %v", got, want)
 	}
 }
 
 func TestParse_FullSurface(t *testing.T) {
 	src := `
-ca {
+ca "full" {
   name             = "full-mesh"
   duration         = "26280h"
   version          = 2
@@ -88,8 +94,8 @@ host "edge" {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.CA.Duration != 26280*time.Hour {
-		t.Errorf("CA.Duration = %v", cfg.CA.Duration)
+	if cfg.CAs[0].Duration != 26280*time.Hour {
+		t.Errorf("CAs[0].Duration = %v", cfg.CAs[0].Duration)
 	}
 	if len(cfg.Hosts) != 1 {
 		t.Fatalf("expected 1 host, got %d", len(cfg.Hosts))
@@ -171,14 +177,14 @@ host "a" { networks = ["not-a-cidr"] }
 		{
 			name: "reference_mode_half_set",
 			src: `
-ca { cert_file = "x" }
+ca "ref" { cert_file = "x" }
 `,
 			wantErr: "reference mode requires both",
 		},
 		{
 			name: "reference_mode_with_generate_field",
 			src: `
-ca {
+ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
   duration  = "1h"
@@ -189,7 +195,7 @@ ca {
 		{
 			name: "host_group_not_in_ca_groups",
 			src: `
-ca {
+ca "m" {
   name   = "m"
   groups = ["app"]
 }
@@ -198,12 +204,12 @@ host "a" {
   groups   = ["app", "rogue"]
 }
 `,
-			wantErr: "not permitted by ca.groups",
+			wantErr: "not permitted by ca",
 		},
 		{
 			name: "host_network_outside_ca_networks",
 			src: `
-ca {
+ca "m" {
   name     = "m"
   networks = ["10.0.0.0/8"]
 }
@@ -211,12 +217,12 @@ host "a" {
   networks = ["192.168.0.1/16"]
 }
 `,
-			wantErr: "not contained by any ca.networks",
+			wantErr: "not contained by any ca",
 		},
 		{
 			name: "host_unsafe_network_outside_ca",
 			src: `
-ca {
+ca "m" {
   name            = "m"
   unsafe_networks = ["192.168.0.0/16"]
 }
@@ -225,7 +231,7 @@ host "a" {
   unsafe_networks = ["172.16.0.0/24"]
 }
 `,
-			wantErr: "not contained by any ca.unsafe_networks",
+			wantErr: "not contained by any ca",
 		},
 		{
 			name: "group_with_comma",
@@ -259,13 +265,13 @@ host "a" {
 		},
 		{
 			name:    "missing_ca_name_in_generate_mode",
-			src:     `ca {}`,
+			src:     `ca "m" {}`,
 			wantErr: "`name` is required",
 		},
 		{
 			name: "invalid_curve",
 			src: `
-ca {
+ca "m" {
   name  = "m"
   curve = "P521"
 }
@@ -275,7 +281,7 @@ ca {
 		{
 			name: "invalid_version",
 			src: `
-ca {
+ca "m" {
   name    = "m"
   version = 9
 }
@@ -285,7 +291,7 @@ ca {
 		{
 			name: "host_duration_exceeds_ca",
 			src: `
-ca {
+ca "m" {
   name     = "m"
   duration = "1h"
 }
@@ -294,7 +300,7 @@ host "a" {
   duration = "2h"
 }
 `,
-			wantErr: "exceeds ca.duration",
+			wantErr: "exceeds ca",
 		},
 		{
 			name: "encryption_not_implemented",
@@ -324,6 +330,34 @@ storage {
 `,
 			wantErr: "multiple `encryption` blocks",
 		},
+		{
+			name: "duplicate_ca_labels",
+			src: `
+ca "mesh" { name = "first" }
+ca "mesh" { name = "second" }
+`,
+			wantErr: "duplicate label",
+		},
+		{
+			name: "ambiguous_signing_ca",
+			src: `
+ca "alpha" { name = "alpha" }
+ca "beta"  { name = "beta" }
+host "h" { networks = ["10.0.0.1/16"] }
+`,
+			wantErr: "ambiguous",
+		},
+		{
+			name: "unknown_host_ca_ref",
+			src: `
+ca "mesh" { name = "mesh" }
+host "h" {
+  networks = ["10.0.0.1/16"]
+  ca       = "nonexistent"
+}
+`,
+			wantErr: "not declared",
+		},
 	}
 
 	for _, tc := range cases {
@@ -345,6 +379,78 @@ storage {
 	}
 }
 
+// TestParse_MultiCAWithDefaultFlag verifies the multi-CA + default flag happy
+// path: two CAs, one marked default, hosts can omit explicit ca selection.
+func TestParse_MultiCAWithDefaultFlag(t *testing.T) {
+	src := `
+ca "primary" {
+  name    = "primary"
+  default = true
+}
+ca "secondary" { name = "secondary" }
+host "h" { networks = ["10.0.0.1/16"] }
+`
+	cfg, err := Parse("test.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cfg.CAs) != 2 {
+		t.Fatalf("len(CAs) = %d, want 2", len(cfg.CAs))
+	}
+	if !cfg.CAs[0].Default {
+		t.Error("CAs[0].Default = false, want true")
+	}
+	if cfg.CAs[1].Default {
+		t.Error("CAs[1].Default = true, want false")
+	}
+	// Host should resolve to the default CA.
+	signing := cfg.SigningCA(cfg.Hosts[0])
+	if signing == nil || signing.Label != "primary" {
+		t.Errorf("SigningCA = %v, want primary", signing)
+	}
+}
+
+// TestParse_MultipleDefaultsRejected ensures at most one CA may be default.
+func TestParse_MultipleDefaultsRejected(t *testing.T) {
+	src := `
+ca "a" {
+  name    = "a"
+  default = true
+}
+ca "b" {
+  name    = "b"
+  default = true
+}
+`
+	_, err := Parse("test.hcl", []byte(src))
+	if err == nil {
+		t.Fatal("expected error for two default CAs, got nil")
+	}
+	if !strings.Contains(err.Error(), "at most one") {
+		t.Errorf("error = %q, want it to mention 'at most one'", err.Error())
+	}
+}
+
+// TestParse_HostExplicitCARef verifies that a host can name its signing CA.
+func TestParse_HostExplicitCARef(t *testing.T) {
+	src := `
+ca "alpha" { name = "alpha" }
+ca "beta"  { name = "beta" }
+host "h" {
+  networks = ["10.0.0.1/16"]
+  ca       = "beta"
+}
+`
+	cfg, err := Parse("test.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	signing := cfg.SigningCA(cfg.Hosts[0])
+	if signing == nil || signing.Label != "beta" {
+		t.Errorf("SigningCA = %v, want beta", signing)
+	}
+}
+
 func TestPrefixContains(t *testing.T) {
 	cases := []struct {
 		outer, inner string
@@ -353,9 +459,9 @@ func TestPrefixContains(t *testing.T) {
 		{"10.0.0.0/8", "10.42.0.0/16", true},
 		{"10.0.0.0/8", "10.42.1.0/24", true},
 		{"10.0.0.0/8", "192.168.0.0/16", false},
-		{"10.0.0.0/16", "10.0.0.0/8", false}, // outer narrower
+		{"10.0.0.0/16", "10.0.0.0/8", false},
 		{"fd00::/8", "fd42::/16", true},
-		{"10.0.0.0/8", "fd00::/8", false}, // family mismatch
+		{"10.0.0.0/8", "fd00::/8", false},
 	}
 	for _, c := range cases {
 		o := mustPrefix(t, c.outer)
@@ -373,4 +479,54 @@ func mustPrefix(t *testing.T, s string) netip.Prefix {
 		t.Fatalf("parse %q: %v", s, err)
 	}
 	return p
+}
+
+func TestParse_MultipleHostsHappyPath(t *testing.T) {
+	src := `
+ca "m" {
+  name     = "m"
+  groups   = ["app", "lh"]
+  networks = ["10.0.0.0/8"]
+}
+host "a" {
+  networks = ["10.0.0.1/16"]
+  groups   = ["app"]
+}
+host "b" {
+  networks = ["10.0.0.2/16"]
+  groups   = ["lh"]
+}
+host "c" {
+  networks = ["10.0.0.3/16"]
+  groups   = ["app", "lh"]
+}
+`
+	cfg, err := Parse("test.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got, want := len(cfg.Hosts), 3; got != want {
+		t.Fatalf("len(Hosts) = %d, want %d", got, want)
+	}
+	for i, label := range []string{"a", "b", "c"} {
+		if got, want := cfg.Hosts[i].Label, label; got != want {
+			t.Errorf("Hosts[%d].Label = %q, want %q", i, got, want)
+		}
+		if got, want := cfg.Hosts[i].Name, label; got != want {
+			t.Errorf("Hosts[%d].Name = %q (default to label), want %q", i, got, want)
+		}
+	}
+}
+
+func TestGroupsNotIn_Sorted(t *testing.T) {
+	got := groupsNotIn([]string{"z", "a", "m"}, []string{"x"})
+	want := []string{"a", "m", "z"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
 }
