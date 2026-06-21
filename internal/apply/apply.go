@@ -149,7 +149,6 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 // crash mid-run never records artifacts that were not fully written.
 func reconcileGenerate(cfg *config.Config, opts Options, report *Report, p plan.Plan, current *manifest.Manifest, manifestReal string) (*Report, error) {
 	if !p.Changes() {
-		report.Changed = false
 		report.CAName = cfg.CA.Name
 		return report, nil
 	}

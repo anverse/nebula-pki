@@ -232,9 +232,9 @@ func TestReconcile_SchemaMismatchRejected(t *testing.T) {
 	}
 }
 
-// TestReconcile_ManifestWriteFailsAfterCAWritten covers the failure
-// branch at apply.go:142 — pki.GenerateCA succeeded, both CA artifacts
-// were written, but the manifest write itself fails. The contract from
+// TestReconcile_ManifestWriteFailsAfterCAWritten covers the failure path
+// where pki.GenerateCA succeeded and both CA artifacts were written, but
+// the manifest write itself fails. The contract from
 // spec/adr/013 is that the manifest is the commit record: a missing
 // manifest after a partial run means the next reconcile must refuse to
 // touch the orphaned CA files (they're untracked from its perspective).

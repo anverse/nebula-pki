@@ -6,7 +6,8 @@
 //
 // It supports two CA paths: GenerateCA mints a fresh self-signed CA, and
 // LoadReferenceCA reads and verifies an operator-supplied existing CA
-// without rewriting it. Host signing arrives in a later milestone step.
+// without rewriting it. SignHost signs host certificates under a loaded
+// or generated CA.
 package pki
 
 import (

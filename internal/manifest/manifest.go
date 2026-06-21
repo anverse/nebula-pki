@@ -59,8 +59,7 @@ type CA struct {
 	KeyPath     string    `json:"key_path"`
 }
 
-// Host is a signed host record. Populated from v0.0.5 onward; defined here
-// so the schema (and its JSON shape) is stable from the start.
+// Host is a signed host record.
 type Host struct {
 	Name           string     `json:"name"`
 	Fingerprint    string     `json:"fingerprint"`
