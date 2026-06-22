@@ -829,6 +829,201 @@ func TestReconcile_DryRunCAOnly(t *testing.T) {
 	}
 }
 
+// --- Multi-CA reconcile ---------------------------------------------------
+
+// TestReconcile_MultiCA_TwoCAsHostsUnderEach verifies a two-CA config: both
+// CAs are generated, each host is signed under its designated CA (confirmed
+// via ca_fingerprint in the manifest), and a second run is a full noop.
+func TestReconcile_MultiCA_TwoCAsHostsUnderEach(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "primary" {
+  name    = "primary-mesh"
+  default = true
+}
+ca "secondary" { name = "secondary-mesh" }
+
+host "h1" { networks = ["10.0.0.1/16"] }
+host "h2" {
+  networks = ["10.0.0.2/16"]
+  ca       = "secondary"
+}
+`)
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true on first run")
+	}
+	if len(rep.CAs) != 2 {
+		t.Fatalf("CAs = %d, want 2", len(rep.CAs))
+	}
+	if len(rep.SignedHosts) != 2 {
+		t.Fatalf("SignedHosts = %d, want 2", len(rep.SignedHosts))
+	}
+
+	// Both CA pairs must exist on disk.
+	for _, ca := range cfg.CAs {
+		if _, err := os.Stat(cfg.Resolve(cfg.CACertPathForCA(ca))); err != nil {
+			t.Errorf("CA %q cert missing: %v", ca.Label, err)
+		}
+		if _, err := os.Stat(cfg.Resolve(cfg.CAKeyPathForCA(ca))); err != nil {
+			t.Errorf("CA %q key missing: %v", ca.Label, err)
+		}
+	}
+
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+
+	// Manifest has both CAs in the `cas` map.
+	if len(m.CAs) != 2 {
+		t.Fatalf("manifest CAs = %d, want 2", len(m.CAs))
+	}
+	primaryRec := m.CAs["primary"]
+	secondaryRec := m.CAs["secondary"]
+	if primaryRec == nil {
+		t.Fatal("manifest missing CAs[primary]")
+	}
+	if secondaryRec == nil {
+		t.Fatal("manifest missing CAs[secondary]")
+	}
+	if primaryRec.Fingerprint == secondaryRec.Fingerprint {
+		t.Error("primary and secondary share a fingerprint; CAs were not generated independently")
+	}
+
+	// Each host's manifest record names the correct signing CA and its
+	// ca_fingerprint matches that CA's fingerprint.
+	h1 := m.Hosts["h1"]
+	if h1.CA != "primary" {
+		t.Errorf("h1.CA = %q, want primary", h1.CA)
+	}
+	if h1.CAFingerprint != primaryRec.Fingerprint {
+		t.Errorf("h1.CAFingerprint = %q, want primary fingerprint %q", h1.CAFingerprint, primaryRec.Fingerprint)
+	}
+
+	h2 := m.Hosts["h2"]
+	if h2.CA != "secondary" {
+		t.Errorf("h2.CA = %q, want secondary", h2.CA)
+	}
+	if h2.CAFingerprint != secondaryRec.Fingerprint {
+		t.Errorf("h2.CAFingerprint = %q, want secondary fingerprint %q", h2.CAFingerprint, secondaryRec.Fingerprint)
+	}
+
+	// Snapshot for idempotency check.
+	snapshots := map[string][]byte{
+		cfg.Resolve(cfg.ManifestPath()): mustRead(t, cfg.Resolve(cfg.ManifestPath())),
+	}
+	for _, ca := range cfg.CAs {
+		p := cfg.Resolve(cfg.CACertPathForCA(ca))
+		snapshots[p] = mustRead(t, p)
+	}
+	for _, h := range cfg.Hosts {
+		a := cfg.HostArtifactPath(h)
+		snapshots[cfg.Resolve(a.CertPath)] = mustRead(t, cfg.Resolve(a.CertPath))
+		snapshots[cfg.Resolve(a.KeyPath)] = mustRead(t, cfg.Resolve(a.KeyPath))
+	}
+
+	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep2.Changed {
+		t.Fatal("second run: Changed = true, want false (full idempotency)")
+	}
+	for path, before := range snapshots {
+		if after := mustRead(t, path); string(after) != string(before) {
+			t.Errorf("%s changed on no-op run", path)
+		}
+	}
+}
+
+// TestReconcile_MultiCA_HostResignsWhenCAChanges verifies that when a host's
+// signing CA label changes between runs (manifest records old CA, config now
+// points at a different one), the host is re-signed under the new CA.
+func TestReconcile_MultiCA_HostResignsWhenCAChanges(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "nebula.hcl")
+
+	loadHCL := func(src string) *config.Config {
+		t.Helper()
+		if err := os.WriteFile(configPath, []byte(src), 0o644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		return cfg
+	}
+
+	// First run: h1 signed by primary (default), h2 by secondary.
+	cfg1 := loadHCL(`
+ca "primary" {
+  name    = "primary-mesh"
+  default = true
+}
+ca "secondary" { name = "secondary-mesh" }
+host "h1" { networks = ["10.0.0.1/16"] }
+host "h2" {
+  networks = ["10.0.0.2/16"]
+  ca       = "secondary"
+}
+`)
+	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	m1, _ := manifest.Load(cfg1.Resolve(cfg1.ManifestPath()))
+	h1FPBefore := m1.Hosts["h1"].CAFingerprint
+
+	// Second run: move h1 to secondary by adding explicit `ca = "secondary"`.
+	cfg2 := loadHCL(`
+ca "primary" {
+  name    = "primary-mesh"
+  default = true
+}
+ca "secondary" { name = "secondary-mesh" }
+host "h1" {
+  networks = ["10.0.0.1/16"]
+  ca       = "secondary"
+}
+host "h2" {
+  networks = ["10.0.0.2/16"]
+  ca       = "secondary"
+}
+`)
+	rep2, err := Reconcile(cfg2, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if !rep2.Changed {
+		t.Fatal("second run: Changed = false, want true (h1 signing CA changed)")
+	}
+
+	signedLabels := make(map[string]bool, len(rep2.SignedHosts))
+	for _, sh := range rep2.SignedHosts {
+		signedLabels[sh.Label] = true
+	}
+	if !signedLabels["h1"] {
+		t.Error("h1 not in SignedHosts, expected re-sign after CA change")
+	}
+	if signedLabels["h2"] {
+		t.Error("h2 in SignedHosts, expected noop (CA unchanged)")
+	}
+
+	m2, _ := manifest.Load(cfg2.Resolve(cfg2.ManifestPath()))
+	h1FPAfter := m2.Hosts["h1"].CAFingerprint
+	secondaryFP := m2.CAs["secondary"].Fingerprint
+	if h1FPAfter != secondaryFP {
+		t.Errorf("h1.CAFingerprint = %q after re-sign, want secondary fingerprint %q", h1FPAfter, secondaryFP)
+	}
+	if h1FPAfter == h1FPBefore {
+		t.Error("h1.CAFingerprint unchanged after CA switch, expected different fingerprint")
+	}
+}
+
 func assertMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	info, err := os.Stat(path)

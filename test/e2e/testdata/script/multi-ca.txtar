@@ -1,0 +1,98 @@
+# Two labelled CAs in one config: one marked default, one selected explicitly
+# per host. Verifies both CA pairs are generated, each host is signed under
+# its designated CA, the manifest uses the `cas` map for both entries, and
+# a second run is fully idempotent.
+
+exec nebula-pki
+stderr '^generated CA "primary" \(primary-mesh\)$'
+stderr '^  cert: out/ca/primary\.crt$'
+stderr '^  key:  out/ca/primary\.key$'
+stderr '^generated CA "secondary" \(secondary-mesh\)$'
+stderr '^  cert: out/ca/secondary\.crt$'
+stderr '^  key:  out/ca/secondary\.key$'
+stderr '^signed host "h1"$'
+stderr '^  cert: out/hosts/h1\.crt$'
+stderr '^  key:  out/hosts/h1\.key$'
+stderr '^signed host "h2"$'
+stderr '^  cert: out/hosts/h2\.crt$'
+stderr '^  key:  out/hosts/h2\.key$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
+
+# Both CA pairs must exist.
+exists out/ca/primary.crt
+exists out/ca/primary.key
+exists out/ca/secondary.crt
+exists out/ca/secondary.key
+
+# Both host cert/key pairs must exist.
+exists out/hosts/h1.crt
+exists out/hosts/h1.key
+exists out/hosts/h2.crt
+exists out/hosts/h2.key
+exists out/nebula-pki.json
+
+# PEM material in each file.
+grep 'NEBULA CERTIFICATE' out/ca/primary.crt
+grep 'NEBULA ED25519 PRIVATE KEY' out/ca/primary.key
+grep 'NEBULA CERTIFICATE' out/ca/secondary.crt
+grep 'NEBULA ED25519 PRIVATE KEY' out/ca/secondary.key
+grep 'NEBULA CERTIFICATE' out/hosts/h1.crt
+grep 'NEBULA CERTIFICATE' out/hosts/h2.crt
+
+# Manifest records both CAs in the `cas` map and each host's signing CA.
+grep '"primary"' out/nebula-pki.json
+grep '"secondary"' out/nebula-pki.json
+grep '"primary-mesh"' out/nebula-pki.json
+grep '"secondary-mesh"' out/nebula-pki.json
+grep '"h1"' out/nebula-pki.json
+grep '"h2"' out/nebula-pki.json
+grep '"ca_fingerprint"' out/nebula-pki.json
+
+# Snapshot all artifacts for idempotency check.
+cp out/ca/primary.crt primary.crt.first
+cp out/ca/primary.key primary.key.first
+cp out/ca/secondary.crt secondary.crt.first
+cp out/ca/secondary.key secondary.key.first
+cp out/hosts/h1.crt h1.crt.first
+cp out/hosts/h1.key h1.key.first
+cp out/hosts/h2.crt h2.crt.first
+cp out/hosts/h2.key h2.key.first
+cp out/nebula-pki.json manifest.first
+
+# Second run: everything up to date, nothing written.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'generated CA'
+! stderr 'signed host'
+! stdout .
+
+# All artifacts byte-identical.
+cmp out/ca/primary.crt primary.crt.first
+cmp out/ca/primary.key primary.key.first
+cmp out/ca/secondary.crt secondary.crt.first
+cmp out/ca/secondary.key secondary.key.first
+cmp out/hosts/h1.crt h1.crt.first
+cmp out/hosts/h1.key h1.key.first
+cmp out/hosts/h2.crt h2.crt.first
+cmp out/hosts/h2.key h2.key.first
+cmp out/nebula-pki.json manifest.first
+
+-- nebula.hcl --
+ca "primary" {
+  name    = "primary-mesh"
+  default = true
+}
+
+ca "secondary" {
+  name = "secondary-mesh"
+}
+
+host "h1" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "h2" {
+  networks = ["10.0.0.2/16"]
+  ca       = "secondary"
+}
