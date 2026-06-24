@@ -22,9 +22,9 @@ storage {
   out_dir       = "out/prod"
   manifest_file = "out/prod/nebula-pki.json"
 
-  # At-rest encryption of the CA and host private keys is planned via a
-  # `storage.encryption` block. Until then `nebula-pki check` rejects the
-  # block, so it stays commented out. The likely shape:
+  # At-rest encryption of the CA and host private keys ships in v0.2 via a
+  # `storage.encryption` block. The current release rejects the block with a
+  # clear error, so it stays commented out here. Planned shape:
   #
   #   encryption "sops" {}              # defer to .sops.yaml for recipients
   #   encryption "sops" { age = [...] } # inline recipients override

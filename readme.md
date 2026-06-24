@@ -13,6 +13,9 @@
 - **Reproducible.** Same config in, same artifacts out. `nebula-cert` produces whatever you remembered to type that day.
 - **Per-host output directory.** Each host declares its own destination directory — fan out the whole mesh to different providers or projects in a single run.
 - **No flag juggling.** Each host's networks, groups, and duration sit next to its name. No more re-typing the right `-networks`, `-groups`, `-duration` combo per host.
+- **Trust bundle.** Always emits `out/ca/bundle.crt` — a ready-made `pki.ca` file that stays correct through CA rotation.
+- **CA rotation in four steps.** Add a new CA, ship the bundle, flip the default signer, archive the old one. Each step is an HCL edit and a rerun; the tool handles the rest.
+- **Time-based renewal.** Set `renew_before` on a CA or individual host and certs are re-signed automatically before they expire. After every run the tool prints the earliest upcoming deadline so you know when to run next.
 
 ## Install
 
@@ -111,21 +114,65 @@ host "lh_fra" {
 }
 ```
 
-## Encryption (coming soon, opt-in)
+## Trust bundle
 
-By default, host keys land on disk as plaintext, which means you can't safely keep `out/` in git. The optional encryption wrapper fixes that: keys are encrypted at rest using sops (built-in, no extra CLI needed) with whatever recipients your `.sops.yaml` already defines — age, PGP, KMS, Vault. Commit the whole `out/` directory without leaking secrets; the manifest itself holds none.
+Every run writes `out/ca/bundle.crt` — a concatenated PEM of all active CA certificates, suitable for `pki.ca` in each host's Nebula `config.yaml`. The path is configurable:
 
 ```hcl
 storage {
-  encryption "sops" {
-    age = ["age1abc...", "age1def..."]
-  }
+  trust_bundle_file = "out/ca/bundle.crt"   # default
 }
 ```
 
-Every `.key` gets the configured suffix (default `.enc`). Decrypt with the regular `sops` CLI when needed.
+With a single CA, the bundle equals that CA's certificate. During rotation it holds both the old and new CA so hosts can authenticate against either; once the old CA is archived the bundle shrinks back to the active CA only.
 
-The block behaves like the `sops` CLI itself: every field maps to a sops flag, and an **empty** `encryption "sops" {}` defers entirely to your existing `.sops.yaml` (age, PGP, KMS, Vault — whatever you already use). See [`agents.md`](./agents.md) for the full field list and the `external` backend.
+## CA rotation
+
+Rotating a CA is four edits to `nebula.hcl`, each followed by a rerun:
+
+1. **Add the new CA.** The bundle now contains both; distribute `bundle.crt` and reload hosts (they trust both, certs still signed by the old CA).
+2. **Promote the new CA** to `default = true`. Hosts are re-signed under the new CA on the next run; distribute the new certs and reload.
+3. **Archive the old CA** with `archived = true`. The bundle drops the old CA; distribute the slimmer `bundle.crt` and reload.
+4. **Remove the archived block** (optional cleanup) once satisfied.
+
+```hcl
+# Stage 3: old CA archived, new CA is the sole signer.
+ca "old" {
+  name     = "mesh-2025"
+  archived = true        # excluded from bundle; barred from signing
+}
+
+ca "new" {
+  name    = "mesh-2026"
+  default = true
+}
+```
+
+Full worked example in [`spec/hcl-schema.md`](./spec/hcl-schema.md#ca-rotation-example).
+
+## Time-based renewal
+
+Set `renew_before` on a CA (inherited by all its hosts) or on individual hosts. When a cert enters its renewal window, the next run re-signs it automatically:
+
+```hcl
+ca "mesh" {
+  name         = "mesh-2026"
+  renew_before = "720h"    # re-sign all hosts 30 days before expiry
+}
+
+host "edge" {
+  networks     = ["10.42.2.1/16"]
+  renew_before = "48h"     # this host re-signs with 2 days to spare instead
+}
+```
+
+After every run — including no-op runs — the tool prints to stderr the earliest upcoming deadline and a "run again before \<date\>" hint. It is advisory only and does not affect exit codes or writes.
+
+## Encryption at rest (coming in v0.2, opt-in)
+
+By default, host keys land on disk as plaintext, which means you can't safely keep `out/` in git. The optional `storage.encryption` block will fix that: keys encrypted at rest using sops (built-in, no extra CLI needed) or any external command. The block is parsed but rejected in the current release — encryption lands in v0.2.
+
+See [`agents.md`](./agents.md) for the planned field list and the `sops` / `external` backends.
 
 ## CLI
 

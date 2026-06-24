@@ -75,19 +75,35 @@ Reference-mode reconcile is idempotent: a second run against an unchanged refere
 ## Full CA options (generate mode)
 
 ```hcl
-ca {
+ca "label" {
+  # Identity
   name              = "wiech-mesh"
+  default           = true                   # default signing CA for hosts that omit host.ca
+
+  # Validity
   duration          = "26280h"               # 3 years
+  renew_before      = "720h"                 # re-sign hosts 30 days before expiry (inherited)
+
+  # Rotation
+  archived          = false                  # true → excluded from trust bundle; may not sign
+
+  # Certificate format
   version           = 2                      # cert format 1 or 2
   curve             = "25519"                # or "P256"
-  groups            = ["lighthouse", "app"]  # restrict subordinate cert groups
-  networks          = ["10.42.0.0/16"]       # restrict subordinate cert networks
-  unsafe_networks   = ["192.168.0.0/16"]     # restrict routable subnets
-  encrypt           = true                   # passphrase-encrypt the CA key
+
+  # Subordinate cert restrictions (validated per host)
+  groups            = ["lighthouse", "app"]
+  networks          = ["10.42.0.0/16"]
+  unsafe_networks   = ["192.168.0.0/16"]
+
+  # Key encryption (not yet implemented — planned for v0.2)
+  encrypt           = true
   argon_memory      = 2097152
   argon_iterations  = 1
   argon_parallelism = 4
-  out_crt           = "out/ca/ca.crt"        # overrides defaults
+
+  # Output path overrides
+  out_crt           = "out/ca/ca.crt"
   out_key           = "out/ca/ca.key"
   out_qr            = "out/ca/ca.png"
 }
@@ -98,10 +114,13 @@ ca {
 ```hcl
 host "router" {
   name            = "router.mesh"               # optional; defaults to label
+  ca              = "my-ca"                     # signing CA label; omit to use the default CA
   networks        = ["10.42.2.1/16", "fd42::1/64"]
   unsafe_networks = ["192.168.10.0/24"]
   groups          = ["router"]
   duration        = "8760h"
+  renew_before    = "48h"                       # overrides CA-level renew_before for this host
+  output_dir      = "out/routers"               # destination directory; defaults to out/hosts
   in_pub          = "./pre-generated/router.pub"
   out_crt         = "out/router.crt"
   out_key         = "out/router.key"
@@ -123,6 +142,8 @@ key_path  = Join(base, out_key)     if out_key set
 `out_crt` and `out_key` compose with `output_dir` rather than overriding it; a bare filename stays in `base`, a relative sub-path nests inside it.
 
 ## Encryption backends
+
+> **Not yet implemented.** The `encryption` block is parsed but rejected at runtime with a clear error message. These backends ship in v0.2. The schema documented here is final and stable.
 
 ### `none` (default)
 
@@ -240,7 +261,9 @@ The manifest already carries an explicit `schema_version` field from day one —
 
 ## Status
 
-Specification stage. The implementation tracks [`spec/`](./spec/readme.md). When the implementation lands, this section will be replaced by version, supported-platform, release-channel, and pinned upstream Nebula version info — the latter is also surfaced via `nebula-pki --version` and the manifest's `generator.nebula_library_version` field. See [ADR-012](./spec/adr/012-upstream-nebula-coupling.md) for the upstream coupling and version-compatibility policy.
+Current release: **v0.0.10** (CA rotation + `renew_before`). Installable via Homebrew and Nix. The implementation tracks [`spec/`](./spec/readme.md). Version, supported platforms, and the pinned upstream Nebula version are surfaced via `nebula-pki --version` and the manifest's `generator.nebula_library_version` field. See [ADR-012](./spec/adr/012-upstream-nebula-coupling.md) for the upstream coupling policy.
+
+**Not yet implemented**: `storage.encryption` (any backend). The parser accepts the block and reports a clear error — encryption ships in v0.2.
 
 ## Validation rules (selected)
 
@@ -251,9 +274,14 @@ Specification stage. The implementation tracks [`spec/`](./spec/readme.md). When
 - `ca` reference mode with only one of `cert_file`/`key_file` → error.
 - `ca` reference mode whose `cert_file`/`key_file` do not exist on disk → error (at reconcile/`check`, not parse time).
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
+- A host's signing CA has `archived = true` → error (archived CAs may not sign).
+- More than one `ca` block sets `default = true` → error.
+- `host.ca` names a CA that is not declared → error.
 - `host.groups` containing a group not in `ca.groups` (when restricted) → error.
 - `host.networks` containing a prefix not contained by `ca.networks` (when restricted) → error.
 - `host.unsafe_networks` containing a prefix not contained by `ca.unsafe_networks` (when restricted) → error.
+- A CA's `renew_before` is ≥ its `duration` → error.
+- A host's effective `renew_before` is ≥ its effective validity → error.
 
 Full list in [`spec/hcl-schema.md`](./spec/hcl-schema.md#validation-rules).
 
