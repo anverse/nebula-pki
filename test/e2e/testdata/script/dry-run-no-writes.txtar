@@ -28,10 +28,10 @@ exists out/nebula-pki.json
 cp out/ca/test-mesh.crt ca.crt.snap
 cp out/nebula-pki.json manifest.snap
 
-# After a real run, dry-run reports nothing to do.
+# After a real run, dry-run reports nothing to do and prints the deadline advisory.
 exec nebula-pki --dry-run
 stdout '^up to date; nothing to do$'
-! stderr .
+stderr 'next deadline'
 
 # Tree is untouched.
 cmp out/ca/test-mesh.crt ca.crt.snap

@@ -301,9 +301,14 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, opt
 		if err != nil {
 			return nil, caPEMs{}, fmt.Errorf("read CA %q key: %w", ca.Label, err)
 		}
-		// Carry the existing manifest entry forward unchanged.
+		// Carry the existing manifest entry forward, but always reflect the
+		// current config's Archived and Default flags — these can change
+		// (e.g. during rotation) without triggering a CA re-generation.
 		if rec := current.CAs[ca.Label]; rec != nil {
-			next.CAs[ca.Label] = rec
+			updated := *rec
+			updated.Default = ca.Default
+			updated.Archived = ca.Archived
+			next.CAs[ca.Label] = &updated
 		}
 		// We need the result for the report's Name field; parse it minimally.
 		result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)

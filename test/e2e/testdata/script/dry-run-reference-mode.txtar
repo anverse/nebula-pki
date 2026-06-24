@@ -35,10 +35,10 @@ exists refs/nebula-pki.json
 cp out/hosts/alpha.crt alpha.crt.snap
 cp refs/nebula-pki.json manifest.snap
 
-# Up-to-date tree: dry-run reports nothing to do.
+# Up-to-date tree: dry-run reports nothing to do and prints the deadline advisory.
 exec nebula-pki --dry-run
 stdout '^up to date; nothing to do$'
-! stderr .
+stderr 'next deadline'
 
 cmp out/hosts/alpha.crt alpha.crt.snap
 cmp refs/nebula-pki.json manifest.snap
