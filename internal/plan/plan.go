@@ -9,6 +9,7 @@ package plan
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
 	"github.com/anverse/nebula-pki/internal/manifest"
@@ -95,11 +96,12 @@ func (p Plan) HostActions() []Action {
 	return hosts
 }
 
-// Build computes the reconcile plan for cfg given the current manifest m
-// and an exists probe that reports whether a logical artifact path is
-// present on disk. The caller is responsible for resolving logical paths
-// to real ones inside exists.
-func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath string) bool) (Plan, error) {
+// Build computes the reconcile plan for cfg given the current manifest m,
+// the current wall-clock time now (used for renewal-window checks), and an
+// exists probe that reports whether a logical artifact path is present on
+// disk. The caller is responsible for resolving logical paths to real ones
+// inside exists.
+func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(logicalPath string) bool) (Plan, error) {
 	var actions []Action
 
 	for i := range cfg.CAs {
@@ -118,19 +120,35 @@ func Build(cfg *config.Config, m *manifest.Manifest, exists func(logicalPath str
 	}
 
 	for i := range cfg.Hosts {
-		ha := planHost(cfg, m, &cfg.Hosts[i], exists)
+		ha := planHost(cfg, m, &cfg.Hosts[i], now, exists)
 		actions = append(actions, ha)
 	}
 	return Plan{Actions: actions}, nil
 }
 
+// hostInRenewalWindow reports whether a host cert is within its renew_before
+// window as of now: true when now >= not_after - renewBefore. Returns false
+// when renewBefore is zero (no time-based renewal configured).
+func hostInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) bool {
+	if renewBefore <= 0 {
+		return false
+	}
+	return !now.Before(notAfter.Add(-renewBefore))
+}
+
 // planHost decides the action for a single host. Host certs are not as
 // precious as CAs (they can always be re-signed), so partial pairs and
-// untracked files are resolved by re-signing rather than erroring:
+// untracked files are resolved by re-signing rather than erroring.
 //
-//   - tracked in manifest AND signing CA matches AND every artifact file present → noop
-//   - anything else (untracked, files absent, partial pair, new dir, CA changed) → sign
-func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, exists func(string) bool) Action {
+// A host is a noop when ALL of the following hold (ADR-002 + ADR-017):
+//  1. tracked in manifest
+//  2. signing CA label matches the manifest record
+//  3. cert artifact is present on disk
+//  4. key artifact is present on disk
+//  5. the cert is NOT within its renew_before window (now < not_after − rb)
+//
+// Any failing condition → sign.
+func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time.Time, exists func(string) bool) Action {
 	artifact := cfg.HostArtifactPath(*h)
 	signingCA := cfg.SigningCA(*h)
 
@@ -138,7 +156,12 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, exists f
 	caMatch := tracked && signingCA != nil && m.Hosts[h.Label].CA == signingCA.Label
 
 	if tracked && caMatch && exists(artifact.CertPath) && exists(artifact.KeyPath) {
-		return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+		rb := cfg.ResolvedRenewBefore(*h)
+		mh := m.Hosts[h.Label]
+		if !hostInRenewalWindow(rb, mh.NotAfter, now) {
+			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+		}
+		// Inside renewal window — fall through to sign.
 	}
 	return Action{
 		Op:    OpSign,

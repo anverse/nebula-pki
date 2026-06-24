@@ -69,6 +69,7 @@ type CA struct {
 	CertPath    string    `json:"cert_path"`
 	KeyPath     string    `json:"key_path"`
 	Default     bool      `json:"default,omitempty"`
+	Archived    bool      `json:"archived,omitempty"`
 }
 
 // Host is a signed host record.
@@ -80,6 +81,7 @@ type Host struct {
 	Groups         []string   `json:"groups,omitempty"`
 	UnsafeNetworks []string   `json:"unsafe_networks,omitempty"`
 	Duration       string     `json:"duration,omitempty"`
+	RenewBefore    string     `json:"renew_before,omitempty"`
 	NotBefore      time.Time  `json:"not_before"`
 	NotAfter       time.Time  `json:"not_after"`
 	CAFingerprint  string     `json:"ca_fingerprint"`

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/apply"
@@ -72,8 +73,9 @@ func runReconcile(cmd *cobra.Command, configPath string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
+	now := time.Now().UTC()
 	rep, err := apply.Reconcile(cfg, apply.Options{
-		Now:              time.Now().UTC(),
+		Now:              now,
 		GeneratorVersion: buildinfo.Version,
 		Warn:             cmd.ErrOrStderr(),
 		DryRun:           dryRun,
@@ -85,6 +87,7 @@ func runReconcile(cmd *cobra.Command, configPath string, dryRun bool) error {
 	if !dryRun {
 		writeReconcileSummary(cmd.ErrOrStderr(), rep)
 	}
+	printDeadlineReport(cmd.ErrOrStderr(), rep.Deadlines, now)
 	return nil
 }
 
@@ -122,6 +125,54 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		fmt.Fprintf(w, "wrote trust bundle: %s\n", rep.TrustBundlePath)
 	}
 	fmt.Fprintf(w, "wrote manifest: %s\n", rep.ManifestPath)
+}
+
+// printDeadlineReport writes the post-run "run again before" advisory to w.
+// It is printed on every reconcile and --dry-run, including no-op runs. When
+// there are no managed certificates yet, nothing is printed.
+func printDeadlineReport(w io.Writer, d apply.DeadlineReport, now time.Time) {
+	if d.NextDeadline.IsZero() {
+		return
+	}
+
+	date := d.NextDeadline.UTC().Format("2006-01-02")
+	if !now.Before(d.NextDeadline) {
+		fmt.Fprintf(w, "overdue: %s (deadline was %s)\n", d.NextDeadlineDesc, date)
+	} else {
+		days := int(d.NextDeadline.Sub(now).Hours() / 24)
+		fmt.Fprintf(w, "next deadline: %s on %s (in %dd)\n", d.NextDeadlineDesc, date, days)
+	}
+
+	// Collect soon items that are not the primary deadline item.
+	var others []apply.DeadlineItem
+	for _, item := range d.SoonItems {
+		if item.Deadline.Equal(d.NextDeadline) && item.Desc == d.NextDeadlineDesc {
+			continue
+		}
+		others = append(others, item)
+	}
+	if len(others) > 0 {
+		parts := make([]string, 0, len(others))
+		for _, item := range others {
+			itemDate := item.Deadline.UTC().Format("2006-01-02")
+			days := int(item.Deadline.Sub(now).Hours() / 24)
+			parts = append(parts, fmt.Sprintf("%s %s (in %dd)", item.Desc, itemDate, days))
+		}
+		fmt.Fprintf(w, "  also expiring soon: %s\n", strings.Join(parts, "; "))
+	}
+
+	// Overdue items that are not the primary deadline.
+	for _, item := range d.OverdueItems {
+		if item.Deadline.Equal(d.NextDeadline) && item.Desc == d.NextDeadlineDesc {
+			continue
+		}
+		itemDate := item.Deadline.UTC().Format("2006-01-02")
+		fmt.Fprintf(w, "  overdue: %s (deadline was %s)\n", item.Desc, itemDate)
+	}
+
+	if now.Before(d.NextDeadline) {
+		fmt.Fprintf(w, "hint: run nebula-pki again before %s to keep the mesh current\n", date)
+	}
 }
 
 func newVersionCmd() *cobra.Command {

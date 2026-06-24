@@ -283,7 +283,8 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 }
 
 // TestDryRunFlag_UpToDate verifies that --dry-run on a reconciled tree
-// prints "up to date; nothing to do" on stdout and nothing on stderr.
+// prints "up to date; nothing to do" on stdout and the deadline advisory
+// on stderr.
 func TestDryRunFlag_UpToDate(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "nebula.hcl")
@@ -312,8 +313,10 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	if !strings.Contains(stdout.String(), "up to date; nothing to do") {
 		t.Errorf("stdout = %q, want 'up to date; nothing to do'", stdout.String())
 	}
-	if stderr.String() != "" {
-		t.Errorf("stderr = %q, want empty", stderr.String())
+	// The deadline advisory is always printed to stderr (including on no-op
+	// dry-runs). After a fresh reconcile the host cert expires in ~1 year.
+	if !strings.Contains(stderr.String(), "next deadline") {
+		t.Errorf("stderr = %q, want deadline advisory", stderr.String())
 	}
 }
 

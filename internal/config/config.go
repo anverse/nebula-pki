@@ -83,6 +83,20 @@ func (c *Config) SigningCA(h Host) *CA {
 	return c.DefaultCA()
 }
 
+// ResolvedRenewBefore returns the effective renewal threshold for h:
+// host.renew_before if set, else the signing CA's ca.renew_before if set,
+// else zero (no time-based renewal — pure ADR-002 idempotency only).
+func (c *Config) ResolvedRenewBefore(h Host) time.Duration {
+	if h.HasRenewBefore {
+		return h.RenewBefore
+	}
+	ca := c.SigningCA(h)
+	if ca != nil && ca.HasRenewBefore {
+		return ca.RenewBefore
+	}
+	return 0
+}
+
 // CAMode enumerates the two modes of the `ca` block.
 type CAMode int
 
@@ -134,6 +148,19 @@ type CA struct {
 	OutKey         string
 	OutQR          string
 
+	// RenewBefore is the default renewal threshold for hosts signed by this
+	// CA. Hosts inherit this value when they do not set their own
+	// renew_before. A host cert is re-signed when it is within this window
+	// of its not_after. See ADR-017.
+	RenewBefore    time.Duration
+	HasRenewBefore bool
+
+	// Archived, when true, excludes this CA's certificate from the emitted
+	// trust bundle and prevents it from signing hosts. The manifest record
+	// is kept for audit. Used to stage the final step of a CA rotation.
+	// See ADR-016.
+	Archived bool
+
 	// Reference-mode fields.
 	CertFile string
 	KeyFile  string
@@ -171,6 +198,11 @@ type Host struct {
 	OutQR          string
 	InPub          string
 	OutputDir      string
+
+	// RenewBefore overrides the signing CA's renew_before for this host.
+	// When set, the host is re-signed within this window of its not_after.
+	RenewBefore    time.Duration
+	HasRenewBefore bool
 }
 
 // Defaults applied when fields are omitted.
@@ -274,6 +306,8 @@ type rawCA struct {
 	OutQR            *string  `hcl:"out_qr,optional"`
 	CertFile         *string  `hcl:"cert_file,optional"`
 	KeyFile          *string  `hcl:"key_file,optional"`
+	RenewBefore      *string  `hcl:"renew_before,optional"`
+	Archived         *bool    `hcl:"archived,optional"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
@@ -312,6 +346,7 @@ type rawHost struct {
 	OutQR          *string  `hcl:"out_qr,optional"`
 	InPub          *string  `hcl:"in_pub,optional"`
 	OutputDir      *string  `hcl:"output_dir,optional"`
+	RenewBefore    *string  `hcl:"renew_before,optional"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
@@ -442,6 +477,17 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 	if r.OutQR != nil {
 		ca.OutQR = *r.OutQR
 	}
+	if r.RenewBefore != nil {
+		d, err := time.ParseDuration(*r.RenewBefore)
+		if err != nil {
+			return nil, fmt.Errorf("%s: ca %q.renew_before: %w", filename, r.Label, err)
+		}
+		ca.RenewBefore = d
+		ca.HasRenewBefore = true
+	}
+	if r.Archived != nil {
+		ca.Archived = *r.Archived
+	}
 
 	return ca, nil
 }
@@ -562,6 +608,14 @@ func decodeHost(filename string, r *rawHost) (*Host, error) {
 	if r.OutputDir != nil {
 		h.OutputDir = *r.OutputDir
 	}
+	if r.RenewBefore != nil {
+		d, err := time.ParseDuration(*r.RenewBefore)
+		if err != nil {
+			return nil, fmt.Errorf("%s: host %q.renew_before: %w", filename, r.Label, err)
+		}
+		h.RenewBefore = d
+		h.HasRenewBefore = true
+	}
 
 	return h, nil
 }
@@ -666,7 +720,21 @@ func validateOneCA(filename string, ca *CA) error {
 		if err := validateGroupStrings(fmt.Sprintf("ca %q.groups", ca.Label), ca.Groups); err != nil {
 			return err
 		}
+		// Validate that ca.renew_before < ca.duration so it is sane as a host
+		// default. An infinite-churn scenario arises when renew_before ≥ validity.
+		if ca.HasRenewBefore && ca.HasDuration && ca.RenewBefore >= ca.Duration {
+			return fmt.Errorf("ca %q: renew_before %s must be less than duration %s",
+				ca.Label, ca.RenewBefore, ca.Duration)
+		}
 	}
+
+	// An archived CA cannot also be the default: all hosts that lack an
+	// explicit host.ca would resolve to an archived (non-signing) CA,
+	// making the configuration immediately invalid.
+	if ca.Archived && ca.Default {
+		return fmt.Errorf("ca %q: an archived CA cannot be marked default = true", ca.Label)
+	}
+
 	return nil
 }
 
@@ -728,34 +796,83 @@ func validateHosts(cfg *Config) error {
 				return fmt.Errorf("host %q: duration %s exceeds ca %q.duration %s", h.Label, h.Duration, signingCA.Label, signingCA.Duration)
 			}
 		}
+
+		// Validate renew_before < effective host validity so that issuing a
+		// cert never leaves the host immediately inside its renewal window
+		// (which would cause re-sign on every run).
+		if err := validateHostRenewBefore(h, signingCA); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateHostRenewBefore ensures the effective renew_before for a host is
+// strictly less than the host's effective validity window.
+func validateHostRenewBefore(h *Host, signingCA *CA) error {
+	// Resolve which renew_before applies.
+	var rb time.Duration
+	var rbSource string
+	switch {
+	case h.HasRenewBefore:
+		rb = h.RenewBefore
+		rbSource = fmt.Sprintf("host %q.renew_before", h.Label)
+	case signingCA.HasRenewBefore:
+		rb = signingCA.RenewBefore
+		rbSource = fmt.Sprintf("ca %q.renew_before (inherited by host %q)", signingCA.Label, h.Label)
+	default:
+		return nil // no renew_before configured; nothing to validate
+	}
+
+	// Resolve the effective validity: host.duration if set, else ca.duration
+	// if the CA is generate-mode (reference-mode CA expiry is not known at
+	// parse time and is checked at run time instead).
+	switch {
+	case h.HasDuration:
+		if rb >= h.Duration {
+			return fmt.Errorf("host %q: %s %s must be less than duration %s",
+				h.Label, rbSource, rb, h.Duration)
+		}
+	case signingCA.Mode == CAModeGenerate && signingCA.HasDuration:
+		if rb >= signingCA.Duration {
+			return fmt.Errorf("host %q: %s %s must be less than signing ca %q duration %s",
+				h.Label, rbSource, rb, signingCA.Label, signingCA.Duration)
+		}
 	}
 	return nil
 }
 
 // resolveSigningCA returns the CA that signs h, or an error if the
-// signing CA is ambiguous or undeclared. This is the single point of
-// CA-selection logic shared by validate and the callers in plan/apply.
+// signing CA is ambiguous, undeclared, or archived. This is the single
+// point of CA-selection logic shared by validate and the callers in
+// plan/apply.
 func resolveSigningCA(cfg *Config, h *Host) (*CA, error) {
+	var ca *CA
 	if h.CARef != "" {
-		ca := cfg.CAByLabel(h.CARef)
+		ca = cfg.CAByLabel(h.CARef)
 		if ca == nil {
 			return nil, fmt.Errorf("host %q: ca %q is not declared", h.Label, h.CARef)
 		}
-		return ca, nil
-	}
-	// No explicit ca on the host: use the default or the sole CA.
-	if len(cfg.CAs) == 1 {
-		return &cfg.CAs[0], nil
-	}
-	for i := range cfg.CAs {
-		if cfg.CAs[i].Default {
-			return &cfg.CAs[i], nil
+	} else if len(cfg.CAs) == 1 {
+		ca = &cfg.CAs[0]
+	} else {
+		for i := range cfg.CAs {
+			if cfg.CAs[i].Default {
+				ca = &cfg.CAs[i]
+				break
+			}
+		}
+		if ca == nil {
+			return nil, fmt.Errorf(
+				"host %q: ambiguous signing ca (the config has %d CAs and none is marked default = true; set host.ca or add default = true to one ca block)",
+				h.Label, len(cfg.CAs),
+			)
 		}
 	}
-	return nil, fmt.Errorf(
-		"host %q: ambiguous signing ca (the config has %d CAs and none is marked default = true; set host.ca or add default = true to one ca block)",
-		h.Label, len(cfg.CAs),
-	)
+	if ca.Archived {
+		return nil, fmt.Errorf("host %q: ca %q is archived and may not sign hosts", h.Label, ca.Label)
+	}
+	return ca, nil
 }
 
 func validateGroupStrings(field string, groups []string) error {

@@ -81,6 +81,31 @@ type CAReport struct {
 	KeyPath  string
 }
 
+// DeadlineItem is one entry in the deadline report.
+type DeadlineItem struct {
+	Kind     string    // "host" or "ca"
+	Label    string
+	Deadline time.Time // when the operator must act (renewal window entry or expiry)
+	Desc     string    // e.g. `host "x" enters renewal window` or `CA "y" expires`
+}
+
+// DeadlineReport is the post-run advisory: the earliest date the operator
+// must act before, plus supplementary soon/overdue detail. Printed after
+// every reconcile and --dry-run, including no-op runs.
+type DeadlineReport struct {
+	// NextDeadline is the single earliest actionable date. Zero when there
+	// are no managed certificates yet.
+	NextDeadline time.Time
+	// NextDeadlineDesc is a short description of what triggers NextDeadline.
+	NextDeadlineDesc string
+	// SoonItems are additional items whose deadline falls within the next
+	// 60 days (excluding the item that set NextDeadline).
+	SoonItems []DeadlineItem
+	// OverdueItems are items already past their deadline and not re-signed
+	// this run (e.g. a reference-mode CA whose cert has lapsed).
+	OverdueItems []DeadlineItem
+}
+
 // Report summarises what a reconcile did, for the CLI to present. Paths
 // are logical (as recorded in the manifest and written in HCL), not the
 // resolved on-disk paths.
@@ -114,6 +139,11 @@ type Report struct {
 	// files are never deleted automatically; the operator must clean them up.
 	// Populated only when Changed is true and at least one stale file exists.
 	StaleArtifacts []string
+
+	// Deadlines is the post-run "run again before" advisory. Always
+	// populated (including on no-op runs and --dry-run), unless the mesh has
+	// no managed certificates yet.
+	Deadlines DeadlineReport
 }
 
 // caPEMs holds the PEM bytes for one CA, used to sign hosts.
@@ -143,13 +173,14 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return fsutil.Exists(cfg.Resolve(logical))
 	}
 
-	p, err := plan.Build(cfg, current, exists)
+	p, err := plan.Build(cfg, current, opts.Now, exists)
 	if err != nil {
 		return nil, err
 	}
 
 	if opts.DryRun {
 		writeDryRunPlan(coalesceWriter(opts.Out), cfg, p, exists)
+		report.Deadlines = computeDeadlines(cfg, current, opts.Now)
 		return report, nil
 	}
 
@@ -197,6 +228,12 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	}
 	report.TrustBundlePath = cfg.TrustBundlePath()
 	report.TrustBundleWritten = bundleWritten
+
+	// Compute deadline advisory from the candidate manifest (already fully
+	// populated at this point). This covers no-op runs too: the candidate
+	// equals the current manifest in that case, so the report still reflects
+	// the current state of the mesh.
+	report.Deadlines = computeDeadlines(cfg, next, opts.Now)
 
 	// For all-generate configs without any changes: skip the manifest write.
 	// For configs with reference CAs: always compare, since plan cannot
@@ -313,6 +350,7 @@ func caResultToManifest(ca *config.CA, result *pki.CAResult, certPath, keyPath s
 		CertPath:    certPath,
 		KeyPath:     keyPath,
 		Default:     ca.Default,
+		Archived:    ca.Archived,
 	}
 }
 
@@ -386,6 +424,11 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 			durationStr = h.Duration.String()
 		}
 
+		renewBeforeStr := ""
+		if rb := cfg.ResolvedRenewBefore(*h); rb > 0 {
+			renewBeforeStr = rb.String()
+		}
+
 		next.Hosts[h.Label] = manifest.Host{
 			CA:             signingCA.Label,
 			Name:           result.Name,
@@ -394,6 +437,7 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 			Groups:         h.Groups,
 			UnsafeNetworks: prefixesToStrings(h.UnsafeNetworks),
 			Duration:       durationStr,
+			RenewBefore:    renewBeforeStr,
 			NotBefore:      result.NotBefore.UTC(),
 			NotAfter:       result.NotAfter.UTC(),
 			CAFingerprint:  result.CAFingerprint,
@@ -417,18 +461,21 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 }
 
 // reconcileTrustBundle builds the concatenated-PEM trust bundle from every
-// active CA (all CAs in declaration order for v0.0.9; archived filtering
-// is added in v0.0.10). It populates next.TrustBundle and writes the bundle
-// file when needed. Returns true when the file was written.
+// active (non-archived) CA in declaration order. It populates next.TrustBundle
+// and writes the bundle file when the content has changed. Returns true when
+// the file was written.
 func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current, next *manifest.Manifest, exists func(string) bool) (bool, error) {
 	bundlePath := cfg.TrustBundlePath()
 
 	var bundle []byte
 	fps := make([]string, 0, len(cfg.CAs))
 	for i := range cfg.CAs {
-		label := cfg.CAs[i].Label
-		bundle = append(bundle, caKeys[label].cert...)
-		if rec := next.CAs[label]; rec != nil {
+		ca := &cfg.CAs[i]
+		if ca.Archived {
+			continue // archived CAs are excluded from the trust bundle (ADR-016)
+		}
+		bundle = append(bundle, caKeys[ca.Label].cert...)
+		if rec := next.CAs[ca.Label]; rec != nil {
 			fps = append(fps, rec.Fingerprint)
 		}
 	}
@@ -575,6 +622,80 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, exists func(s
 		fmt.Fprintf(w, "+ write %s\n", path)
 	}
 	fmt.Fprintf(w, "+ write %s\n", cfg.ManifestPath())
+}
+
+// deadlineSoonWindow is the look-ahead window for the "also expiring soon"
+// section of the deadline report.
+const deadlineSoonWindow = 60 * 24 * time.Hour
+
+// computeDeadlines inspects m for every host and non-archived CA, then
+// returns the earliest actionable deadline plus supplementary detail.
+//
+// For a host with renew_before: deadline = not_after − renew_before (the
+// moment the host enters its renewal window). For a host without renew_before,
+// and for all CAs: deadline = not_after (expiry itself).
+//
+// The config is used to resolve the current renew_before value (which may
+// differ from what was recorded in the manifest when renew_before changed
+// between runs without triggering a re-sign).
+func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) DeadlineReport {
+	var rep DeadlineReport
+
+	updateEarliest := func(deadline time.Time, desc string) {
+		if rep.NextDeadline.IsZero() || deadline.Before(rep.NextDeadline) {
+			rep.NextDeadline = deadline
+			rep.NextDeadlineDesc = desc
+		}
+	}
+
+	// Hosts — iterate in config order for deterministic output.
+	for i := range cfg.Hosts {
+		h := &cfg.Hosts[i]
+		mh, ok := m.Hosts[h.Label]
+		if !ok || mh.NotAfter.IsZero() {
+			continue
+		}
+		rb := cfg.ResolvedRenewBefore(*h)
+		var deadline time.Time
+		var desc string
+		if rb > 0 {
+			deadline = mh.NotAfter.Add(-rb)
+			desc = fmt.Sprintf("host %q enters renewal window", h.Label)
+		} else {
+			deadline = mh.NotAfter
+			desc = fmt.Sprintf("host %q expires", h.Label)
+		}
+
+		if !now.Before(deadline) {
+			rep.OverdueItems = append(rep.OverdueItems, DeadlineItem{Kind: "host", Label: h.Label, Deadline: deadline, Desc: desc})
+		} else if deadline.Before(now.Add(deadlineSoonWindow)) {
+			rep.SoonItems = append(rep.SoonItems, DeadlineItem{Kind: "host", Label: h.Label, Deadline: deadline, Desc: desc})
+		}
+		updateEarliest(deadline, desc)
+	}
+
+	// CAs — non-archived only; use config CA order for determinism.
+	for i := range cfg.CAs {
+		ca := &cfg.CAs[i]
+		if ca.Archived {
+			continue
+		}
+		rec, ok := m.CAs[ca.Label]
+		if !ok || rec == nil || rec.NotAfter.IsZero() {
+			continue
+		}
+		deadline := rec.NotAfter
+		desc := fmt.Sprintf("CA %q expires", ca.Label)
+
+		if !now.Before(deadline) {
+			rep.OverdueItems = append(rep.OverdueItems, DeadlineItem{Kind: "ca", Label: ca.Label, Deadline: deadline, Desc: desc})
+		} else if deadline.Before(now.Add(deadlineSoonWindow)) {
+			rep.SoonItems = append(rep.SoonItems, DeadlineItem{Kind: "ca", Label: ca.Label, Deadline: deadline, Desc: desc})
+		}
+		updateEarliest(deadline, desc)
+	}
+
+	return rep
 }
 
 // coalesceWriter returns w, or io.Discard when w is nil.
