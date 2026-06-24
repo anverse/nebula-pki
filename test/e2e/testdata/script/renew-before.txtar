@@ -1,0 +1,110 @@
+# renew_before configuration: manifest recording, inheritance, and validation.
+#
+# The e2e binary uses real time, so clock-driven re-signing is covered by unit
+# tests.  Here we verify the observable surface: renew_before is recorded in
+# the manifest after signing, host-level overrides CA-level defaults, a second
+# run is idempotent (fresh certs are far outside the renewal window), and
+# invalid configurations are rejected.
+
+# ── Validation: renew_before >= explicit duration must be rejected ────────────
+! exec nebula-pki -c invalid-renew-before.hcl
+stderr 'renew_before'
+
+# ── Scenario 1: CA-level renew_before inherited by hosts ─────────────────────
+exec nebula-pki -c ca-level.hcl
+stderr '^generated CA'
+stderr '^signed host "alpha"$'
+stderr '^signed host "beta"$'
+stderr '^wrote manifest'
+! stdout .
+
+exists out/ca/bundle.crt
+exists out/hosts/alpha.crt
+exists out/hosts/beta.crt
+
+# Manifest records renew_before for both hosts (inherited from CA).
+grep '"renew_before"' out/nebula-pki.json
+grep '"720h0m0s"' out/nebula-pki.json
+
+# Snapshot.
+cp out/hosts/alpha.crt alpha.ca-level.crt
+cp out/hosts/beta.crt  beta.ca-level.crt
+cp out/nebula-pki.json manifest.ca-level.json
+
+# Second run is a noop: freshly-signed certs are far outside the 30-day window.
+exec nebula-pki -c ca-level.hcl
+stderr '^up to date; nothing to do$'
+stderr 'next deadline'
+! stderr 'signed host'
+! stdout .
+
+cmp out/hosts/alpha.crt alpha.ca-level.crt
+cmp out/hosts/beta.crt  beta.ca-level.crt
+cmp out/nebula-pki.json manifest.ca-level.json
+
+# ── Scenario 2: host-level renew_before overrides CA-level ──────────────────
+exec nebula-pki -c host-override.hcl
+stderr '^generated CA'
+stderr '^signed host "alpha"$'
+stderr '^signed host "gamma"$'
+stderr '^wrote manifest'
+! stdout .
+
+# alpha carries host-level renew_before (48h); gamma inherits CA-level (720h).
+grep '"48h0m0s"' out/nebula-pki.json
+grep '"720h0m0s"' out/nebula-pki.json
+
+# Snapshot.
+cp out/hosts/alpha.crt alpha.override.crt
+cp out/hosts/gamma.crt gamma.override.crt
+cp out/nebula-pki.json manifest.override.json
+
+# Second run is a noop.
+exec nebula-pki -c host-override.hcl
+stderr '^up to date; nothing to do$'
+! stderr 'signed host'
+! stdout .
+
+cmp out/hosts/alpha.crt alpha.override.crt
+cmp out/hosts/gamma.crt gamma.override.crt
+cmp out/nebula-pki.json manifest.override.json
+
+-- invalid-renew-before.hcl --
+ca "invalid" {
+  name         = "test-mesh"
+  duration     = "720h"
+  renew_before = "8784h"
+}
+
+host "h" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- ca-level.hcl --
+ca "mesh" {
+  name         = "test-mesh"
+  renew_before = "720h"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+-- host-override.hcl --
+ca "mesh2" {
+  name         = "test-mesh-2"
+  renew_before = "720h"
+}
+
+host "alpha" {
+  networks    = ["10.0.0.1/16"]
+  renew_before = "48h"
+}
+
+host "gamma" {
+  networks = ["10.0.0.3/16"]
+}

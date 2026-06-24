@@ -1,0 +1,203 @@
+# Full 4-step CA rotation scenario.
+#
+# Step 1: initial mesh with a single "current" CA.
+# Step 2: add "next" CA — both appear in the trust bundle; hosts unchanged.
+# Step 3: promote "next" to default — hosts re-sign; bundle unchanged.
+# Step 4: archive "current" — bundle shrinks to "next" only; hosts unchanged.
+
+# ── Step 1: initial state ─────────────────────────────────────────────────────
+cp step1.hcl nebula.hcl
+exec nebula-pki
+stderr '^generated CA "current" \(test-mesh\)$'
+stderr '^  cert: out/ca/current\.crt$'
+stderr '^  key:  out/ca/current\.key$'
+stderr '^signed host "alpha"$'
+stderr '^  cert: out/hosts/alpha\.crt$'
+stderr '^  key:  out/hosts/alpha\.key$'
+stderr '^signed host "beta"$'
+stderr '^  cert: out/hosts/beta\.crt$'
+stderr '^  key:  out/hosts/beta\.key$'
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
+
+exists out/ca/current.crt
+exists out/ca/current.key
+exists out/hosts/alpha.crt
+exists out/hosts/beta.crt
+exists out/ca/bundle.crt
+
+# Single-CA bundle equals the CA cert itself.
+cmp out/ca/bundle.crt out/ca/current.crt
+
+# Manifest records "current" CA and both hosts.
+grep '"current"' out/nebula-pki.json
+grep '"alpha"' out/nebula-pki.json
+grep '"beta"' out/nebula-pki.json
+
+# Snapshot host certs and bundle for later comparison.
+cp out/hosts/alpha.crt alpha.step1.crt
+cp out/hosts/beta.crt  beta.step1.crt
+cp out/ca/bundle.crt   bundle.step1.crt
+
+# ── Step 2: add "next" CA ─────────────────────────────────────────────────────
+cp step2.hcl nebula.hcl
+exec nebula-pki
+! stderr 'generated CA "current"'
+stderr '^generated CA "next" \(test-mesh-v2\)$'
+! stderr 'signed host'
+stderr '^wrote trust bundle'
+stderr '^wrote manifest'
+! stdout .
+
+exists out/ca/next.crt
+exists out/ca/next.key
+
+# Hosts not re-signed: certs unchanged.
+cmp out/hosts/alpha.crt alpha.step1.crt
+cmp out/hosts/beta.crt  beta.step1.crt
+
+# Bundle now contains both CAs (not equal to either CA cert alone).
+! cmp out/ca/bundle.crt out/ca/current.crt
+! cmp out/ca/bundle.crt out/ca/next.crt
+grep 'NEBULA CERTIFICATE' out/ca/bundle.crt
+
+# Manifest records both CAs and both fingerprints in trust bundle.
+grep '"current"' out/nebula-pki.json
+grep '"next"' out/nebula-pki.json
+grep '"test-mesh-v2"' out/nebula-pki.json
+grep '"ca_fingerprints"' out/nebula-pki.json
+
+# Snapshot two-CA bundle for step 3.
+cp out/ca/bundle.crt bundle.step2.crt
+
+# ── Step 3: promote "next" to default — hosts re-sign ────────────────────────
+cp step3.hcl nebula.hcl
+exec nebula-pki
+! stderr 'generated CA'
+stderr '^signed host "alpha"$'
+stderr '^signed host "beta"$'
+! stderr 'wrote trust bundle'
+stderr '^wrote manifest'
+! stdout .
+
+# Hosts re-signed under "next" CA.
+! cmp out/hosts/alpha.crt alpha.step1.crt
+! cmp out/hosts/beta.crt  beta.step1.crt
+
+# Bundle unchanged: same two CAs, neither archived.
+cmp out/ca/bundle.crt bundle.step2.crt
+
+# Snapshot new host certs.
+cp out/hosts/alpha.crt alpha.step3.crt
+cp out/hosts/beta.crt  beta.step3.crt
+
+# Idempotency: a second run with step 3 config is a noop.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'generated CA'
+! stderr 'signed host'
+! stdout .
+
+cmp out/hosts/alpha.crt alpha.step3.crt
+cmp out/hosts/beta.crt  beta.step3.crt
+cmp out/ca/bundle.crt   bundle.step2.crt
+
+# ── Step 4: archive "current" — bundle shrinks to "next" only ────────────────
+cp step4.hcl nebula.hcl
+exec nebula-pki
+! stderr 'generated CA'
+! stderr 'signed host'
+stderr '^wrote trust bundle'
+stderr '^wrote manifest'
+! stdout .
+
+# Hosts not re-signed (already under "next", outside renewal window).
+cmp out/hosts/alpha.crt alpha.step3.crt
+cmp out/hosts/beta.crt  beta.step3.crt
+
+# Bundle now equals just the "next" CA cert.
+cmp out/ca/bundle.crt out/ca/next.crt
+
+# Manifest records the archive flag.
+grep '"archived"' out/nebula-pki.json
+
+# Idempotency: second run with archived config is a noop.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'generated CA'
+! stderr 'signed host'
+! stderr 'wrote trust bundle'
+! stdout .
+
+cmp out/hosts/alpha.crt alpha.step3.crt
+cmp out/hosts/beta.crt  beta.step3.crt
+
+-- step1.hcl --
+ca "current" {
+  name    = "test-mesh"
+  default = true
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+-- step2.hcl --
+ca "current" {
+  name    = "test-mesh"
+  default = true
+}
+
+ca "next" {
+  name = "test-mesh-v2"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+-- step3.hcl --
+ca "current" {
+  name = "test-mesh"
+}
+
+ca "next" {
+  name    = "test-mesh-v2"
+  default = true
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+-- step4.hcl --
+ca "current" {
+  name     = "test-mesh"
+  archived = true
+}
+
+ca "next" {
+  name    = "test-mesh-v2"
+  default = true
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
