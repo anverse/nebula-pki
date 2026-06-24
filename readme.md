@@ -133,7 +133,7 @@ Rotating a CA is four edits to `nebula.hcl`, each followed by a rerun:
 1. **Add the new CA.** The bundle now contains both; distribute `bundle.crt` and reload hosts (they trust both, certs still signed by the old CA).
 2. **Promote the new CA** to `default = true`. Hosts are re-signed under the new CA on the next run; distribute the new certs and reload.
 3. **Archive the old CA** with `archived = true`. The bundle drops the old CA; distribute the slimmer `bundle.crt` and reload.
-4. **Remove the archived block** (optional cleanup) once satisfied.
+4. **Remove the archived block** (optional cleanup) once satisfied. The old CA's cert and key files remain on disk unmanaged after the block is removed; delete them manually if desired.
 
 ```hcl
 # Stage 3: old CA archived, new CA is the sole signer.
@@ -182,6 +182,8 @@ nebula-pki --dry-run      # preview what would change; no writes
 nebula-pki check          # parse and validate nebula.hcl; no I/O against out/
 nebula-pki -c other.hcl   # use a different config path
 ```
+
+`--dry-run` prints the planned writes to stdout and still prints the deadline advisory to stderr, the same as a normal run.
 
 That's the whole surface. No subcommands to memorise for the everyday workflow.
 
