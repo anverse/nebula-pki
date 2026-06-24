@@ -1,0 +1,77 @@
+# Trust bundle emission: every run writes out/ca/bundle.crt (or the custom
+# path configured by storage.trust_bundle_file).  The bundle contains
+# exactly the active CA cert PEM, is byte-stable on re-runs, and is
+# recorded in the manifest under trust_bundle.
+
+# --- Scenario 1: single CA, default bundle path ---
+
+exec nebula-pki
+stderr '^generated CA "mesh" \(mesh\)$'
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
+
+exists out/ca/mesh.crt
+exists out/ca/mesh.key
+exists out/ca/bundle.crt
+exists out/nebula-pki.json
+
+# Bundle contains a valid Nebula CA certificate.
+grep 'NEBULA CERTIFICATE' out/ca/bundle.crt
+
+# Single-CA bundle must be byte-for-byte equal to the CA cert itself.
+cmp out/ca/bundle.crt out/ca/mesh.crt
+
+# Manifest records the trust_bundle entry.
+grep '"trust_bundle"' out/nebula-pki.json
+grep '"ca_fingerprints"' out/nebula-pki.json
+grep '"path"' out/nebula-pki.json
+
+# Snapshot all produced files for idempotency comparison.
+cp out/ca/mesh.crt ca.crt.first
+cp out/ca/mesh.key ca.key.first
+cp out/ca/bundle.crt bundle.crt.first
+cp out/nebula-pki.json manifest.first
+
+# Second run: everything up to date — bundle, CA files, manifest all unchanged.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'generated CA'
+! stderr 'wrote trust bundle'
+! stdout .
+
+cmp out/ca/mesh.crt ca.crt.first
+cmp out/ca/mesh.key ca.key.first
+cmp out/ca/bundle.crt bundle.crt.first
+cmp out/nebula-pki.json manifest.first
+
+# --- Scenario 2: custom trust_bundle_file path ---
+
+exec nebula-pki -c custom.hcl
+stderr '^generated CA "custom-ca" \(custom-mesh\)$'
+stderr '^wrote trust bundle: out/ca/mesh-trust\.crt$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
+
+# Custom bundle path must exist; its content is a valid Nebula CA cert.
+exists out/ca/mesh-trust.crt
+grep 'NEBULA CERTIFICATE' out/ca/mesh-trust.crt
+
+# Manifest for this run records the custom path.
+grep '"out/ca/mesh-trust.crt"' out/nebula-pki.json
+
+-- nebula.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+-- custom.hcl --
+ca "custom-ca" {
+  name    = "custom-mesh"
+  out_crt = "out/ca/custom-ca.crt"
+  out_key = "out/ca/custom-ca.key"
+}
+
+storage {
+  trust_bundle_file = "out/ca/mesh-trust.crt"
+}

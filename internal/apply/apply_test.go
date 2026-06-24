@@ -1024,6 +1024,220 @@ host "h2" {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Trust bundle tests
+// ---------------------------------------------------------------------------
+
+// TestReconcile_BundleWritten verifies that bundle.crt is created on a fresh
+// run and has the expected file mode.
+func TestReconcile_BundleWritten(t *testing.T) {
+	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.TrustBundleWritten {
+		t.Error("TrustBundleWritten = false, want true on first run")
+	}
+	if rep.TrustBundlePath == "" {
+		t.Error("TrustBundlePath is empty")
+	}
+
+	bundleReal := cfg.Resolve(cfg.TrustBundlePath())
+	if _, err := os.Stat(bundleReal); err != nil {
+		t.Fatalf("bundle.crt missing: %v", err)
+	}
+	assertMode(t, bundleReal, 0o600)
+}
+
+// TestReconcile_BundleEqualsCACert verifies that a single-CA bundle contains
+// exactly the CA cert PEM bytes.
+func TestReconcile_BundleEqualsCACert(t *testing.T) {
+	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	ca0 := cfg.CAs[0]
+	caCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(ca0)))
+	bundle := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+
+	if !bytes.Equal(caCert, bundle) {
+		t.Error("single-CA bundle does not equal CA cert PEM")
+	}
+}
+
+// TestReconcile_BundleManifestRecord verifies that manifest.TrustBundle is
+// populated with the correct path and a matching fingerprint.
+func TestReconcile_BundleManifestRecord(t *testing.T) {
+	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if m.TrustBundle == nil {
+		t.Fatal("manifest.TrustBundle = nil")
+	}
+	if m.TrustBundle.Path != cfg.TrustBundlePath() {
+		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundle.Path, cfg.TrustBundlePath())
+	}
+	if len(m.TrustBundle.CAFingerprints) != 1 {
+		t.Fatalf("TrustBundle.CAFingerprints len = %d, want 1", len(m.TrustBundle.CAFingerprints))
+	}
+	caFP := m.CAs["mesh"].Fingerprint
+	if m.TrustBundle.CAFingerprints[0] != caFP {
+		t.Errorf("TrustBundle.CAFingerprints[0] = %q, want CA fingerprint %q", m.TrustBundle.CAFingerprints[0], caFP)
+	}
+}
+
+// TestReconcile_BundleIdempotent verifies that a second run leaves
+// bundle.crt byte-identical and does not set TrustBundleWritten.
+func TestReconcile_BundleIdempotent(t *testing.T) {
+	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	bundle1 := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Error("Changed = true on idempotent run, want false")
+	}
+	if rep.TrustBundleWritten {
+		t.Error("TrustBundleWritten = true on idempotent run, want false")
+	}
+
+	bundle2 := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	if !bytes.Equal(bundle1, bundle2) {
+		t.Error("bundle.crt changed on idempotent run")
+	}
+}
+
+// TestReconcile_BundleCustomPath verifies that storage.trust_bundle_file
+// redirects the bundle to the custom path.
+func TestReconcile_BundleCustomPath(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" { name = "mesh" }
+storage { trust_bundle_file = "out/ca/mesh-trust.crt" }
+`)
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.TrustBundleWritten {
+		t.Error("TrustBundleWritten = false, want true")
+	}
+	if rep.TrustBundlePath != "out/ca/mesh-trust.crt" {
+		t.Errorf("TrustBundlePath = %q, want out/ca/mesh-trust.crt", rep.TrustBundlePath)
+	}
+	if _, err := os.Stat(cfg.Resolve("out/ca/mesh-trust.crt")); err != nil {
+		t.Fatalf("custom bundle path missing: %v", err)
+	}
+	// Default path must not exist.
+	if _, err := os.Stat(cfg.Resolve("out/ca/bundle.crt")); err == nil {
+		t.Error("default bundle.crt exists but should not when trust_bundle_file is set")
+	}
+
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if m.TrustBundle == nil || m.TrustBundle.Path != "out/ca/mesh-trust.crt" {
+		t.Errorf("manifest TrustBundle.Path = %v, want out/ca/mesh-trust.crt", m.TrustBundle)
+	}
+}
+
+// TestReconcile_TwoCAsBundleConcatenates verifies that a two-CA config
+// writes a bundle containing both CA certs in declaration order and that
+// the manifest records both fingerprints.
+func TestReconcile_TwoCAsBundleConcatenates(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "primary" {
+  name    = "primary-mesh"
+  default = true
+}
+ca "secondary" {
+  name = "secondary-mesh"
+}
+host "h1" { networks = ["10.0.0.1/16"] }
+host "h2" {
+  networks = ["10.0.0.2/16"]
+  ca       = "secondary"
+}
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	bundle := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	primaryCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
+	secondaryCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[1])))
+
+	// Bundle must be exactly primary || secondary in declaration order.
+	want := append(primaryCert, secondaryCert...)
+	if !bytes.Equal(bundle, want) {
+		t.Error("two-CA bundle content does not match primary+secondary concatenation")
+	}
+
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if m.TrustBundle == nil {
+		t.Fatal("TrustBundle = nil")
+	}
+	if len(m.TrustBundle.CAFingerprints) != 2 {
+		t.Fatalf("CAFingerprints len = %d, want 2", len(m.TrustBundle.CAFingerprints))
+	}
+	if m.TrustBundle.CAFingerprints[0] != m.CAs["primary"].Fingerprint {
+		t.Errorf("CAFingerprints[0] = %q, want primary fingerprint %q", m.TrustBundle.CAFingerprints[0], m.CAs["primary"].Fingerprint)
+	}
+	if m.TrustBundle.CAFingerprints[1] != m.CAs["secondary"].Fingerprint {
+		t.Errorf("CAFingerprints[1] = %q, want secondary fingerprint %q", m.TrustBundle.CAFingerprints[1], m.CAs["secondary"].Fingerprint)
+	}
+}
+
+// TestReconcile_BundleReport verifies the TrustBundlePath and
+// TrustBundleWritten fields on the Report struct across two runs.
+func TestReconcile_BundleReport(t *testing.T) {
+	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+	expected := cfg.TrustBundlePath()
+
+	rep1, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	if rep1.TrustBundlePath != expected {
+		t.Errorf("first run TrustBundlePath = %q, want %q", rep1.TrustBundlePath, expected)
+	}
+	if !rep1.TrustBundleWritten {
+		t.Error("first run TrustBundleWritten = false, want true")
+	}
+
+	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep2.TrustBundlePath != expected {
+		t.Errorf("second run TrustBundlePath = %q, want %q", rep2.TrustBundlePath, expected)
+	}
+	if rep2.TrustBundleWritten {
+		t.Error("second run TrustBundleWritten = true, want false")
+	}
+}
+
 func assertMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	info, err := os.Stat(path)

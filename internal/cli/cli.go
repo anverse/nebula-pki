@@ -118,6 +118,9 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 			fmt.Fprintf(w, "  %s\n", p)
 		}
 	}
+	if rep.TrustBundleWritten {
+		fmt.Fprintf(w, "wrote trust bundle: %s\n", rep.TrustBundlePath)
+	}
 	fmt.Fprintf(w, "wrote manifest: %s\n", rep.ManifestPath)
 }
 

@@ -34,8 +34,19 @@ type Manifest struct {
 	GeneratedAt   time.Time       `json:"generated_at"`
 	Generator     Generator       `json:"generator"`
 	ConfigPath    string          `json:"config_path"`
+	TrustBundle   *TrustBundle    `json:"trust_bundle,omitempty"`
 	CAs           map[string]*CA  `json:"cas"`
 	Hosts         map[string]Host `json:"hosts"`
+}
+
+// TrustBundle records the emitted CA trust bundle artifact.
+// Path is where bundle.crt was written (logical, relative to manifest dir when
+// possible). CAFingerprints lists, in bundle order, the SHA-256 fingerprint of
+// every active CA cert included — lets downstream tooling verify mesh trust
+// without parsing PEM.
+type TrustBundle struct {
+	Path           string   `json:"path"`
+	CAFingerprints []string `json:"ca_fingerprints"`
 }
 
 // Generator identifies the tool (and, later, the pinned upstream library)

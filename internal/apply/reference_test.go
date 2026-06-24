@@ -100,9 +100,14 @@ func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
 		t.Error("referenced CA key modtime changed; the file was rewritten")
 	}
 
-	// No out/ tree was created for the CA.
-	if _, err := os.Stat(filepath.Join(filepath.Dir(cfg.Path), "out", "ca")); err == nil {
-		t.Error("out/ca exists; reference mode must not write under out/")
+	// The reference CA cert/key must not be written to the default out/ca/
+	// location — reference mode reads the operator's files in place.
+	outCA := filepath.Join(filepath.Dir(cfg.Path), "out", "ca")
+	if _, err := os.Stat(filepath.Join(outCA, "ref.crt")); err == nil {
+		t.Error("out/ca/ref.crt exists; reference mode must not write default CA paths")
+	}
+	if _, err := os.Stat(filepath.Join(outCA, "ref.key")); err == nil {
+		t.Error("out/ca/ref.key exists; reference mode must not write default CA paths")
 	}
 
 	// The manifest records the reference CA.
@@ -131,6 +136,60 @@ func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
 	}
 	if !mCA.NotAfter.Equal(seed.NotAfter.UTC()) {
 		t.Errorf("CA not_after = %s, want %s", mCA.NotAfter, seed.NotAfter.UTC())
+	}
+}
+
+// TestReconcile_ReferenceBundleContent verifies that the trust bundle is
+// written when a reference-mode CA is used, that it contains exactly the
+// referenced CA cert, that the manifest records the fingerprint, and that a
+// second run is idempotent (bundle not rewritten).
+func TestReconcile_ReferenceBundleContent(t *testing.T) {
+	cfg, seed := writeRefConfig(t, `ca "mesh" { name = "ref-mesh" }`)
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.TrustBundleWritten {
+		t.Error("TrustBundleWritten = false on first reference run, want true")
+	}
+
+	// Bundle content must equal the referenced CA cert exactly.
+	bundleReal := cfg.Resolve(cfg.TrustBundlePath())
+	if _, err := os.Stat(bundleReal); err != nil {
+		t.Fatalf("bundle.crt missing: %v", err)
+	}
+	bundleBytes := mustRead(t, bundleReal)
+	refCertBytes := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
+	if !bytes.Equal(bundleBytes, refCertBytes) {
+		t.Error("trust bundle does not equal the referenced CA cert")
+	}
+
+	// Manifest must record the trust bundle with the reference CA fingerprint.
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if m.TrustBundle == nil {
+		t.Fatal("manifest.TrustBundle = nil")
+	}
+	if m.TrustBundle.Path != cfg.TrustBundlePath() {
+		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundle.Path, cfg.TrustBundlePath())
+	}
+	if len(m.TrustBundle.CAFingerprints) != 1 || m.TrustBundle.CAFingerprints[0] != seed.Fingerprint {
+		t.Errorf("TrustBundle.CAFingerprints = %v, want [%s]", m.TrustBundle.CAFingerprints, seed.Fingerprint)
+	}
+
+	// Second run: bundle must not be rewritten (idempotent).
+	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep2.TrustBundleWritten {
+		t.Error("TrustBundleWritten = true on second reference run, want false (idempotent)")
+	}
+	if !bytes.Equal(mustRead(t, bundleReal), bundleBytes) {
+		t.Error("bundle.crt changed on idempotent reference rerun")
 	}
 }
 
@@ -198,6 +257,16 @@ func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
 	}
 	if mCA.Name != "second-ca" {
 		t.Errorf("CA name = %q, want second-ca", mCA.Name)
+	}
+
+	// The trust bundle must have been rewritten to contain the second CA's cert.
+	if !rep.TrustBundleWritten {
+		t.Error("TrustBundleWritten = false after CA swap, want true")
+	}
+	bundleBytes := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	secondCertBytes := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
+	if !bytes.Equal(bundleBytes, secondCertBytes) {
+		t.Error("trust bundle does not contain the swapped-in CA cert")
 	}
 }
 

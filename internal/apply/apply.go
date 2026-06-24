@@ -95,6 +95,15 @@ type Report struct {
 
 	ManifestPath string
 
+	// TrustBundlePath is the logical path of the trust bundle. Set after a
+	// real reconcile; empty on dry-runs, which return before this field is
+	// populated.
+	TrustBundlePath string
+
+	// TrustBundleWritten is true when the bundle was written (or rewritten)
+	// this run. False on a noop run.
+	TrustBundleWritten bool
+
 	// SignedHosts is the set of hosts that were signed this run, in config
 	// order. Empty on a noop run.
 	SignedHosts []SignedHost
@@ -140,7 +149,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	}
 
 	if opts.DryRun {
-		writeDryRunPlan(coalesceWriter(opts.Out), cfg, p)
+		writeDryRunPlan(coalesceWriter(opts.Out), cfg, p, exists)
 		return report, nil
 	}
 
@@ -178,6 +187,16 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	if len(signed) > 0 {
 		hasAnyChange = true
 	}
+
+	bundleWritten, err := reconcileTrustBundle(cfg, caKeys, current, next, exists)
+	if err != nil {
+		return nil, err
+	}
+	if bundleWritten {
+		hasAnyChange = true
+	}
+	report.TrustBundlePath = cfg.TrustBundlePath()
+	report.TrustBundleWritten = bundleWritten
 
 	// For all-generate configs without any changes: skip the manifest write.
 	// For configs with reference CAs: always compare, since plan cannot
@@ -397,6 +416,55 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 	return signed, stale, nil
 }
 
+// reconcileTrustBundle builds the concatenated-PEM trust bundle from every
+// active CA (all CAs in declaration order for v0.0.9; archived filtering
+// is added in v0.0.10). It populates next.TrustBundle and writes the bundle
+// file when needed. Returns true when the file was written.
+func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current, next *manifest.Manifest, exists func(string) bool) (bool, error) {
+	bundlePath := cfg.TrustBundlePath()
+
+	var bundle []byte
+	fps := make([]string, 0, len(cfg.CAs))
+	for i := range cfg.CAs {
+		label := cfg.CAs[i].Label
+		bundle = append(bundle, caKeys[label].cert...)
+		if rec := next.CAs[label]; rec != nil {
+			fps = append(fps, rec.Fingerprint)
+		}
+	}
+
+	next.TrustBundle = &manifest.TrustBundle{
+		Path:           bundlePath,
+		CAFingerprints: fps,
+	}
+
+	// Idempotency: skip the write when the bundle file already exists and
+	// the manifest records the same set of CA fingerprints in the same order.
+	if current.TrustBundle != nil && exists(bundlePath) {
+		if fingerprintsEqual(current.TrustBundle.CAFingerprints, fps) {
+			return false, nil
+		}
+	}
+
+	if err := fsutil.WriteFile(cfg.Resolve(bundlePath), bundle, certMode); err != nil {
+		return false, fmt.Errorf("write trust bundle: %w", err)
+	}
+	return true, nil
+}
+
+// fingerprintsEqual reports whether two fingerprint slices are equal.
+func fingerprintsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // prefixesToStrings converts a slice of netip.Prefix to their string
 // representations for manifest storage.
 func prefixesToStrings(prefixes []netip.Prefix) []string {
@@ -465,11 +533,13 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 // writeDryRunPlan writes a human-readable preview of what a real reconcile
 // would write. Each file is prefixed with "+ write ". When the plan has no
 // mutations (all noops), it prints "up to date; nothing to do".
-func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan) {
+func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, exists func(string) bool) {
 	var writes []string
 
+	anyCAGenerate := false
 	for _, caAction := range p.CAActions() {
 		if caAction.Op == plan.OpGenerate {
+			anyCAGenerate = true
 			ca := cfg.CAByLabel(caAction.Label)
 			if ca != nil {
 				writes = append(writes, cfg.CACertPathForCA(*ca), cfg.CAKeyPathForCA(*ca))
@@ -488,6 +558,12 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan) {
 				writes = append(writes, art.CertPath, art.KeyPath)
 			}
 		}
+	}
+
+	// Include the trust bundle in the preview when it would be written: any
+	// new CA is being generated (new fingerprint), or the bundle file is absent.
+	if anyCAGenerate || !exists(cfg.TrustBundlePath()) {
+		writes = append(writes, cfg.TrustBundlePath())
 	}
 
 	if len(writes) == 0 {

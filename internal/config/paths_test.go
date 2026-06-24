@@ -223,6 +223,33 @@ host "node" {
 	}
 }
 
+func TestTrustBundlePathDefault(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `ca "m" { name = "m" }`)
+	if got, want := cfg.TrustBundlePath(), filepath.Join("out", "ca", "bundle.crt"); got != want {
+		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
+	}
+}
+
+func TestTrustBundlePathCustomOutDir(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca "m" { name = "m" }
+storage { out_dir = "pki" }
+`)
+	if got, want := cfg.TrustBundlePath(), filepath.Join("pki", "ca", "bundle.crt"); got != want {
+		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
+	}
+}
+
+func TestTrustBundlePathCustomFile(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+ca "m" { name = "m" }
+storage { trust_bundle_file = "shared/mesh-trust.crt" }
+`)
+	if got, want := cfg.TrustBundlePath(), "shared/mesh-trust.crt"; got != want {
+		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
+	}
+}
+
 func TestResolve(t *testing.T) {
 	cfg := mustParse(t, filepath.Join("project", "nebula.hcl"), `ca "m" { name = "m" }`)
 

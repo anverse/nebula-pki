@@ -263,6 +263,9 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	if !strings.Contains(out, "+ write out/hosts/alpha.crt") {
 		t.Errorf("stdout = %q, want it to contain '+ write out/hosts/alpha.crt'", out)
 	}
+	if !strings.Contains(out, "+ write out/ca/bundle.crt") {
+		t.Errorf("stdout = %q, want it to contain '+ write out/ca/bundle.crt'", out)
+	}
 	if stderr.String() != "" {
 		t.Errorf("stderr = %q, want empty (dry-run emits no progress)", stderr.String())
 	}
@@ -512,6 +515,43 @@ func TestWriteReconcileSummary(t *testing.T) {
 			},
 			wantContain: []string{"up to date; nothing to do"},
 			wantNot:     []string{"generated CA", "signed host"},
+		},
+		{
+			// Trust bundle written: summary must include "wrote trust bundle" line
+			// before "wrote manifest".
+			name: "changed_with_trust_bundle",
+			rep: apply.Report{
+				Changed:            true,
+				ManifestPath:       "out/nebula-pki.json",
+				TrustBundlePath:    "out/ca/bundle.crt",
+				TrustBundleWritten: true,
+				CAs: []apply.CAReport{{
+					Label:    "mesh",
+					Mode:     "generate",
+					Name:     "mesh",
+					CertPath: "out/ca/mesh.crt",
+					KeyPath:  "out/ca/mesh.key",
+				}},
+			},
+			wantContain: []string{
+				`generated CA "mesh"`,
+				"wrote trust bundle: out/ca/bundle.crt",
+				"wrote manifest: out/nebula-pki.json",
+			},
+			wantNot: []string{"up to date"},
+		},
+		{
+			// Bundle present but not written this run (idempotent): must not
+			// appear in the summary even though TrustBundlePath is set.
+			name: "noop_run_bundle_not_written",
+			rep: apply.Report{
+				Changed:            false,
+				ManifestPath:       "out/nebula-pki.json",
+				TrustBundlePath:    "out/ca/bundle.crt",
+				TrustBundleWritten: false,
+			},
+			wantContain: []string{"up to date; nothing to do"},
+			wantNot:     []string{"wrote trust bundle"},
 		},
 	}
 

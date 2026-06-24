@@ -144,8 +144,9 @@ type CA struct {
 // The encryption sub-block is parsed only well enough to reject it with
 // a clear error message; no encryption state is retained.
 type Storage struct {
-	OutDir       string
-	ManifestFile string
+	OutDir          string
+	ManifestFile    string
+	TrustBundleFile string
 }
 
 // Host is a host certificate to sign. Networks, UnsafeNetworks, Groups
@@ -278,9 +279,10 @@ type rawCA struct {
 }
 
 type rawStorage struct {
-	OutDir       *string            `hcl:"out_dir,optional"`
-	ManifestFile *string            `hcl:"manifest_file,optional"`
-	Encryption   []rawEncryptionRaw `hcl:"encryption,block"`
+	OutDir          *string            `hcl:"out_dir,optional"`
+	ManifestFile    *string            `hcl:"manifest_file,optional"`
+	TrustBundleFile *string            `hcl:"trust_bundle_file,optional"`
+	Encryption      []rawEncryptionRaw `hcl:"encryption,block"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
@@ -488,6 +490,9 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 		}
 		if r.ManifestFile != nil && *r.ManifestFile != "" {
 			s.ManifestFile = *r.ManifestFile
+		}
+		if r.TrustBundleFile != nil && *r.TrustBundleFile != "" {
+			s.TrustBundleFile = *r.TrustBundleFile
 		}
 		if len(r.Encryption) > 1 {
 			return nil, fmt.Errorf("%s: storage: multiple `encryption` blocks are not allowed", filename)

@@ -15,6 +15,9 @@ import "path/filepath"
 // CA artifact sub-directory under storage.out_dir.
 const caSubdir = "ca"
 
+// bundleFile is the default trust bundle filename under the CA sub-directory.
+const bundleFile = "bundle.crt"
+
 // Host artifact defaults.
 const (
 	hostsSubdir        = "hosts"
@@ -72,6 +75,16 @@ func (c *Config) CAKeyPathForCA(ca CA) string {
 // <out_dir>/nebula-pki.json), so this is a simple accessor.
 func (c *Config) ManifestPath() string {
 	return c.Storage.ManifestFile
+}
+
+// TrustBundlePath returns the logical path of the emitted trust bundle.
+// When storage.trust_bundle_file is set it is returned unchanged; otherwise
+// the default <out_dir>/ca/bundle.crt is used.
+func (c *Config) TrustBundlePath() string {
+	if c.Storage.TrustBundleFile != "" {
+		return c.Storage.TrustBundleFile
+	}
+	return filepath.Join(c.Storage.OutDir, caSubdir, bundleFile)
 }
 
 // ArtifactPath is the single (cert, key) destination for a host.
