@@ -5,21 +5,21 @@
 class NebulaPki < Formula
   desc "Declarative wrapper around nebula-cert"
   homepage "https://github.com/anverse/nebula-pki"
-  version "0.0.8"
+  version "0.0.9"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.8/nebula-pki_0.0.8_darwin_amd64.tar.gz"
-      sha256 "5c6e5a6670a0237984e550e9dd35fef7e8b20d5ddeb21d9916195faf68ebfb8a"
+      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.9/nebula-pki_0.0.9_darwin_amd64.tar.gz"
+      sha256 "ee3cc029af4f6fdfd4d01947ed58a63938e7ec87b5f01df0d7483dab869ed463"
 
       define_method(:install) do
         bin.install "nebula-pki"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.8/nebula-pki_0.0.8_darwin_arm64.tar.gz"
-      sha256 "e992fed6ef26f14ac1ee877e7039223f930fe6cbd03e166a3e50e12a0e1fefa0"
+      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.9/nebula-pki_0.0.9_darwin_arm64.tar.gz"
+      sha256 "72052518a3ef1b671617b7182aa6407fe37a180ce8d12f1b758874e50b9f30fd"
 
       define_method(:install) do
         bin.install "nebula-pki"
@@ -29,15 +29,15 @@ class NebulaPki < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.8/nebula-pki_0.0.8_linux_amd64.tar.gz"
-      sha256 "dfe500c104980c9e4ad173eeef69371e402128c9b1188f615f5e2d6cd12faf11"
+      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.9/nebula-pki_0.0.9_linux_amd64.tar.gz"
+      sha256 "fc4412365dc31f2fd84870e51cf65e4e1b0882a36eb02a2d6dc40c64cde91d98"
       define_method(:install) do
         bin.install "nebula-pki"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.8/nebula-pki_0.0.8_linux_arm64.tar.gz"
-      sha256 "e03ad1a0c40851fad0977cffc9f27ed41fe750ff25fbf23835137f3aeb958219"
+      url "https://github.com/anverse/nebula-pki/releases/download/v0.0.9/nebula-pki_0.0.9_linux_arm64.tar.gz"
+      sha256 "a0aa208308bdb84d2413626b56f49618e63025f495655b79dba3a261e7d7b560"
       define_method(:install) do
         bin.install "nebula-pki"
       end
