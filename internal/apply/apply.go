@@ -201,14 +201,14 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		caKeys[ca.Label] = pems
 		if caAction.Op != plan.OpNoop {
 			hasAnyChange = true
+			report.CAs = append(report.CAs, CAReport{
+				Label:    ca.Label,
+				Mode:     ca.Mode.String(),
+				Name:     result.Name,
+				CertPath: cfg.CACertPathForCA(*ca),
+				KeyPath:  cfg.CAKeyPathForCA(*ca),
+			})
 		}
-		report.CAs = append(report.CAs, CAReport{
-			Label:    ca.Label,
-			Mode:     ca.Mode.String(),
-			Name:     result.Name,
-			CertPath: cfg.CACertPathForCA(*ca),
-			KeyPath:  cfg.CAKeyPathForCA(*ca),
-		})
 	}
 
 	signed, stale, err := applyHosts(cfg, opts, p.HostActions(), caKeys, current, next)
