@@ -1,9 +1,10 @@
-# Full 4-step CA rotation scenario.
+# Full CA rotation scenario.
 #
 # Step 1: initial mesh with a single "current" CA.
 # Step 2: add "next" CA — both appear in the trust bundle; hosts unchanged.
 # Step 3: promote "next" to default — hosts re-sign; bundle unchanged.
 # Step 4: archive "current" — bundle shrinks to "next" only; hosts unchanged.
+# Step 5: remove the archived block entirely — clean noop.
 
 # ── Step 1: initial state ─────────────────────────────────────────────────────
 cp step1.hcl nebula.hcl
@@ -105,6 +106,16 @@ cmp out/ca/bundle.crt   bundle.step2.crt
 
 # ── Step 4: archive "current" — bundle shrinks to "next" only ────────────────
 cp step4.hcl nebula.hcl
+
+# Dry-run must preview the bundle write even though no CA is generated
+# and all hosts are already signed (this exercises the archival-count fix).
+exec nebula-pki --dry-run
+stdout '^\+ write out/ca/bundle\.crt$'
+stdout '^\+ write out/nebula-pki\.json$'
+stderr 'next deadline'
+! stderr 'generated CA'
+! stderr 'signed host'
+
 exec nebula-pki
 ! stderr 'generated CA'
 ! stderr 'signed host'
@@ -132,6 +143,35 @@ stderr '^up to date; nothing to do$'
 
 cmp out/hosts/alpha.crt alpha.step3.crt
 cmp out/hosts/beta.crt  beta.step3.crt
+
+# Dry-run after idempotency must also show nothing to do.
+exec nebula-pki --dry-run
+stdout '^up to date; nothing to do$'
+! stderr 'wrote trust bundle'
+
+# ── Step 5: remove the archived block entirely ────────────────────────────────
+# Removing the ca "current" block is a clean noop: "next" is up to date,
+# hosts are still signed under it, and the bundle fingerprints are unchanged.
+# The old CA cert/key files remain on disk but are no longer managed.
+cp step5.hcl nebula.hcl
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'generated CA'
+! stderr 'signed host'
+! stderr 'wrote trust bundle'
+! stdout .
+
+# Host certs and bundle are byte-identical to end of step 4.
+cmp out/hosts/alpha.crt alpha.step3.crt
+cmp out/hosts/beta.crt  beta.step3.crt
+cmp out/ca/bundle.crt   out/ca/next.crt
+
+# Manifest is unchanged (noop run never rewrites it): the stale "current"
+# entry with archived=true persists, which is harmless — future writes will
+# drop it when something else changes.
+grep '"current"' out/nebula-pki.json
+grep '"archived"' out/nebula-pki.json
+grep '"next"' out/nebula-pki.json
 
 -- step1.hcl --
 ca "current" {
@@ -189,6 +229,20 @@ ca "current" {
   archived = true
 }
 
+ca "next" {
+  name    = "test-mesh-v2"
+  default = true
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+-- step5.hcl --
 ca "next" {
   name    = "test-mesh-v2"
   default = true

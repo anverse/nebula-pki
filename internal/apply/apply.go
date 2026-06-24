@@ -179,7 +179,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	}
 
 	if opts.DryRun {
-		writeDryRunPlan(coalesceWriter(opts.Out), cfg, p, exists)
+		writeDryRunPlan(coalesceWriter(opts.Out), cfg, p, current, exists)
 		report.Deadlines = computeDeadlines(cfg, current, opts.Now)
 		return report, nil
 	}
@@ -585,7 +585,7 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 // writeDryRunPlan writes a human-readable preview of what a real reconcile
 // would write. Each file is prefixed with "+ write ". When the plan has no
 // mutations (all noops), it prints "up to date; nothing to do".
-func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, exists func(string) bool) {
+func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, current *manifest.Manifest, exists func(string) bool) {
 	var writes []string
 
 	anyCAGenerate := false
@@ -612,9 +612,23 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, exists func(s
 		}
 	}
 
-	// Include the trust bundle in the preview when it would be written: any
-	// new CA is being generated (new fingerprint), or the bundle file is absent.
-	if anyCAGenerate || !exists(cfg.TrustBundlePath()) {
+	// Include the trust bundle in the preview when it would be written:
+	// - any new CA is generated (new fingerprint enters the bundle), or
+	// - the bundle file is absent, or
+	// - the count of active (non-archived) CAs differs from the manifest's
+	//   recorded fingerprint count, which happens when a CA is archived or
+	//   un-archived between runs.
+	activeCount := 0
+	for i := range cfg.CAs {
+		if !cfg.CAs[i].Archived {
+			activeCount++
+		}
+	}
+	manifestCount := 0
+	if current.TrustBundle != nil {
+		manifestCount = len(current.TrustBundle.CAFingerprints)
+	}
+	if anyCAGenerate || !exists(cfg.TrustBundlePath()) || activeCount != manifestCount {
 		writes = append(writes, cfg.TrustBundlePath())
 	}
 

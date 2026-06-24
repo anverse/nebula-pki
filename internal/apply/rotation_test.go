@@ -4,6 +4,7 @@ package apply
 // deadline computation, and the full CA-rotation scenario.
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/anverse/nebula-pki/internal/config"
 	"github.com/anverse/nebula-pki/internal/manifest"
+	"github.com/anverse/nebula-pki/internal/plan"
 )
 
 // ---------------------------------------------------------------------------
@@ -496,6 +498,108 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	}
 	if rep5.Changed {
 		t.Error("step5: Changed = true, want false (idempotent after archival)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// writeDryRunPlan: CA archival changes the active-CA count
+// ---------------------------------------------------------------------------
+
+func TestWriteDryRunPlan_CAArchival(t *testing.T) {
+	// Walk through the rotation steps so that by step 4 (archive old CA) all
+	// hosts are already signed with the new CA and the plan has zero mutations.
+	// That is the exact scenario where the old code would print "up to date;
+	// nothing to do" despite the bundle needing a rewrite.
+
+	// Step 1: single CA "current" as default.
+	cfg := writeConfig(t, `
+ca "current" {
+  name    = "mesh-2026"
+  default = true
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("step1 Reconcile: %v", err)
+	}
+
+	// Step 2: add "next" (default stays on "current"); bundle grows to 2 CAs.
+	cfg = reloadConfig(t, cfg, `
+ca "current" {
+  name    = "mesh-2026"
+  default = true
+}
+ca "next" { name = "mesh-2027" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("step2 Reconcile: %v", err)
+	}
+
+	// Step 3: promote "next" to default — hosts are re-signed with "next".
+	cfg = reloadConfig(t, cfg, `
+ca "current" { name = "mesh-2026" }
+ca "next" {
+  name    = "mesh-2027"
+  default = true
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("step3 Reconcile: %v", err)
+	}
+
+	// Step 4 config: archive "current". Hosts are already on "next", so the
+	// plan has no mutations — yet the bundle must shrink from 2 to 1 CA.
+	cfgArchive := reloadConfig(t, cfg, `
+ca "current" {
+  name     = "mesh-2026"
+  archived = true
+}
+ca "next" {
+  name    = "mesh-2027"
+  default = true
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+
+	current, err := manifest.Load(cfgArchive.Resolve(cfgArchive.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	exists := func(p string) bool {
+		_, statErr := os.Stat(cfgArchive.Resolve(p))
+		return statErr == nil
+	}
+	p, err := plan.Build(cfgArchive, current, fixedNow, exists)
+	if err != nil {
+		t.Fatalf("plan.Build: %v", err)
+	}
+	if p.Changes() {
+		t.Fatal("plan.Changes() = true, want false — hosts already signed with 'next', no CA to generate")
+	}
+
+	// Dry-run must list the bundle write because active CA count changed 2→1.
+	var buf bytes.Buffer
+	writeDryRunPlan(&buf, cfgArchive, p, current, exists)
+	out := buf.String()
+	if strings.Contains(out, "up to date; nothing to do") {
+		t.Errorf("dry-run = %q; want bundle write listed (archival shrinks bundle)", out)
+	}
+	if !strings.Contains(out, cfgArchive.TrustBundlePath()) {
+		t.Errorf("dry-run = %q; want %q in output", out, cfgArchive.TrustBundlePath())
+	}
+
+	// After the real archival run the manifest records 1 active CA; dry-run must be a noop.
+	if _, err := Reconcile(cfgArchive, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("archival Reconcile: %v", err)
+	}
+	current2, _ := manifest.Load(cfgArchive.Resolve(cfgArchive.ManifestPath()))
+
+	var buf2 bytes.Buffer
+	writeDryRunPlan(&buf2, cfgArchive, p, current2, exists)
+	if !strings.Contains(buf2.String(), "up to date; nothing to do") {
+		t.Errorf("post-archival dry-run = %q; want 'up to date; nothing to do'", buf2.String())
 	}
 }
 
