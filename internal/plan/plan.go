@@ -96,12 +96,22 @@ func (p Plan) HostActions() []Action {
 	return hosts
 }
 
+// Options configures how Build constructs the reconcile plan.
+type Options struct {
+	// NoRenewal, when true, skips the hostInRenewalWindow check for every
+	// host. A host whose cert is within its renew_before window is treated
+	// as up-to-date for this run. All other re-sign triggers — new host,
+	// missing artifact, CA label mismatch — are unaffected.
+	// The zero value (false) preserves the existing behaviour.
+	NoRenewal bool
+}
+
 // Build computes the reconcile plan for cfg given the current manifest m,
 // the current wall-clock time now (used for renewal-window checks), and an
 // exists probe that reports whether a logical artifact path is present on
 // disk. The caller is responsible for resolving logical paths to real ones
 // inside exists.
-func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(logicalPath string) bool) (Plan, error) {
+func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(logicalPath string) bool, opts Options) (Plan, error) {
 	var actions []Action
 
 	for i := range cfg.CAs {
@@ -120,7 +130,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 	}
 
 	for i := range cfg.Hosts {
-		ha := planHost(cfg, m, &cfg.Hosts[i], now, exists)
+		ha := planHost(cfg, m, &cfg.Hosts[i], now, exists, opts.NoRenewal)
 		actions = append(actions, ha)
 	}
 	return Plan{Actions: actions}, nil
@@ -145,10 +155,10 @@ func hostInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) boo
 //  2. signing CA label matches the manifest record
 //  3. cert artifact is present on disk
 //  4. key artifact is present on disk
-//  5. the cert is NOT within its renew_before window (now < not_after − rb)
+//  5. the cert is NOT within its renew_before window, OR noRenewal is true
 //
 // Any failing condition → sign.
-func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time.Time, exists func(string) bool) Action {
+func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time.Time, exists func(string) bool, noRenewal bool) Action {
 	artifact := cfg.HostArtifactPath(*h)
 	signingCA := cfg.SigningCA(*h)
 
@@ -158,10 +168,10 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time
 	if tracked && caMatch && exists(artifact.CertPath) && exists(artifact.KeyPath) {
 		rb := cfg.ResolvedRenewBefore(*h)
 		mh := m.Hosts[h.Label]
-		if !hostInRenewalWindow(rb, mh.NotAfter, now) {
+		if noRenewal || !hostInRenewalWindow(rb, mh.NotAfter, now) {
 			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
 		}
-		// Inside renewal window — fall through to sign.
+		// Inside renewal window and renewal is not suppressed — fall through to sign.
 	}
 	return Action{
 		Op:    OpSign,

@@ -39,7 +39,7 @@ func TestBuild_FreshGeneratesCA(t *testing.T) {
 	cfg := parseCfg(t, `ca "mesh" { name = "m" }`)
 	m := manifest.New() // no CA recorded
 
-	p, err := Build(cfg, m, testNow, existsSet()) // nothing on disk
+	p, err := Build(cfg, m, testNow, existsSet(), Options{}) // nothing on disk
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestBuild_TrackedAndPresentIsNoop(t *testing.T) {
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 
 	ca := cfg.CAs[0]
-	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestBuild_UntrackedFilesError(t *testing.T) {
 	m := manifest.New() // no CA record, but files exist on disk
 
 	ca := cfg.CAs[0]
-	_, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	_, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err == nil {
 		t.Fatal("Build: want error for untracked CA on disk, got nil")
 	}
@@ -90,7 +90,7 @@ func TestBuild_PartialPairError(t *testing.T) {
 
 	// Only the cert exists; the key vanished.
 	ca := cfg.CAs[0]
-	_, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca)))
+	_, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca)), Options{})
 	if err == nil {
 		t.Fatal("Build: want error for half-present CA pair, got nil")
 	}
@@ -107,7 +107,7 @@ func TestBuild_KeyOnlyError(t *testing.T) {
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 
 	ca := cfg.CAs[0]
-	_, err := Build(cfg, m, testNow, existsSet(cfg.CAKeyPathForCA(ca)))
+	_, err := Build(cfg, m, testNow, existsSet(cfg.CAKeyPathForCA(ca)), Options{})
 	if err == nil {
 		t.Fatal("Build: want error for key-only CA pair, got nil")
 	}
@@ -122,7 +122,7 @@ func TestBuild_UntrackedKeyOnlyError(t *testing.T) {
 	m := manifest.New() // no CA record
 
 	ca := cfg.CAs[0]
-	_, err := Build(cfg, m, testNow, existsSet(cfg.CAKeyPathForCA(ca)))
+	_, err := Build(cfg, m, testNow, existsSet(cfg.CAKeyPathForCA(ca)), Options{})
 	if err == nil {
 		t.Fatal("Build: want error for half-present untracked CA, got nil")
 	}
@@ -136,7 +136,7 @@ func TestBuild_NilManifestTreatedAsUntracked(t *testing.T) {
 	cfg := parseCfg(t, `ca "mesh" { name = "m" }`)
 	ca := cfg.CAs[0]
 
-	p, err := Build(cfg, nil, testNow, existsSet())
+	p, err := Build(cfg, nil, testNow, existsSet(), Options{})
 	if err != nil {
 		t.Fatalf("Build(nil manifest, fresh): %v", err)
 	}
@@ -144,7 +144,7 @@ func TestBuild_NilManifestTreatedAsUntracked(t *testing.T) {
 		t.Errorf("actions = %+v, want a single generate-ca", p.Actions)
 	}
 
-	_, err = Build(cfg, nil, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	_, err = Build(cfg, nil, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err == nil {
 		t.Fatal("Build(nil manifest, files present): want untracked error, got nil")
 	}
@@ -167,7 +167,7 @@ func TestBuild_HostSignWhenUntracked(t *testing.T) {
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 
 	ca := cfg.CAs[0]
-	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestBuild_HostNoopWhenTrackedAndPresent(t *testing.T) {
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 		cfg.HostArtifactPath(cfg.Hosts[1]).CertPath, cfg.HostArtifactPath(cfg.Hosts[1]).KeyPath,
 	)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestBuild_HostSignWhenFilesAbsent(t *testing.T) {
 	m.Hosts["beta"] = manifest.Host{Name: "beta", CA: "mesh"}
 
 	ca := cfg.CAs[0]
-	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
 		// host key absent
 	)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
 		// host cert absent
 		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 	)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestBuild_MultipleHostsMixedActions(t *testing.T) {
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 		// beta's files are absent
 	)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestBuild_CANoopHostSign_ChangesTrue(t *testing.T) {
 	// Hosts are untracked.
 
 	ca := cfg.CAs[0]
-	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestBuild_HostResignsWhenCAChanged(t *testing.T) {
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 	)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestBuild_OutputDirNoopWhenPresent(t *testing.T) {
 	ca := cfg.CAs[0]
 	a := cfg.HostArtifactPath(cfg.Hosts[0])
 	exists := existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca), a.CertPath, a.KeyPath)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestBuild_OutputDirSignWhenFileMissing(t *testing.T) {
 	ca := cfg.CAs[0]
 	a := cfg.HostArtifactPath(cfg.Hosts[0])
 	exists := existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca), a.CertPath)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -440,7 +440,7 @@ ca "ref" {
   key_file  = "pki/root.key"
 }`)
 	ca := cfg.CAs[0]
-	p, err := Build(cfg, manifest.New(), testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	p, err := Build(cfg, manifest.New(), testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -464,7 +464,7 @@ ca "ref" {
 	m.CAs["ref"] = &manifest.CA{Mode: "reference", Name: "m"}
 
 	ca := cfg.CAs[0]
-	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)))
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -479,7 +479,7 @@ ca "ref" {
   cert_file = "pki/root.crt"
   key_file  = "pki/root.key"
 }`)
-	_, err := Build(cfg, manifest.New(), testNow, existsSet()) // nothing on disk
+	_, err := Build(cfg, manifest.New(), testNow, existsSet(), Options{}) // nothing on disk
 	if err == nil {
 		t.Fatal("Build: want error when referenced files are absent, got nil")
 	}
@@ -495,7 +495,7 @@ ca "ref" {
   key_file  = "pki/root.key"
 }`)
 	ca := cfg.CAs[0]
-	_, err := Build(cfg, manifest.New(), testNow, existsSet(cfg.CACertPathForCA(ca)))
+	_, err := Build(cfg, manifest.New(), testNow, existsSet(cfg.CACertPathForCA(ca)), Options{})
 	if err == nil {
 		t.Fatal("Build: want error when referenced key is absent, got nil")
 	}
@@ -511,7 +511,7 @@ ca "ref" {
   key_file  = "pki/root.key"
 }`)
 	ca := cfg.CAs[0]
-	_, err := Build(cfg, manifest.New(), testNow, existsSet(cfg.CAKeyPathForCA(ca)))
+	_, err := Build(cfg, manifest.New(), testNow, existsSet(cfg.CAKeyPathForCA(ca)), Options{})
 	if err == nil {
 		t.Fatal("Build: want error when referenced cert is absent, got nil")
 	}

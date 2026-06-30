@@ -27,6 +27,7 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 		showVersion bool
 		configPath  string
 		dryRun      bool
+		noRenewal   bool
 	)
 
 	root := &cobra.Command{
@@ -48,7 +49,7 @@ without touching the filesystem.`,
 				fmt.Fprintln(cmd.OutOrStdout(), buildinfo.String())
 				return nil
 			}
-			return runReconcile(cmd, configPath, dryRun)
+			return runReconcile(cmd, configPath, dryRun, noRenewal)
 		},
 	}
 
@@ -57,6 +58,7 @@ without touching the filesystem.`,
 	root.Flags().BoolVar(&showVersion, "version", false, "print version and exit")
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "path to HCL configuration file")
 	root.Flags().BoolVar(&dryRun, "dry-run", false, "preview planned writes without modifying the filesystem")
+	root.Flags().BoolVar(&noRenewal, "no-renewal", false, "skip time-based renewal; config changes, new hosts, and CA rotation re-signs are unaffected")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newCheckCmd(&configPath))
@@ -68,7 +70,7 @@ without touching the filesystem.`,
 // output tree in line with it. It reconciles the CA in both generate and
 // reference mode, and signs any host certificates that are new or missing.
 // When dryRun is true the plan is previewed on stdout without any writes.
-func runReconcile(cmd *cobra.Command, configPath string, dryRun bool) error {
+func runReconcile(cmd *cobra.Command, configPath string, dryRun, noRenewal bool) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -80,6 +82,7 @@ func runReconcile(cmd *cobra.Command, configPath string, dryRun bool) error {
 		Warn:             cmd.ErrOrStderr(),
 		DryRun:           dryRun,
 		Out:              cmd.OutOrStdout(),
+		NoRenewal:        noRenewal,
 	})
 	if err != nil {
 		return err

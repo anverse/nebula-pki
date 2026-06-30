@@ -57,6 +57,11 @@ type Options struct {
 	// Out receives the dry-run plan output when DryRun is true.
 	// When nil, dry-run output is discarded.
 	Out io.Writer
+	// NoRenewal, when true, suppresses time-based renewal for this run:
+	// hosts inside their renew_before window are treated as up-to-date.
+	// All other re-sign triggers are unaffected. The deadline advisory is
+	// always computed and printed regardless of this flag.
+	NoRenewal bool
 }
 
 // SignedArtifact is the destination for a signed host's cert/key pair.
@@ -173,7 +178,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return fsutil.Exists(cfg.Resolve(logical))
 	}
 
-	p, err := plan.Build(cfg, current, opts.Now, exists)
+	p, err := plan.Build(cfg, current, opts.Now, exists, plan.Options{NoRenewal: opts.NoRenewal})
 	if err != nil {
 		return nil, err
 	}

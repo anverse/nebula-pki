@@ -571,7 +571,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		_, statErr := os.Stat(cfgArchive.Resolve(p))
 		return statErr == nil
 	}
-	p, err := plan.Build(cfgArchive, current, fixedNow, exists)
+	p, err := plan.Build(cfgArchive, current, fixedNow, exists, plan.Options{})
 	if err != nil {
 		t.Fatalf("plan.Build: %v", err)
 	}

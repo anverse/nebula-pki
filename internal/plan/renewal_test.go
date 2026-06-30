@@ -85,7 +85,7 @@ func TestBuild_HostNoopOutsideRenewalWindow(t *testing.T) {
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
 		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 	)
-	p, err := Build(cfg, m, now, exists)
+	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestBuild_HostSignInsideRenewalWindow(t *testing.T) {
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
 		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 	)
-	p, err := Build(cfg, m, now, exists)
+	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -144,7 +144,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
 		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 	)
-	p, err := Build(cfg, m, now, exists)
+	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -173,7 +173,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
 		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 	)
-	p, err := Build(cfg, m, now, exists)
+	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -215,7 +215,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
 		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
 	)
-	p, err := Build(cfg, m, testNow, exists)
+	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
