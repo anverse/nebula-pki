@@ -100,10 +100,10 @@ When the tool detects that an existing encrypted key file's metadata (embedded s
 
 ```
 warning: out/hosts/app_01.key.enc was encrypted with different recipients than currently configured.
-         Run 'nebula-pki rekey' to re-encrypt with the current recipients.
+         Run 'nebula-pki reencrypt' to re-encrypt with the current recipients.
 ```
 
-The warning is persistent so operators do not forget about a partial or mixed encryption state. It is cleared once `nebula-pki rekey` successfully re-encrypts all affected files. The manifest stores a fingerprint of the recipients/command used to encrypt each file; this is what the mismatch check compares against.
+The warning is persistent so operators do not forget about a partial or mixed encryption state. It is cleared once `nebula-pki reencrypt` successfully re-encrypts all affected files. The manifest stores a fingerprint of the recipients/command used to encrypt each file; this is what the mismatch check compares against.
 
 ## Links
 
