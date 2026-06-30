@@ -17,7 +17,7 @@
       mkPackage = pkgs:
         pkgs.buildGoModule rec {
           pname = "nebula-pki";
-          version = "0.0.9";
+          version = "0.0.10";
 
           src = ./.;
 
