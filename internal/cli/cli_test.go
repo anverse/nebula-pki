@@ -11,6 +11,7 @@ import (
 	"github.com/anverse/nebula-pki/internal/apply"
 	"github.com/anverse/nebula-pki/internal/buildinfo"
 	"github.com/anverse/nebula-pki/internal/config"
+	"github.com/anverse/nebula-pki/internal/manifest"
 	"github.com/anverse/nebula-pki/internal/pki"
 )
 
@@ -574,5 +575,291 @@ func TestWriteReconcileSummary(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// --no-renewal flag integration tests
+// ---------------------------------------------------------------------------
+
+// patchManifestNotAfter loads the manifest at manReal, sets the named host's
+// NotAfter to t, and writes it back.
+func patchManifestNotAfter(tb testing.TB, manReal, hostLabel string, notAfter time.Time) {
+	tb.Helper()
+	m, err := manifest.Load(manReal)
+	if err != nil {
+		tb.Fatalf("manifest.Load: %v", err)
+	}
+	h := m.Hosts[hostLabel]
+	h.NotAfter = notAfter
+	m.Hosts[hostLabel] = h
+	data, err := manifest.Marshal(m)
+	if err != nil {
+		tb.Fatalf("manifest.Marshal: %v", err)
+	}
+	if err := os.WriteFile(manReal, data, 0o644); err != nil {
+		tb.Fatalf("patch manifest: %v", err)
+	}
+}
+
+// TestNoRenewalFlag_NewHostStillSigns verifies that --no-renewal does not
+// prevent a genuinely new host from being signed.
+func TestNoRenewalFlag_NewHostStillSigns(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+
+	if err := os.WriteFile(cfgPath, []byte(`
+ca "mesh" {
+  name         = "mesh"
+  renew_before = "720h"
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var discard bytes.Buffer
+	first := New(&discard, &discard)
+	first.SetArgs([]string{"-c", cfgPath})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	if err := os.WriteFile(cfgPath, []byte(`
+ca "mesh" {
+  name         = "mesh"
+  renew_before = "720h"
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+host "beta"  { networks = ["10.0.0.2/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write updated config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"--no-renewal", "-c", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--no-renewal run: %v", err)
+	}
+
+	stderrStr := stderr.String()
+	if !strings.Contains(stderrStr, `signed host "beta"`) {
+		t.Errorf("stderr = %q, want 'signed host \"beta\"'", stderrStr)
+	}
+	if strings.Contains(stderrStr, `signed host "alpha"`) {
+		t.Errorf("stderr = %q, must not re-sign alpha (already up to date)", stderrStr)
+	}
+	if stdout.String() != "" {
+		t.Errorf("stdout = %q, want empty", stdout.String())
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	betaCert := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[1]).CertPath)
+	if _, err := os.Stat(betaCert); err != nil {
+		t.Errorf("beta cert not written: %v", err)
+	}
+}
+
+// TestNoRenewalFlag_InsideWindow_NoResign verifies that a cert inside its
+// renew_before window is NOT re-signed when --no-renewal is passed.
+func TestNoRenewalFlag_InsideWindow_NoResign(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`
+ca "mesh" {
+  name         = "mesh"
+  renew_before = "720h"
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var discard bytes.Buffer
+	first := New(&discard, &discard)
+	first.SetArgs([]string{"-c", cfgPath})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	manReal := cfg.Resolve(cfg.ManifestPath())
+	// Place alpha's not_after 15 days from now — inside the 30-day window.
+	patchManifestNotAfter(t, manReal, "alpha", time.Now().UTC().Add(15*24*time.Hour))
+
+	hostCertReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath)
+	certBefore, err := os.ReadFile(hostCertReal)
+	if err != nil {
+		t.Fatalf("read cert before: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"--no-renewal", "-c", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--no-renewal run: %v", err)
+	}
+
+	certAfter, err := os.ReadFile(hostCertReal)
+	if err != nil {
+		t.Fatalf("read cert after: %v", err)
+	}
+	if !bytes.Equal(certBefore, certAfter) {
+		t.Error("host cert changed: --no-renewal should suppress window-based re-sign")
+	}
+	if strings.Contains(stderr.String(), "signed host") {
+		t.Errorf("stderr = %q, must not contain 'signed host'", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "up to date; nothing to do") {
+		t.Errorf("stderr = %q, want 'up to date; nothing to do'", stderr.String())
+	}
+}
+
+// TestNoRenewalFlag_DeadlineAdvisoryPrinted verifies that the deadline advisory
+// is always printed even when --no-renewal suppresses the actual renewal.
+func TestNoRenewalFlag_DeadlineAdvisoryPrinted(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`
+ca "mesh" {
+  name         = "mesh"
+  renew_before = "720h"
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var discard bytes.Buffer
+	first := New(&discard, &discard)
+	first.SetArgs([]string{"-c", cfgPath})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	// not_after = now+15d, renew_before = 30d → deadline = now-15d → overdue.
+	patchManifestNotAfter(t, cfg.Resolve(cfg.ManifestPath()), "alpha", time.Now().UTC().Add(15*24*time.Hour))
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"--no-renewal", "-c", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--no-renewal run: %v", err)
+	}
+
+	stderrStr := stderr.String()
+	if !strings.Contains(stderrStr, "overdue") {
+		t.Errorf("stderr = %q, want overdue deadline advisory even with --no-renewal", stderrStr)
+	}
+	if strings.Contains(stderrStr, "signed host") {
+		t.Errorf("stderr = %q, must not re-sign with --no-renewal", stderrStr)
+	}
+}
+
+// TestNoRenewalFlag_DryRunCombined verifies that --dry-run --no-renewal
+// produces a preview that accurately reflects the NoRenewal=true plan.
+func TestNoRenewalFlag_DryRunCombined(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`
+ca "mesh" {
+  name         = "mesh"
+  renew_before = "720h"
+}
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var discard bytes.Buffer
+	first := New(&discard, &discard)
+	first.SetArgs([]string{"-c", cfgPath})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	patchManifestNotAfter(t, cfg.Resolve(cfg.ManifestPath()), "alpha", time.Now().UTC().Add(15*24*time.Hour))
+
+	// --dry-run --no-renewal: preview must say noop (renewal suppressed).
+	var stdout1, _ bytes.Buffer
+	cmd1 := New(&stdout1, &discard)
+	cmd1.SetArgs([]string{"--dry-run", "--no-renewal", "-c", cfgPath})
+	if err := cmd1.Execute(); err != nil {
+		t.Fatalf("--dry-run --no-renewal: %v", err)
+	}
+	if !strings.Contains(stdout1.String(), "up to date; nothing to do") {
+		t.Errorf("--dry-run --no-renewal stdout = %q, want 'up to date; nothing to do'", stdout1.String())
+	}
+
+	// --dry-run alone: preview shows the re-sign that would occur without --no-renewal.
+	var stdout2 bytes.Buffer
+	cmd2 := New(&stdout2, &discard)
+	cmd2.SetArgs([]string{"--dry-run", "-c", cfgPath})
+	if err := cmd2.Execute(); err != nil {
+		t.Fatalf("--dry-run: %v", err)
+	}
+	if !strings.Contains(stdout2.String(), "+ write") {
+		t.Errorf("--dry-run stdout = %q, want planned writes (cert in window, no --no-renewal)", stdout2.String())
+	}
+}
+
+// TestNoRenewalFlag_NoRenewBeforeConfig_StillNoop verifies that --no-renewal
+// has no effect on a config without renew_before — the run stays noop.
+func TestNoRenewalFlag_NoRenewBeforeConfig_StillNoop(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`
+ca "mesh" { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var discard bytes.Buffer
+	first := New(&discard, &discard)
+	first.SetArgs([]string{"-c", cfgPath})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	hostCertReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath)
+	certBefore, err := os.ReadFile(hostCertReal)
+	if err != nil {
+		t.Fatalf("read cert: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := New(&stdout, &stderr)
+	cmd.SetArgs([]string{"--no-renewal", "-c", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--no-renewal run: %v", err)
+	}
+
+	certAfter, err := os.ReadFile(hostCertReal)
+	if err != nil {
+		t.Fatalf("read cert after: %v", err)
+	}
+	if !bytes.Equal(certBefore, certAfter) {
+		t.Error("cert changed: --no-renewal on config without renew_before should still be noop")
+	}
+	if !strings.Contains(stderr.String(), "up to date; nothing to do") {
+		t.Errorf("stderr = %q, want 'up to date; nothing to do'", stderr.String())
 	}
 }

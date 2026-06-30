@@ -229,6 +229,107 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	}
 }
 
+// ---------------------------------------------------------------------------
+// NoRenewal option tests
+// ---------------------------------------------------------------------------
+
+func TestBuild_NoRenewal_InsideWindow_Noop(t *testing.T) {
+	cfg := parseCfg(t, renewHCL)
+	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
+	now := notAfter.Add(-10 * 24 * time.Hour) // inside the 30-day window
+
+	m := trackedHostManifest(cfg, notAfter)
+	ca := cfg.CAs[0]
+	exists := existsSet(
+		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
+		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
+		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+	)
+	p, err := Build(cfg, m, now, exists, Options{NoRenewal: true})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.Changes() {
+		t.Fatalf("Changes() = true with NoRenewal=true, want false (renewal suppressed); actions = %+v", p.Actions)
+	}
+	for _, a := range p.HostActions() {
+		if a.Op != OpNoop {
+			t.Errorf("host %q: Op = %q, want noop (NoRenewal suppresses window check)", a.Label, a.Op)
+		}
+	}
+}
+
+func TestBuild_NoRenewal_NewHost_StillSigns(t *testing.T) {
+	cfg := parseCfg(t, renewHCL)
+
+	// No host record in manifest: untracked → must sign regardless of NoRenewal.
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	ca := cfg.CAs[0]
+	exists := existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca))
+
+	p, err := Build(cfg, m, testNow, exists, Options{NoRenewal: true})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Op != OpSign {
+			t.Errorf("host %q: Op = %q, want sign (new host, NoRenewal does not suppress)", a.Label, a.Op)
+		}
+	}
+}
+
+func TestBuild_NoRenewal_CAMismatch_StillSigns(t *testing.T) {
+	cfg := parseCfg(t, renewHCL)
+	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	// alpha was previously signed under a different CA label.
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "old-mesh", NotAfter: notAfter}
+
+	ca := cfg.CAs[0]
+	exists := existsSet(
+		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
+		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
+		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+	)
+	p, err := Build(cfg, m, testNow, exists, Options{NoRenewal: true})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Op != OpSign {
+			t.Errorf("host %q: Op = %q, want sign (CA mismatch, NoRenewal does not suppress)", a.Label, a.Op)
+		}
+	}
+}
+
+func TestBuild_NoRenewal_ZeroRenewBefore_StillNoop(t *testing.T) {
+	// No renew_before on host or CA; NoRenewal=true must not change the outcome.
+	cfg := parseCfg(t, `
+ca "mesh" { name = "m" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
+	now := notAfter.Add(-time.Second) // one second before expiry
+
+	m := trackedHostManifest(cfg, notAfter)
+	ca := cfg.CAs[0]
+	exists := existsSet(
+		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
+		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
+		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+	)
+	p, err := Build(cfg, m, now, exists, Options{NoRenewal: true})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.Changes() {
+		t.Fatalf("Changes() = true with NoRenewal=true + zero renew_before, want false; actions = %+v", p.Actions)
+	}
+}
+
 // trackedHostManifest builds a manifest with the mesh CA tracked and alpha
 // signed with the given notAfter.
 func trackedHostManifest(cfg *config.Config, notAfter time.Time) *manifest.Manifest {

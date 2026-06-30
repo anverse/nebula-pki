@@ -1,0 +1,96 @@
+# --no-renewal suppresses time-based renewal only. Config changes, new hosts,
+# missing artifacts, and CA rotation still trigger re-signs.
+#
+# The e2e binary uses real time, so clock-driven renewal suppression cannot be
+# simulated here — that coverage lives in unit tests (renewal_test.go) and
+# integration tests (cli_test.go). This file exercises the CLI surface:
+# the flag is accepted, new-host signing is unaffected, idempotency holds, and
+# --dry-run combined with --no-renewal produces the correct preview.
+
+# ── --dry-run --no-renewal on a fresh tree shows planned writes ───────────────
+# On a fresh tree all noop conditions fail (certs are absent and untracked),
+# so --no-renewal has no effect on the plan — the dry-run output is identical
+# to what --dry-run alone would produce.
+exec nebula-pki --dry-run --no-renewal
+stdout '^\+ write out/ca/test-mesh\.crt$'
+stdout '^\+ write out/ca/test-mesh\.key$'
+stdout '^\+ write out/hosts/alpha\.crt$'
+stdout '^\+ write out/hosts/alpha\.key$'
+stdout '^\+ write out/nebula-pki\.json$'
+! stderr .
+
+# No files were written.
+! exists out/ca/test-mesh.crt
+! exists out/hosts/alpha.crt
+! exists out/nebula-pki.json
+
+# ── Real run with --no-renewal signs new hosts normally ───────────────────────
+exec nebula-pki --no-renewal
+stderr 'generated CA'
+stderr '^signed host "alpha"$'
+stderr 'wrote manifest'
+! stdout .
+
+exists out/ca/test-mesh.crt
+exists out/ca/test-mesh.key
+exists out/hosts/alpha.crt
+exists out/hosts/alpha.key
+exists out/nebula-pki.json
+
+# Snapshot for idempotency check.
+cp out/hosts/alpha.crt alpha.first.crt
+cp out/nebula-pki.json manifest.first.json
+
+# ── Idempotent second run with --no-renewal ───────────────────────────────────
+# Freshly-signed certs are far outside the renewal window; --no-renewal is a
+# no-op here too but must not break idempotency.
+exec nebula-pki --no-renewal
+stderr '^up to date; nothing to do$'
+stderr 'next deadline'
+! stderr 'signed host'
+! stdout .
+
+cmp out/hosts/alpha.crt alpha.first.crt
+cmp out/nebula-pki.json manifest.first.json
+
+# ── --dry-run --no-renewal on a reconciled tree → nothing to do ──────────────
+exec nebula-pki --dry-run --no-renewal
+stdout '^up to date; nothing to do$'
+stderr 'next deadline'
+
+# ── New host is signed even with --no-renewal ─────────────────────────────────
+cp two-hosts.hcl nebula.hcl
+exec nebula-pki --no-renewal
+! stderr 'signed host "alpha"'
+stderr '^signed host "beta"$'
+stderr 'wrote manifest'
+! stdout .
+
+exists out/hosts/beta.crt
+
+# alpha was not re-signed (already up to date, no window trigger).
+cmp out/hosts/alpha.crt alpha.first.crt
+
+-- nebula.hcl --
+ca "test-mesh" {
+  name         = "test-mesh"
+  renew_before = "720h"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- two-hosts.hcl --
+ca "test-mesh" {
+  name         = "test-mesh"
+  renew_before = "720h"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
