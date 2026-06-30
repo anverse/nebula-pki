@@ -77,10 +77,39 @@ Accepted as the implementation of the built-in `sops` backend.
 
 Accepted. See ADR-006 for the extensibility shape.
 
+## What gets encrypted
+
+Only **private key files** are encrypted. Specifically: CA private keys (generate mode, written as `<label>.key<suffix>`) and host private keys (written as `<host.name>.key<suffix>`). Nothing else is encrypted:
+
+- **Public certificates (`.crt`)** are not secret material in Nebula's design. Hosts broadcast them during connection establishment; they are meant to be distributed. Encrypting them would add decryption overhead to every downstream consumer (Terraform `file()`, Ansible copy tasks, etc.) with no security benefit.
+- **The trust bundle** (`bundle.crt`) is a concatenation of CA public certs — equally public.
+- **The manifest** (`nebula-pki.json`) is designed to contain no secret material. Fingerprints are public identifiers; artifact paths are structural metadata.
+- **QR PNGs** contain public key material only.
+
+Operators who want to protect certificate metadata (network topology, group memberships visible in `.crt` files) should do so at the git-repository level (private repo, signed commits) or filesystem level — this is outside the tool's scope.
+
+## Decryption on reuse
+
+When a CA is in generate mode and its key was written encrypted in a previous run, subsequent runs must decrypt the key before using it to sign hosts. The active backend's `Decrypt` method is called in-memory; no plaintext temp file is written to disk. This means the operator's decryption credentials (age private key, PGP keyring, AWS IAM role, etc.) must be present in the environment on every reconcile run, not only at CA generation time. This constraint is documented in `hcl-schema.md` under the `encryption "sops"` and `encryption "external"` block references.
+
+## Recipient-mismatch warning
+
+Changing the `age`, `pgp`, or other recipient fields in the HCL between runs does **not** trigger automatic re-encryption of existing key files. Key files are only (re-)written when the key material itself changes (new generation or renewal). This keeps normal runs side-effect-free and avoids silently rewriting secrets when config is edited.
+
+When the tool detects that an existing encrypted key file's metadata (embedded sops recipient list, or the `encrypt_command` for the `external` backend) differs from the currently configured recipients, it prints a warning on stderr on **every** run until the mismatch is resolved:
+
+```
+warning: out/hosts/app_01.key.enc was encrypted with different recipients than currently configured.
+         Run 'nebula-pki rekey' to re-encrypt with the current recipients.
+```
+
+The warning is persistent so operators do not forget about a partial or mixed encryption state. It is cleared once `nebula-pki rekey` successfully re-encrypts all affected files. The manifest stores a fingerprint of the recipients/command used to encrypt each file; this is what the mismatch check compares against.
+
 ## Links
 
 * ADR-001 — tooling approach.
 * ADR-006 — storage backend extensibility.
+* [Milestone v0.2](../milestones/v0.2.md) — encryption iteration plan and decisions D-1 through D-3.
 * [getsops/sops](https://github.com/getsops/sops)
 * [sops `.sops.yaml` config](https://github.com/getsops/sops#using-sopsyaml-conf-to-select-kmspgp-for-new-files)
 * [age](https://github.com/FiloSottile/age)
