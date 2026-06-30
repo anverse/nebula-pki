@@ -1,21 +1,15 @@
 # nebula-pki
 
-**See your entire Nebula mesh on one screen.** Add a host with three lines. Review cert changes the same way you review code. Re-run the tool and get the same result every time.
+**Your entire Nebula mesh in one config.** Review cert changes the same way you review code.
 
 `nebula-pki` is a declarative layer over [`nebula-cert`](https://github.com/slackhq/nebula): you describe the mesh once in HCL, the tool keeps the on-disk certificates in sync.
 
-> nebula-pki is under active development. It's ready to use day-to-day and we aim to keep the schema stable, but breaking changes may still happen before v1.0.
+Using `nebula-cert` means different flags per host, signing sessions live in shell history, and no easy way to review what changed before it goes out.
+`nebula-pki` replaces that with an HCL config that describes every CA and host in one place.
+Changes flow through pull requests like any other infrastructure.
 
-## What you get
 
-- **One config, whole mesh.** CA and every host in a single HCL. With `nebula-cert` you'd reconstruct that picture from shell history.
-- **Reviewable.** Cert changes flow through pull requests like any other code.
-- **Reproducible.** Same config in, same artifacts out. `nebula-cert` produces whatever you remembered to type that day.
-- **Per-host output directory.** Each host declares its own destination directory — fan out the whole mesh to different providers or projects in a single run.
-- **No flag juggling.** Each host's networks, groups, and duration sit next to its name. No more re-typing the right `-networks`, `-groups`, `-duration` combo per host.
-- **Trust bundle.** Always emits `out/ca/bundle.crt` — a ready-made `pki.ca` file that stays correct through CA rotation.
-- **CA rotation in four steps.** Add a new CA, ship the bundle, flip the default signer, archive the old one. Each step is an HCL edit and a rerun; the tool handles the rest.
-- **Time-based renewal.** Set `renew_before` on a CA or individual host and certs are re-signed automatically before they expire. After every run the tool prints the earliest upcoming deadline so you know when to run next.
+> nebula-pki is under active development. It's ready to use day-to-day, but breaking changes may still happen before v1.0.
 
 ## Install
 
@@ -54,18 +48,20 @@ cd nebula-pki
 go build -o nebula-pki ./cmd/nebula-pki
 ```
 
-The binary is self-contained. It links the `slackhq/nebula/cert` Go library directly, so you don't need to install Nebula or `nebula-cert` alongside it.
-Each release pins one upstream Nebula version (visible in release notes, `nebula-pki --version`, and the manifest).
-The built-in sops backend uses the sops Go library — no external `sops` CLI required.
+The binary is self-contained.
+It links the `slackhq/nebula/cert` Go library directly.
+You don't need Nebula or `nebula-cert` installed alongside it.
+Each release pins one upstream Nebula version.
 
-## Quickstart
+## Getting Started
 
 `nebula.hcl`:
 
 ```hcl
-ca "my-mesh" {
+ca "my_mesh" {
   name     = "my-mesh"
-  duration = "8760h"
+  networks = ["10.42.0.0/16"]
+  duration = "8760h" # 365 days
 }
 
 host "lh_01" {
@@ -73,9 +69,9 @@ host "lh_01" {
   groups   = ["lighthouse"]
 }
 
-host "app_01" {
+host "node_01" {
   networks = ["10.42.1.10/16"]
-  groups   = ["app"]
+  groups   = ["node"]
 }
 ```
 
@@ -83,9 +79,8 @@ host "app_01" {
 nebula-pki
 ```
 
-That's it. Running the tool reconciles `out/` with `nebula.hcl` — generates the CA if it doesn't exist, signs missing host certs, and updates the manifest at `out/nebula-pki.json`.
-
-Need certificates split across multiple Terraform projects? See **Per-host output directory** below.
+Running the tool reconciles `out/` with `nebula.hcl`.
+It generates the CA if it doesn't exist, signs missing host certs, and updates the manifest at `out/nebula-pki.json`.
 
 ## Per-host output directory
 
@@ -93,14 +88,14 @@ Running a mesh that spans several Terraform projects, providers, or deploy targe
 
 ```hcl
 host "lh_fra" {
-  name       = "lh-fra"          # cert CN; optional, defaults to label
+  name       = "lh-fra"                 # cert CN; optional, defaults to label
   networks   = ["10.42.0.1/16"]
-  output_dir = "out/hetzner"     # cert written to out/hetzner/lh-fra.{crt,key}
+  output_dir = "out/third/party/vendor" # cert written to out/third/party/vendor/lh-fra.{crt,key}
 }
 
-host "app_hetzner_01" {
+host "vendor_node_01" {
   networks   = ["10.42.1.10/16"]
-  output_dir = "out/hetzner"
+  output_dir = "out/vendor"
 }
 ```
 
@@ -109,8 +104,8 @@ Filenames default to `<host.name>.crt` / `.key`. Use `out_crt` / `out_key` to re
 ```hcl
 host "lh_fra" {
   networks   = ["10.42.0.1/16"]
-  output_dir = "out/hetzner"
-  out_crt    = "nebula.crt"      # → out/hetzner/nebula.crt
+  output_dir = "out/vendor"
+  out_crt    = "nebula.crt"      # → out/vendor/nebula.crt
 }
 ```
 
@@ -166,13 +161,11 @@ host "edge" {
 }
 ```
 
-After every run — including no-op runs — the tool prints to stderr the earliest upcoming deadline and a "run again before \<date\>" hint. It is advisory only and does not affect exit codes or writes.
+After every run — including no-op runs — the tool prints to stderr the earliest upcoming deadline and a "run again before \<date\>" hint. It's advisory only and does not affect exit codes or writes.
 
 ## Encryption at rest (coming in v0.2, opt-in)
 
-By default, host keys land on disk as plaintext, which means you can't safely keep `out/` in git. The optional `storage.encryption` block will fix that: keys encrypted at rest using sops (built-in, no extra CLI needed) or any external command. The block is parsed but rejected in the current release — encryption lands in v0.2.
-
-See [`agents.md`](./agents.md) for the planned field list and the `sops` / `external` backends.
+By default, host keys land on disk as plaintext, which means you can't safely keep `out/` in git. The optional `storage.encryption` block will fix that: keys encrypted at rest using sops (built-in, no extra CLI needed) or any external command. The block is parsed but rejected in the current release.
 
 ## CLI
 
@@ -185,8 +178,6 @@ nebula-pki -c other.hcl   # use a different config path
 
 `--dry-run` prints the planned writes to stdout and still prints the deadline advisory to stderr, the same as a normal run.
 
-That's the whole surface. No subcommands to memorise for the everyday workflow.
-
 ## Consuming from Terraform
 
 ```hcl
@@ -195,11 +186,9 @@ resource "some_provider_file" "nebula_cert" {
 }
 ```
 
-Encrypted key files (suffix configurable, `.enc` by default) can be read by the [`carlpett/sops`](https://registry.terraform.io/providers/carlpett/sops/latest) Terraform provider, or by the target host's own bootstrap tooling.
+## Further reading
 
-## Want more?
-
-- Full HCL reference, encryption backends, CA reference mode, host options: [`agents.md`](./agents.md).
+- Full HCL reference, encryption backends, CA reference mode, host options: [`hcl-schema.md`](./spec/hcl-schema.md).
 - Building, testing, releasing: [`development.md`](./development.md).
 - Design rationale and decisions: [`spec/`](./spec/readme.md).
 - Upstream Nebula: <https://github.com/slackhq/nebula>.
