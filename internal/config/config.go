@@ -797,6 +797,17 @@ func validateHosts(cfg *Config) error {
 			}
 		}
 
+		// in_pub and out_key are mutually exclusive: when a device supplies its
+		// own public key, no private key is ever written, so naming a key
+		// output path is a configuration error. See ADR-018.
+		if h.InPub != "" && h.OutKey != "" {
+			return fmt.Errorf(
+				"host %q: `in_pub` and `out_key` are mutually exclusive "+
+					"(no private key is written when signing a supplied public key)",
+				h.Label,
+			)
+		}
+
 		// Validate renew_before < effective host validity so that issuing a
 		// cert never leaves the host immediately inside its renewal window
 		// (which would cause re-sign on every run).

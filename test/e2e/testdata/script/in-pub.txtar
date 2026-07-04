@@ -1,0 +1,222 @@
+# in_pub air-gapped signing — end-to-end scenarios (ADR-018).
+#
+# The test binary provides gen-host-pub, a test-only helper that generates a
+# device keypair and writes the public key PEM (what nebula-cert keygen or the
+# mobile app would produce). The private key never appears in this script —
+# that is the point of the air-gapped pattern.
+#
+# Scenarios:
+#   1. Basic in_pub sign: cert written, key NOT written, manifest shape correct.
+#   2. Idempotency: second run is a noop.
+#   3. `check` verifies in_pub curve and reports it.
+#   4. Curve mismatch: P256 pubkey with Curve25519 CA → clear error.
+#   5. in_pub + out_key validation error at parse time.
+#   6. Missing in_pub file → error.
+#   7. --dry-run lists cert only (no key).
+#   8. in_pub host with renew_before is a noop when cert is fresh (renewal-window re-sign is unit-tested).
+
+# ── Generate device public keys up-front ────────────────────────────────────
+# 25519 pubkey for alice's phone (used in most scenarios).
+gen-host-pub inbox/alice.pub
+
+# P256 pubkey for a different device (used in curve-mismatch scenario).
+gen-host-pub inbox/p256device.pub P256
+
+# ── Scenario 1: basic in_pub sign ───────────────────────────────────────────
+exec nebula-pki -c basic.hcl
+stderr '^generated CA'
+stderr '^signed host "alice"$'
+! stderr 'hosts/alice\.key'
+stderr '^wrote manifest'
+! stdout .
+
+# Only cert written — no key.
+exists out/hosts/alice.crt
+! exists out/hosts/alice.key
+
+# Manifest records in_pub = true.
+grep '"in_pub": true' out/nebula-pki.json
+
+# The host artifact must not list a key_path (omitempty drops it).
+! grep 'hosts/alice\.key' out/nebula-pki.json
+
+# ── Scenario 2: idempotency ──────────────────────────────────────────────────
+cp out/hosts/alice.crt alice.snap.crt
+cp out/nebula-pki.json manifest.snap.json
+
+exec nebula-pki -c basic.hcl
+stderr '^up to date; nothing to do$'
+! stderr 'signed host'
+! stdout .
+
+cmp out/hosts/alice.crt alice.snap.crt
+cmp out/nebula-pki.json manifest.snap.json
+
+# ── Scenario 3: check command ────────────────────────────────────────────────
+exec nebula-pki check -c basic.hcl
+stdout 'config valid'
+stdout 'host "alice".*in_pub.*curve=25519.*OK'
+! stdout 'error'
+! stderr 'error'
+
+# ── Scenario 4: curve mismatch ───────────────────────────────────────────────
+# P256 pubkey with a Curve25519 CA → error at reconcile AND check time.
+! exec nebula-pki -c curve-mismatch.hcl
+stderr 'curve'
+
+! exec nebula-pki check -c curve-mismatch.hcl
+stderr 'curve'
+
+# ── Scenario 5: in_pub + out_key validation error ────────────────────────────
+! exec nebula-pki check -c conflict.hcl
+stderr 'mutually exclusive'
+
+! exec nebula-pki -c conflict.hcl
+stderr 'mutually exclusive'
+
+# ── Scenario 6: missing in_pub file ─────────────────────────────────────────
+! exec nebula-pki -c missing-pub.hcl
+stderr 'in_pub'
+
+! exec nebula-pki check -c missing-pub.hcl
+stderr 'in_pub'
+
+# ── Scenario 7: --dry-run lists cert only ───────────────────────────────────
+exec nebula-pki --dry-run -c dry-run.hcl
+stdout '\+ write out/hosts/bob\.crt'
+! stdout 'bob\.key'
+! stdout 'bob\.pub'
+
+# Dry-run must not create the cert file.
+! exists out/hosts/bob.crt
+
+# ── Scenario 8: in_pub host with renew_before configured is idempotent when cert is fresh ──
+# Clock-injection is not available in e2e scripts, so the renewal-window
+# re-sign path (same public key, advanced notAfter) is covered by
+# TestReconcile_InPub_RenewalResignsWithSamePubKey in internal/apply.
+# This scenario verifies that a freshly signed in_pub cert (well outside
+# its renewal window) does not trigger a spurious re-sign.
+exec nebula-pki -c renew.hcl
+stderr '^generated CA'
+stderr '^signed host "renew-phone"$'
+stderr '^wrote manifest'
+
+exists renew-out/hosts/renew-phone.crt
+! exists renew-out/hosts/renew-phone.key
+
+grep '"in_pub": true' renew-out/nebula-pki.json
+
+# Second run must be a noop: cert is fresh, far from the 720h renewal window.
+exec nebula-pki -c renew.hcl
+stderr '^up to date; nothing to do$'
+
+# ── Scenario 9: stale key notice when switching regular → in_pub ─────────────
+# First sign as a regular host (generates key).
+exec nebula-pki -c stale-regular.hcl
+stderr '^signed host "laptop"$'
+exists stale-out/hosts/laptop.crt
+exists stale-out/hosts/laptop.key
+
+# Re-run with in_pub version of the same host.
+exec nebula-pki -c stale-inpub.hcl
+stderr '^signed host "laptop"$'
+stderr 'stale-out/hosts/laptop\.key'
+stderr 'no longer managed'
+
+exists stale-out/hosts/laptop.crt
+# Key still exists on disk — we notice but do NOT delete (user confirms first).
+exists stale-out/hosts/laptop.key
+
+-- basic.hcl --
+ca "mesh" {
+  name = "test-mesh"
+}
+
+host "alice" {
+  networks = ["10.0.0.1/16"]
+  groups   = ["mobile"]
+  in_pub   = "inbox/alice.pub"
+}
+
+-- curve-mismatch.hcl --
+ca "mesh" {
+  name = "test-mesh"
+}
+
+host "p256device" {
+  networks = ["10.0.0.2/16"]
+  in_pub   = "inbox/p256device.pub"
+}
+
+-- conflict.hcl --
+ca "mesh" {
+  name = "test-mesh"
+}
+
+host "bad" {
+  networks = ["10.0.0.3/16"]
+  in_pub   = "inbox/alice.pub"
+  out_key  = "bad.key"
+}
+
+-- missing-pub.hcl --
+ca "mesh" {
+  name = "test-mesh"
+}
+
+host "ghost" {
+  networks = ["10.0.0.4/16"]
+  in_pub   = "inbox/no-such-file.pub"
+}
+
+-- dry-run.hcl --
+ca "mesh" {
+  name = "test-mesh"
+}
+
+host "bob" {
+  networks = ["10.0.0.5/16"]
+  in_pub   = "inbox/alice.pub"
+}
+
+-- renew.hcl --
+storage {
+  out_dir = "renew-out"
+}
+
+ca "mesh" {
+  name         = "test-mesh"
+  renew_before = "720h"
+}
+
+host "renew-phone" {
+  networks = ["10.0.0.6/16"]
+  in_pub   = "inbox/alice.pub"
+}
+
+-- stale-regular.hcl --
+storage {
+  out_dir = "stale-out"
+}
+
+ca "mesh" {
+  name = "stale-mesh"
+}
+
+host "laptop" {
+  networks = ["10.0.0.7/16"]
+}
+
+-- stale-inpub.hcl --
+storage {
+  out_dir = "stale-out"
+}
+
+ca "mesh" {
+  name = "stale-mesh"
+}
+
+host "laptop" {
+  networks = ["10.0.0.7/16"]
+  in_pub   = "inbox/alice.pub"
+}

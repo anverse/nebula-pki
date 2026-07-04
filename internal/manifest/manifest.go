@@ -74,18 +74,22 @@ type CA struct {
 
 // Host is a signed host record.
 type Host struct {
-	CA             string     `json:"ca"`
-	Name           string     `json:"name"`
-	Fingerprint    string     `json:"fingerprint"`
-	Networks       []string   `json:"networks"`
-	Groups         []string   `json:"groups,omitempty"`
-	UnsafeNetworks []string   `json:"unsafe_networks,omitempty"`
-	Duration       string     `json:"duration,omitempty"`
-	RenewBefore    string     `json:"renew_before,omitempty"`
-	NotBefore      time.Time  `json:"not_before"`
-	NotAfter       time.Time  `json:"not_after"`
-	CAFingerprint  string     `json:"ca_fingerprint"`
-	Artifacts      []Artifact `json:"artifacts"`
+	CA             string    `json:"ca"`
+	Name           string    `json:"name"`
+	Fingerprint    string    `json:"fingerprint"`
+	Networks       []string  `json:"networks"`
+	Groups         []string  `json:"groups,omitempty"`
+	UnsafeNetworks []string  `json:"unsafe_networks,omitempty"`
+	Duration       string    `json:"duration,omitempty"`
+	RenewBefore    string    `json:"renew_before,omitempty"`
+	NotBefore      time.Time `json:"not_before"`
+	NotAfter       time.Time `json:"not_after"`
+	CAFingerprint  string    `json:"ca_fingerprint"`
+	// InPub marks hosts signed via the air-gapped in_pub pattern (ADR-018).
+	// When true, only a certificate was written — no private key exists on
+	// the CA host. Omitted (false) for regular keypair-generating hosts.
+	InPub     bool       `json:"in_pub,omitempty"`
+	Artifacts []Artifact `json:"artifacts"`
 }
 
 // Artifact is one resolved destination for a host's cert/key pair.

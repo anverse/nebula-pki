@@ -412,3 +412,55 @@ host "h" {
 		t.Fatalf("Parse: %v", err)
 	}
 }
+
+// --- in_pub validation ------------------------------------------------------
+
+func TestValidate_InPub_PlusOutKey_Rejected(t *testing.T) {
+	src := `
+ca "mesh" { name = "m" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "phone.pub"
+  out_key  = "phone.key"
+}
+`
+	_, err := Parse("t.hcl", []byte(src))
+	if err == nil {
+		t.Fatal("expected validation error for in_pub + out_key, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error = %q, want it to mention 'mutually exclusive'", err.Error())
+	}
+}
+
+func TestValidate_InPub_WithoutOutKey_Accepted(t *testing.T) {
+	src := `
+ca "mesh" { name = "m" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "phone.pub"
+}
+`
+	cfg, err := Parse("t.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Hosts[0].InPub != "phone.pub" {
+		t.Errorf("InPub = %q, want phone.pub", cfg.Hosts[0].InPub)
+	}
+}
+
+func TestValidate_InPub_WithOutCRT_Accepted(t *testing.T) {
+	// out_crt is fine together with in_pub — it just changes the cert filename.
+	src := `
+ca "mesh" { name = "m" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "phone.pub"
+  out_crt  = "phone.crt"
+}
+`
+	if _, err := Parse("t.hcl", []byte(src)); err != nil {
+		t.Fatalf("Parse: %v (out_crt + in_pub should be accepted)", err)
+	}
+}

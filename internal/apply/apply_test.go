@@ -11,6 +11,8 @@ import (
 
 	"github.com/anverse/nebula-pki/internal/config"
 	"github.com/anverse/nebula-pki/internal/manifest"
+	"github.com/anverse/nebula-pki/internal/pki"
+	"github.com/slackhq/nebula/cert"
 )
 
 // fixedNow is a deterministic issuance time for assertions.
@@ -1257,4 +1259,334 @@ func mustSeed(t *testing.T, path string) {
 	if err := os.WriteFile(path, []byte("pre-existing\n"), 0o600); err != nil {
 		t.Fatalf("seed %s: %v", path, err)
 	}
+}
+
+// --- in_pub (air-gapped signing) tests --------------------------------------
+
+// writeInPubFixture generates a Curve25519 device keypair and writes the
+// public key PEM to dir/filename. Returns the PEM bytes so callers can
+// verify the cert embeds the same public key.
+func writeInPubFixture(t *testing.T, dir, filename string) []byte {
+	t.Helper()
+	// Generate an Ed25519 keypair (Nebula's CURVE25519 host keypair).
+	pub, _, err := generateKeypairForTest()
+	if err != nil {
+		t.Fatalf("generate keypair: %v", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, pub, 0o600); err != nil {
+		t.Fatalf("write pub key: %v", err)
+	}
+	return pub
+}
+
+func TestReconcile_InPub_CertOnly(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" { name = "mesh" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`)
+	writeInPubFixture(t, filepath.Join(filepath.Dir(cfg.Path), "inbox"), "phone.pub")
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true on first run")
+	}
+
+	// Only the cert must exist; the key must not be written.
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	certReal := cfg.Resolve(art.CertPath)
+	keyReal := cfg.Resolve(art.KeyPath)
+	if _, err := os.Stat(certReal); err != nil {
+		t.Errorf("cert file missing: %v", err)
+	}
+	if _, err := os.Stat(keyReal); err == nil {
+		t.Error("key file exists; in_pub hosts must not write a private key")
+	}
+
+	// Manifest must record in_pub = true and omit key_path from artifacts.
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	mh := m.Hosts["phone"]
+	if !mh.InPub {
+		t.Error("manifest Host.InPub = false, want true")
+	}
+	if len(mh.Artifacts) != 1 {
+		t.Fatalf("len(Artifacts) = %d, want 1", len(mh.Artifacts))
+	}
+	if mh.Artifacts[0].CertPath == "" {
+		t.Error("Artifacts[0].CertPath is empty")
+	}
+	if mh.Artifacts[0].KeyPath != "" {
+		t.Errorf("Artifacts[0].KeyPath = %q, want empty for in_pub host", mh.Artifacts[0].KeyPath)
+	}
+}
+
+func TestReconcile_InPub_Idempotent(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" { name = "mesh" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`)
+	writeInPubFixture(t, filepath.Join(filepath.Dir(cfg.Path), "inbox"), "phone.pub")
+
+	rep1, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	if !rep1.Changed {
+		t.Fatal("first run: Changed = false")
+	}
+
+	rep2, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep2.Changed {
+		t.Error("second run: Changed = true; in_pub host should be a noop on unchanged tree")
+	}
+}
+
+func TestReconcile_InPub_MissingPubFile(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" { name = "mesh" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/no-such-file.pub"
+}
+`)
+	_, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err == nil {
+		t.Fatal("expected error for missing in_pub file, got nil")
+	}
+	if !strings.Contains(err.Error(), "in_pub") {
+		t.Errorf("error = %q, want it to mention 'in_pub'", err.Error())
+	}
+}
+
+func TestReconcile_InPub_CurveMismatch(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" {
+  name = "mesh"
+}
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`)
+	// Write a P256 public key, but the CA uses Curve25519 (default).
+	dir := filepath.Join(filepath.Dir(cfg.Path), "inbox")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	p256PEM, err := generateP256PubPEM()
+	if err != nil {
+		t.Fatalf("generate P256 key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "phone.pub"), p256PEM, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, err = Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err == nil {
+		t.Fatal("expected curve mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "curve") {
+		t.Errorf("error = %q, want it to mention 'curve'", err.Error())
+	}
+}
+
+func TestReconcile_InPub_RenewalResignsWithSamePubKey(t *testing.T) {
+	src := `
+ca "mesh" {
+  name         = "mesh"
+  renew_before = "720h"
+}
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`
+	cfg := writeConfig(t, src)
+	pubPEM := writeInPubFixture(t, filepath.Join(filepath.Dir(cfg.Path), "inbox"), "phone.pub")
+
+	// First sign.
+	_, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	// Second run: advance the clock so the cert is inside its renewal window
+	// (notAfter = fixedNow + 8760h; renewal at notAfter - 720h = fixedNow + 8040h).
+	insideWindow := fixedNow.Add(8100 * time.Hour)
+	rep2, err := Reconcile(cfg, Options{Now: insideWindow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile (renewal): %v", err)
+	}
+	if !rep2.Changed {
+		t.Fatal("second run: Changed = false; cert should have been renewed")
+	}
+
+	// The renewed cert must embed the same public key.
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	certPEM := mustRead(t, cfg.Resolve(art.CertPath))
+	pubRaw, _, err := parsePubPEM(pubPEM)
+	if err != nil {
+		t.Fatalf("parse pub PEM: %v", err)
+	}
+	certObj := parseCertBytes(t, certPEM)
+	if !bytes.Equal(certObj.PublicKey(), pubRaw) {
+		t.Error("renewed cert embeds a different public key than the original in_pub file")
+	}
+
+	// Key file must still not exist.
+	keyReal := cfg.Resolve(art.KeyPath)
+	if _, err := os.Stat(keyReal); err == nil {
+		t.Error("key file appeared after renewal; in_pub hosts must never write a key")
+	}
+}
+
+func TestReconcile_InPub_DryRun_NoCertOrKeyWritten(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" { name = "mesh" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`)
+	writeInPubFixture(t, filepath.Join(filepath.Dir(cfg.Path), "inbox"), "phone.pub")
+
+	var out bytes.Buffer
+	_, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion, DryRun: true, Out: &out})
+	if err != nil {
+		t.Fatalf("Reconcile dry-run: %v", err)
+	}
+
+	preview := out.String()
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+
+	if !strings.Contains(preview, art.CertPath) {
+		t.Errorf("dry-run output %q does not list cert path %s", preview, art.CertPath)
+	}
+	if strings.Contains(preview, art.KeyPath) {
+		t.Errorf("dry-run output %q lists key path %s; in_pub hosts write no key", preview, art.KeyPath)
+	}
+
+	// Dry-run must not create files.
+	certReal := cfg.Resolve(art.CertPath)
+	if _, err := os.Stat(certReal); err == nil {
+		t.Error("cert file was created during dry-run; dry-run must not write anything")
+	}
+}
+
+func TestReconcile_InPub_StaleKeyFlaggedOnRegularToInPubTransition(t *testing.T) {
+	// First run: regular host (generates cert + key).
+	regularSrc := `
+ca "mesh" { name = "mesh" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+}
+`
+	cfg := writeConfig(t, regularSrc)
+	_, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("regular Reconcile: %v", err)
+	}
+
+	// Confirm key exists.
+	art0 := cfg.HostArtifactPath(cfg.Hosts[0])
+	keyReal := cfg.Resolve(art0.KeyPath)
+	if _, err := os.Stat(keyReal); err != nil {
+		t.Fatalf("key file missing after regular sign: %v", err)
+	}
+
+	// Second run: switch to in_pub (same config dir, rewritten nebula.hcl).
+	inPubSrc := `
+ca "mesh" { name = "mesh" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`
+	cfgDir := filepath.Dir(cfg.Path)
+	if err := os.WriteFile(cfg.Path, []byte(inPubSrc), 0o644); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+	writeInPubFixture(t, filepath.Join(cfgDir, "inbox"), "phone.pub")
+
+	cfg2, err := config.Load(cfg.Path)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	rep2, err := Reconcile(cfg2, Options{Now: fixedNow.Add(time.Second), GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("in_pub Reconcile: %v", err)
+	}
+
+	// The old key path must appear in StaleArtifacts.
+	found := false
+	for _, p := range rep2.StaleArtifacts {
+		if p == art0.KeyPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("StaleArtifacts = %v, want it to contain the old key path %s", rep2.StaleArtifacts, art0.KeyPath)
+	}
+}
+
+// --- helpers for in_pub tests -----------------------------------------------
+
+// generateKeypairForTest generates a Curve25519 keypair and returns the
+// public key as a PEM-encoded byte slice (as nebula-cert keygen would output).
+func generateKeypairForTest() (pubPEM []byte, privRaw []byte, err error) {
+	pub, priv, err := generateEd25519()
+	if err != nil {
+		return nil, nil, err
+	}
+	pem := marshalPubPEM(pub)
+	return pem, priv, nil
+}
+
+// generateP256PubPEM generates a P256 keypair and returns the public key PEM.
+func generateP256PubPEM() ([]byte, error) {
+	pub, err := generateP256Pub()
+	if err != nil {
+		return nil, err
+	}
+	return marshalP256PubPEM(pub), nil
+}
+
+// parsePubPEM parses a PEM-encoded public key, returning the raw bytes.
+func parsePubPEM(pem []byte) (raw []byte, _ string, err error) {
+	raw, curveStr, err := pki.ParseHostPublicKeyPEM(pem)
+	return raw, curveStr, err
+}
+
+// parseCertBytes parses a PEM certificate for inspection in tests.
+func parseCertBytes(t *testing.T, pemBytes []byte) nebulaPublicKeyer {
+	t.Helper()
+	c, _, err := cert.UnmarshalCertificateFromPEM(pemBytes)
+	if err != nil {
+		t.Fatalf("UnmarshalCertificateFromPEM: %v", err)
+	}
+	return c
+}
+
+// nebulaPublicKeyer is the subset of cert.Certificate we use in tests.
+type nebulaPublicKeyer interface {
+	PublicKey() []byte
 }

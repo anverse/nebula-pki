@@ -114,7 +114,7 @@ func GenerateCA(ca config.CA, now time.Time) (*CAResult, error) {
 		CertPEM:     certPEM,
 		KeyPEM:      keyPEM,
 		Name:        c.Name(),
-		Curve:       curveString(curve),
+		Curve:       CurveString(curve),
 		Version:     int(version),
 		Fingerprint: fp,
 		NotBefore:   c.NotBefore(),
@@ -175,7 +175,7 @@ func LoadReferenceCA(certPEM, keyPEM []byte, now time.Time) (*CAResult, error) {
 	if keyCurve != c.Curve() {
 		return nil, fmt.Errorf(
 			"reference CA key curve %s does not match certificate curve %s",
-			curveString(keyCurve), curveString(c.Curve()),
+			CurveString(keyCurve), CurveString(c.Curve()),
 		)
 	}
 
@@ -194,7 +194,7 @@ func LoadReferenceCA(certPEM, keyPEM []byte, now time.Time) (*CAResult, error) {
 
 	res := &CAResult{
 		Name:        c.Name(),
-		Curve:       curveString(c.Curve()),
+		Curve:       CurveString(c.Curve()),
 		Version:     int(c.Version()),
 		Fingerprint: fp,
 		NotBefore:   c.NotBefore(),
@@ -368,7 +368,7 @@ func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostRe
 		KeyPEM:        keyPEM,
 		Name:          c.Name(),
 		Fingerprint:   fp,
-		Curve:         curveString(curve),
+		Curve:         CurveString(curve),
 		Version:       int(version),
 		NotBefore:     c.NotBefore(),
 		NotAfter:      c.NotAfter(),
@@ -376,9 +376,10 @@ func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostRe
 	}, nil
 }
 
-// curveString maps an upstream curve enum back to the HCL spelling used
-// throughout the config surface and the manifest.
-func curveString(cv cert.Curve) string {
+// CurveString maps an upstream curve enum back to the HCL spelling used
+// throughout the config surface and the manifest ("25519" or "P256").
+// Exported so the cli package can use it when reporting in_pub curve info.
+func CurveString(cv cert.Curve) string {
 	switch cv {
 	case cert.Curve_CURVE25519:
 		return "25519"
@@ -387,4 +388,100 @@ func curveString(cv cert.Curve) string {
 	default:
 		return cv.String()
 	}
+}
+
+// ParseHostPublicKeyPEM parses a PEM-encoded device public key (as produced
+// by nebula-cert keygen or a mobile app) and returns the raw key bytes and
+// the curve string ("25519" or "P256"). Used by SignHostFromPub and by the
+// check command to verify the curve before attempting a full reconcile.
+func ParseHostPublicKeyPEM(pubKeyPEM []byte) (rawPub []byte, curveStr string, err error) {
+	raw, _, curve, err := cert.UnmarshalPublicKeyFromPEM(pubKeyPEM)
+	if err != nil {
+		return nil, "", fmt.Errorf("parse host public key PEM: %w", err)
+	}
+	return raw, CurveString(curve), nil
+}
+
+// SignHostFromPub signs a host certificate using a device-supplied public key
+// (the in_pub air-gapped pattern — see ADR-018). It is identical to SignHost
+// except that it accepts the device's PEM public key instead of generating a
+// fresh keypair, and it returns a HostResult with a nil KeyPEM because no
+// private key exists on the CA host. The curve of the supplied public key must
+// match the signing CA's curve; a mismatch is returned as an error.
+func SignHostFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Host, now time.Time) (*HostResult, error) {
+	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)
+	}
+
+	rawKey, _, keyCurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(caKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA key for host signing: %w", err)
+	}
+
+	rawPub, pubCurveStr, err := ParseHostPublicKeyPEM(pubKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("host %q in_pub: %w", h.Name, err)
+	}
+	if pubCurveStr != CurveString(caCert.Curve()) {
+		return nil, fmt.Errorf(
+			"host %q: in_pub curve %s does not match signing CA curve %s",
+			h.Name, pubCurveStr, CurveString(caCert.Curve()),
+		)
+	}
+
+	curve := caCert.Curve()
+	version := caCert.Version()
+
+	caNotAfter := caCert.NotAfter()
+	notAfter := caNotAfter
+	if h.HasDuration {
+		if nd := now.Add(h.Duration); nd.Before(caNotAfter) {
+			notAfter = nd
+		}
+	}
+
+	tbs := &cert.TBSCertificate{
+		Version:        version,
+		Name:           h.Name,
+		Groups:         h.Groups,
+		Networks:       h.Networks,
+		UnsafeNetworks: h.UnsafeNetworks,
+		NotBefore:      now,
+		NotAfter:       notAfter,
+		PublicKey:      rawPub,
+		IsCA:           false,
+		Curve:          curve,
+	}
+
+	c, err := tbs.Sign(caCert, keyCurve, rawKey)
+	if err != nil {
+		return nil, fmt.Errorf("sign host certificate %q (in_pub): %w", h.Name, err)
+	}
+
+	certPEM, err := c.MarshalPEM()
+	if err != nil {
+		return nil, fmt.Errorf("marshal host certificate %q: %w", h.Name, err)
+	}
+
+	fp, err := c.Fingerprint()
+	if err != nil {
+		return nil, fmt.Errorf("compute host certificate fingerprint %q: %w", h.Name, err)
+	}
+	caFP, err := caCert.Fingerprint()
+	if err != nil {
+		return nil, fmt.Errorf("compute CA fingerprint while signing host %q: %w", h.Name, err)
+	}
+
+	return &HostResult{
+		CertPEM:       certPEM,
+		KeyPEM:        nil, // device holds the private key — never on the CA host
+		Name:          c.Name(),
+		Fingerprint:   fp,
+		Curve:         CurveString(curve),
+		Version:       int(version),
+		NotBefore:     c.NotBefore(),
+		NotAfter:      c.NotAfter(),
+		CAFingerprint: caFP,
+	}, nil
 }

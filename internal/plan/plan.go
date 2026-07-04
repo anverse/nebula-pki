@@ -150,22 +150,39 @@ func hostInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) boo
 // precious as CAs (they can always be re-signed), so partial pairs and
 // untracked files are resolved by re-signing rather than erroring.
 //
-// A host is a noop when ALL of the following hold (ADR-002 + ADR-017):
+// A host is a noop when ALL of the following hold (ADR-002 + ADR-017 + ADR-018):
 //  1. tracked in manifest
 //  2. signing CA label matches the manifest record
-//  3. cert artifact is present on disk
-//  4. key artifact is present on disk
-//  5. the cert is NOT within its renew_before window, OR noRenewal is true
+//  3. provenance matches: both config and manifest agree on in_pub vs regular
+//  4. cert artifact is present on disk
+//  5. key artifact is present on disk (skipped for in_pub hosts — no key is written)
+//  6. the cert is NOT within its renew_before window, OR noRenewal is true
 //
 // Any failing condition → sign.
+//
+// Note on in_pub idempotency (ADR-018): if the content of the in_pub file
+// changes at the same path (same filename, different key bytes), this check
+// does NOT detect it — only cert presence and provenance are compared. For
+// hardware-bound keys this is correct (key never changes). For other cases
+// the operator must delete the cert file to force a re-sign.
 func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time.Time, exists func(string) bool, noRenewal bool) Action {
 	artifact := cfg.HostArtifactPath(*h)
 	signingCA := cfg.SigningCA(*h)
 
+	isInPub := h.InPub != ""
+
 	tracked := m != nil && m.Hosts[h.Label].Name != ""
 	caMatch := tracked && signingCA != nil && m.Hosts[h.Label].CA == signingCA.Label
+	// Provenance must match: a host switching between regular signing and
+	// in_pub (or back) must be re-signed so the cert reflects the correct
+	// public key source and the manifest records the right shape.
+	provenanceMatch := tracked && m.Hosts[h.Label].InPub == isInPub
 
-	if tracked && caMatch && exists(artifact.CertPath) && exists(artifact.KeyPath) {
+	certOK := exists(artifact.CertPath)
+	// in_pub hosts never write a key file; skip the key-existence check for them.
+	keyOK := isInPub || exists(artifact.KeyPath)
+
+	if tracked && caMatch && provenanceMatch && certOK && keyOK {
 		rb := cfg.ResolvedRenewBefore(*h)
 		mh := m.Hosts[h.Label]
 		if noRenewal || !hostInRenewalWindow(rb, mh.NotAfter, now) {

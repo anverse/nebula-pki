@@ -114,7 +114,9 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		fmt.Fprintf(w, "signed host %q\n", h.Label)
 		for _, a := range h.Artifacts {
 			fmt.Fprintf(w, "  cert: %s\n", a.CertPath)
-			fmt.Fprintf(w, "  key:  %s\n", a.KeyPath)
+			if a.KeyPath != "" {
+				fmt.Fprintf(w, "  key:  %s\n", a.KeyPath)
+			}
 		}
 	}
 	if len(rep.StaleArtifacts) > 0 {
@@ -193,39 +195,65 @@ func newVersionCmd() *cobra.Command {
 // newCheckCmd builds the `check` subcommand: parse + validate the HCL
 // configuration without touching the output tree.
 //
-// In reference mode it additionally reads the operator-supplied CA files
-// (cert_file / key_file) and reports the CA fingerprint, so an operator
-// can confirm `check` is pointed at the CA they expect. This read is the
-// only filesystem access `check` performs, and it never writes anything.
+// After validating the HCL it performs two additional file reads:
 //
-// The configPath pointer is owned by the root command's persistent
-// flag; we read it through a pointer so flag parsing has run by the
-// time the RunE executes.
+//   - For each reference-mode CA: reads cert_file/key_file, verifies the
+//     pair is coherent, and reports the CA fingerprint.
+//   - For each host with in_pub: reads the device-supplied public key file
+//     and checks that its curve matches the signing CA. A curve mismatch
+//     here will always cause reconcile to fail, so surfacing it in `check`
+//     lets the operator catch it without touching the output tree.
+//
+// The configPath pointer is owned by the root command's persistent flag;
+// we read it through a pointer so flag parsing has run by the time RunE
+// executes.
 func newCheckCmd(configPath *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
 		Short: "Parse and validate the HCL configuration",
 		Long: "Parse the HCL configuration at -c/--config and run every validation rule.\n" +
-			"No output tree is written. In CA reference mode the referenced\n" +
-			"cert_file/key_file are read and the CA fingerprint is reported.\n" +
-			"Exits 0 on success, 1 on any parse or validation error.",
+			"No output tree is written. Reference CA files and in_pub public keys\n" +
+			"are read to verify curve and coherence. Exits 0 on success, 1 on error.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(*configPath)
 			if err != nil {
 				return err
 			}
-			// This line reports that the *configuration* parsed and passed
-			// every validation rule. Reference CAs are then read and verified
-			// separately; if that fails, the error follows this line — the
-			// config is valid, the referenced files are the problem.
+			// This line reports that the HCL parsed and passed every validation
+			// rule. The file reads below are about the referenced artifacts, not
+			// the config itself — failures here surface after this line.
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"config valid: %s (cas=%d, hosts=%d)\n",
 				cfg.Path, len(cfg.CAs), len(cfg.Hosts),
 			)
+
+			// caCurves collects the resolved curve for every CA so in_pub host
+			// checks can compare against the correct signing CA's curve without
+			// re-reading the CA files.
+			caCurves := make(map[string]string, len(cfg.CAs))
+
 			for i := range cfg.CAs {
-				if cfg.CAs[i].Mode == config.CAModeReference {
-					if err := checkReferenceCA(cmd, cfg, &cfg.CAs[i]); err != nil {
+				ca := &cfg.CAs[i]
+				if ca.Mode == config.CAModeReference {
+					curve, err := checkReferenceCA(cmd, cfg, ca)
+					if err != nil {
+						return err
+					}
+					caCurves[ca.Label] = curve
+				} else {
+					// Generate mode: the curve is known from the config (default: 25519).
+					if ca.HasCurve {
+						caCurves[ca.Label] = pki.CurveString(ca.Curve)
+					} else {
+						caCurves[ca.Label] = "25519"
+					}
+				}
+			}
+
+			for i := range cfg.Hosts {
+				if cfg.Hosts[i].InPub != "" {
+					if err := checkInPubHost(cmd, cfg, &cfg.Hosts[i], caCurves); err != nil {
 						return err
 					}
 				}
@@ -236,23 +264,20 @@ func newCheckCmd(configPath *string) *cobra.Command {
 }
 
 // checkReferenceCA reads and verifies one reference-mode CA, printing its
-// fingerprint on success. It runs after the "config valid:" line, so a
-// failure here (missing files, not a CA, key/cert mismatch) surfaces as a
-// non-zero exit even though the configuration itself is well-formed — the
-// "config valid:" line above is about the HCL, this step is about the
-// files it points at. An expired CA is reported as a warning on stderr but
-// is not a check failure: the files are a coherent CA the operator owns.
-func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) error {
+// fingerprint on success. Returns the CA's curve string so the caller can
+// use it for in_pub host curve checks. An expired CA is a warning on stderr
+// but not a check failure — the files are a coherent CA the operator owns.
+func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) (curveStr string, err error) {
 	certReal := cfg.Resolve(cfg.CACertPathForCA(*ca))
 	keyReal := cfg.Resolve(cfg.CAKeyPathForCA(*ca))
 
 	certPEM, err := os.ReadFile(certReal)
 	if err != nil {
-		return fmt.Errorf("ca %q: read referenced CA certificate: %w", ca.Label, err)
+		return "", fmt.Errorf("ca %q: read referenced CA certificate: %w", ca.Label, err)
 	}
 	keyPEM, err := os.ReadFile(keyReal)
 	if err != nil {
-		return fmt.Errorf("ca %q: read referenced CA key: %w", ca.Label, err)
+		return "", fmt.Errorf("ca %q: read referenced CA key: %w", ca.Label, err)
 	}
 
 	res, err := pki.LoadReferenceCA(certPEM, keyPEM, time.Now())
@@ -262,11 +287,43 @@ func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) err
 			ca.Label, res.Name, res.NotAfter.UTC().Format(time.RFC3339),
 		)
 	} else if err != nil {
-		return err
+		return "", err
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"  ca %q verified: name=%q fingerprint=%s\n", ca.Label, res.Name, res.Fingerprint,
+	)
+	return res.Curve, nil
+}
+
+// checkInPubHost reads a host's device-supplied public key and verifies that
+// its curve matches the signing CA's curve. A mismatch would always cause
+// reconcile to fail with a curve error, so surfacing it here lets the operator
+// know before any output-tree changes are attempted.
+func checkInPubHost(cmd *cobra.Command, cfg *config.Config, h *config.Host, caCurves map[string]string) error {
+	pubReal := cfg.Resolve(h.InPub)
+	pubPEM, err := os.ReadFile(pubReal)
+	if err != nil {
+		return fmt.Errorf("host %q: read in_pub %s: %w", h.Label, h.InPub, err)
+	}
+
+	_, pubCurveStr, err := pki.ParseHostPublicKeyPEM(pubPEM)
+	if err != nil {
+		return fmt.Errorf("host %q: in_pub %s: %w", h.Label, h.InPub, err)
+	}
+
+	signingCA := cfg.SigningCA(*h) // non-nil: config.validate() passed
+	expectedCurve := caCurves[signingCA.Label]
+	if pubCurveStr != expectedCurve {
+		return fmt.Errorf(
+			"host %q: in_pub %s has curve %s but signing CA %q uses curve %s — "+
+				"re-generate the device keypair with the correct curve or switch to a matching CA",
+			h.Label, h.InPub, pubCurveStr, signingCA.Label, expectedCurve,
+		)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"  host %q: in_pub %s (curve=%s) OK\n", h.Label, h.InPub, pubCurveStr,
 	)
 	return nil
 }

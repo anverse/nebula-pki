@@ -34,8 +34,8 @@ func TestHostInRenewalWindow_OutsideWindow(t *testing.T) {
 
 func TestHostInRenewalWindow_AtWindowBoundary(t *testing.T) {
 	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
-	renewBefore := 720 * time.Hour                 // 30 days
-	now := notAfter.Add(-renewBefore)              // exactly at the window boundary
+	renewBefore := 720 * time.Hour    // 30 days
+	now := notAfter.Add(-renewBefore) // exactly at the window boundary
 	if !hostInRenewalWindow(renewBefore, notAfter, now) {
 		t.Error("hostInRenewalWindow = false at boundary, want true (now == window entry)")
 	}

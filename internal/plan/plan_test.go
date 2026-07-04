@@ -519,3 +519,239 @@ ca "ref" {
 		t.Errorf("error = %q, want it to identify the missing cert_file", err.Error())
 	}
 }
+
+// --- in_pub host planning (ADR-018) -----------------------------------------
+
+const inPubBaseCfg = `
+ca "mesh" { name = "m" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`
+
+// inPubTracked builds a manifest that records "phone" as an in_pub host.
+func inPubTracked(certPath string) *manifest.Manifest {
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["phone"] = manifest.Host{
+		CA:        "mesh",
+		Name:      "phone",
+		InPub:     true,
+		NotAfter:  testNow.Add(8760 * time.Hour),
+		Artifacts: []manifest.Artifact{{CertPath: certPath}},
+	}
+	return m
+}
+
+func TestPlanHost_InPub_NoopWhenCertPresent(t *testing.T) {
+	cfg := parseCfg(t, inPubBaseCfg)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	m := inPubTracked(art.CertPath)
+
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpNoop {
+			t.Errorf("phone op = %q, want noop (cert present, no key check for in_pub)", a.Op)
+		}
+	}
+}
+
+func TestPlanHost_InPub_NoKeyCheckNeeded(t *testing.T) {
+	// The key file is absent — for in_pub hosts this must not trigger a re-sign.
+	cfg := parseCfg(t, inPubBaseCfg)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	m := inPubTracked(art.CertPath)
+
+	// Only cert is present on disk (no key file at art.KeyPath).
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpNoop {
+			t.Errorf("phone op = %q, want noop; in_pub hosts have no key to check", a.Op)
+		}
+	}
+}
+
+func TestPlanHost_InPub_SignWhenCertMissing(t *testing.T) {
+	cfg := parseCfg(t, inPubBaseCfg)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	m := inPubTracked(art.CertPath)
+
+	// Nothing on disk.
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0])), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpSign {
+			t.Errorf("phone op = %q, want sign (cert missing)", a.Op)
+		}
+	}
+}
+
+func TestPlanHost_InPub_SignWhenNotTracked(t *testing.T) {
+	cfg := parseCfg(t, inPubBaseCfg)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	// Host not in manifest.
+
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpSign {
+			t.Errorf("phone op = %q, want sign (not tracked)", a.Op)
+		}
+	}
+}
+
+func TestPlanHost_InPub_SignOnProvenanceChange_RegularToInPub(t *testing.T) {
+	// Manifest recorded as regular (InPub=false); config now sets in_pub → re-sign.
+	cfg := parseCfg(t, inPubBaseCfg)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["phone"] = manifest.Host{
+		CA:       "mesh",
+		Name:     "phone",
+		InPub:    false, // was regular
+		NotAfter: testNow.Add(8760 * time.Hour),
+		Artifacts: []manifest.Artifact{{
+			CertPath: art.CertPath,
+			KeyPath:  art.KeyPath,
+		}},
+	}
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath, art.KeyPath),
+		Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpSign {
+			t.Errorf("phone op = %q, want sign (provenance changed regular → in_pub)", a.Op)
+		}
+	}
+}
+
+func TestPlanHost_InPub_SignOnProvenanceChange_InPubToRegular(t *testing.T) {
+	// Manifest recorded as in_pub; config no longer has in_pub → re-sign.
+	src := `
+ca "mesh" { name = "m" }
+host "phone" {
+  networks = ["10.0.0.1/16"]
+}
+`
+	cfg := parseCfg(t, src)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["phone"] = manifest.Host{
+		CA:        "mesh",
+		Name:      "phone",
+		InPub:     true, // was in_pub
+		NotAfter:  testNow.Add(8760 * time.Hour),
+		Artifacts: []manifest.Artifact{{CertPath: art.CertPath}},
+	}
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath),
+		Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpSign {
+			t.Errorf("phone op = %q, want sign (provenance changed in_pub → regular)", a.Op)
+		}
+	}
+}
+
+func TestPlanHost_InPub_RenewalTriggersReSign(t *testing.T) {
+	src := `
+ca "mesh" {
+  name         = "m"
+  renew_before = "720h"
+}
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`
+	cfg := parseCfg(t, src)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+
+	// notAfter is just inside the renewal window (now + 700h < notAfter - 720h fails).
+	// Set notAfter to now + 600h so now >= notAfter - 720h.
+	notAfter := testNow.Add(600 * time.Hour)
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["phone"] = manifest.Host{
+		CA:        "mesh",
+		Name:      "phone",
+		InPub:     true,
+		NotAfter:  notAfter,
+		Artifacts: []manifest.Artifact{{CertPath: art.CertPath}},
+	}
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath),
+		Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpSign {
+			t.Errorf("phone op = %q, want sign (in renewal window)", a.Op)
+		}
+	}
+}
+
+func TestPlanHost_InPub_RenewalSuppressedByNoRenewal(t *testing.T) {
+	src := `
+ca "mesh" {
+  name         = "m"
+  renew_before = "720h"
+}
+host "phone" {
+  networks = ["10.0.0.1/16"]
+  in_pub   = "inbox/phone.pub"
+}
+`
+	cfg := parseCfg(t, src)
+	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	notAfter := testNow.Add(600 * time.Hour) // inside 720h window
+
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
+	m.Hosts["phone"] = manifest.Host{
+		CA:        "mesh",
+		Name:      "phone",
+		InPub:     true,
+		NotAfter:  notAfter,
+		Artifacts: []manifest.Artifact{{CertPath: art.CertPath}},
+	}
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath),
+		Options{NoRenewal: true})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range p.HostActions() {
+		if a.Label == "phone" && a.Op != OpNoop {
+			t.Errorf("phone op = %q, want noop (NoRenewal suppresses window)", a.Op)
+		}
+	}
+}

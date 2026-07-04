@@ -335,8 +335,8 @@ host "alpha" {
 func TestComputeDeadlines_ArchivedCA_Excluded(t *testing.T) {
 	// An archived CA's expiry should not appear in the deadline report.
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	archivedExpiry := now.Add(10 * 24 * time.Hour)   // would be the earliest if included
-	activeExpiry := now.Add(365 * 24 * time.Hour)     // much later
+	archivedExpiry := now.Add(10 * 24 * time.Hour) // would be the earliest if included
+	activeExpiry := now.Add(365 * 24 * time.Hour)  // much later
 
 	cfg := writeConfig(t, `
 ca "old" {

@@ -88,7 +88,7 @@ type CAReport struct {
 
 // DeadlineItem is one entry in the deadline report.
 type DeadlineItem struct {
-	Kind     string    // "host" or "ca"
+	Kind     string // "host" or "ca"
 	Label    string
 	Deadline time.Time // when the operator must act (renewal window entry or expiry)
 	Desc     string    // e.g. `host "x" enters renewal window` or `CA "y" expires`
@@ -400,7 +400,16 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 						stale = append(stale, oldArt.CertPath)
 					}
 				}
-				if oldArt.KeyPath != "" && oldArt.KeyPath != newArt.KeyPath {
+				// Flag the old key as stale when:
+				//   • the key path changed (output_dir rename, etc.), OR
+				//   • the host switched from regular signing to in_pub —
+				//     the old key still exists on disk but will never be
+				//     managed again. The operator should delete it.
+				newKeyPath := newArt.KeyPath
+				if h.InPub != "" {
+					newKeyPath = "" // in_pub hosts write no key
+				}
+				if oldArt.KeyPath != "" && oldArt.KeyPath != newKeyPath {
 					if fsutil.Exists(cfg.Resolve(oldArt.KeyPath)) {
 						stale = append(stale, oldArt.KeyPath)
 					}
@@ -417,16 +426,35 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 			return nil, nil, fmt.Errorf("host %q: signing CA %q PEM not available", h.Label, signingCA.Label)
 		}
 
-		result, err := pki.SignHost(pems.cert, pems.key, *h, opts.Now)
-		if err != nil {
-			return nil, nil, err
+		var result *pki.HostResult
+		if h.InPub != "" {
+			// Air-gapped signing (ADR-018): read the device-supplied public key
+			// and sign it. No keypair is generated; no key file is written.
+			pubKeyPEM, err := os.ReadFile(cfg.Resolve(h.InPub))
+			if err != nil {
+				return nil, nil, fmt.Errorf("host %q: read in_pub %s: %w", h.Label, h.InPub, err)
+			}
+			result, err = pki.SignHostFromPub(pems.cert, pems.key, pubKeyPEM, *h, opts.Now)
+			if err != nil {
+				return nil, nil, err
+			}
+		} else {
+			var err error
+			result, err = pki.SignHost(pems.cert, pems.key, *h, opts.Now)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 
 		if err := fsutil.WriteFile(cfg.Resolve(newArt.CertPath), result.CertPEM, certMode); err != nil {
 			return nil, nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
 		}
-		if err := fsutil.WriteFile(cfg.Resolve(newArt.KeyPath), result.KeyPEM, keyMode); err != nil {
-			return nil, nil, fmt.Errorf("write host key %q: %w", h.Label, err)
+		// Only write a key file for regular (non-in_pub) hosts. in_pub hosts
+		// keep their private key on the device; writing nothing here is correct.
+		if result.KeyPEM != nil {
+			if err := fsutil.WriteFile(cfg.Resolve(newArt.KeyPath), result.KeyPEM, keyMode); err != nil {
+				return nil, nil, fmt.Errorf("write host key %q: %w", h.Label, err)
+			}
 		}
 
 		durationStr := ""
@@ -437,6 +465,14 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 		renewBeforeStr := ""
 		if rb := cfg.ResolvedRenewBefore(*h); rb > 0 {
 			renewBeforeStr = rb.String()
+		}
+
+		// in_pub hosts have no key artifact: omit KeyPath so it is absent from
+		// the manifest JSON (Artifact.KeyPath has omitempty). This lets
+		// downstream tooling distinguish cert-only hosts at a glance.
+		artKeyPath := newArt.KeyPath
+		if h.InPub != "" {
+			artKeyPath = ""
 		}
 
 		next.Hosts[h.Label] = manifest.Host{
@@ -451,10 +487,11 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 			NotBefore:      result.NotBefore.UTC(),
 			NotAfter:       result.NotAfter.UTC(),
 			CAFingerprint:  result.CAFingerprint,
+			InPub:          h.InPub != "",
 			Artifacts: []manifest.Artifact{{
 				Dir:      newArt.Dir,
 				CertPath: newArt.CertPath,
-				KeyPath:  newArt.KeyPath,
+				KeyPath:  artKeyPath,
 			}},
 		}
 
@@ -463,7 +500,7 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 			Artifacts: []SignedArtifact{{
 				Dir:      newArt.Dir,
 				CertPath: newArt.CertPath,
-				KeyPath:  newArt.KeyPath,
+				KeyPath:  artKeyPath,
 			}},
 		})
 	}
@@ -612,7 +649,11 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, current *mani
 		if ha.Op == plan.OpSign {
 			if h, ok := hostByLabel[ha.Label]; ok {
 				art := cfg.HostArtifactPath(*h)
-				writes = append(writes, art.CertPath, art.KeyPath)
+				writes = append(writes, art.CertPath)
+				// in_pub hosts write only a certificate — no key file.
+				if h.InPub == "" {
+					writes = append(writes, art.KeyPath)
+				}
 			}
 		}
 	}
