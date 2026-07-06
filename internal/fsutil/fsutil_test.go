@@ -251,7 +251,7 @@ func TestWriteFile_LargePayload(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "blob")
 
-	// 1 MiB of random bytes — fits comfortably in a unit test, large
+	// 1 MiB of random bytes; fits comfortably in a unit test, large
 	// enough to expose a partial-write bug.
 	want := make([]byte, 1<<20)
 	if _, err := rand.Read(want); err != nil {

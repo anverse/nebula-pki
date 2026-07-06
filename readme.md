@@ -111,7 +111,7 @@ host "lh_fra" {
 
 ## Trust bundle
 
-Every run writes `out/ca/bundle.crt` — a concatenated PEM of all active CA certificates, suitable for `pki.ca` in each host's Nebula `config.yaml`. The path is configurable:
+Every run writes `out/ca/bundle.crt`, a concatenated PEM of all active CA certificates suitable for `pki.ca` in each host's Nebula `config.yaml`. The path is configurable:
 
 ```hcl
 storage {
@@ -161,7 +161,7 @@ host "edge" {
 }
 ```
 
-After every run — including no-op runs — the tool prints to stderr the earliest upcoming deadline and a "run again before \<date\>" hint. It's advisory only and does not affect exit codes or writes.
+After every run, including no-op runs, the tool prints to stderr the earliest upcoming deadline and a "run again before \<date\>" hint. It's advisory only and does not affect exit codes or writes.
 
 ## Air-gapped signing
 
@@ -213,4 +213,4 @@ resource "some_provider_file" "nebula_cert" {
 
 ---
 
-_Copyright (c) 2026 The nebula-pki Authors. Licensed under the MIT License — see [`LICENSE`](./LICENSE)._
+_Copyright (c) 2026 The nebula-pki Authors. Licensed under the MIT License. See [`LICENSE`](./LICENSE)._

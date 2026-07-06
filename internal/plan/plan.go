@@ -100,8 +100,8 @@ func (p Plan) HostActions() []Action {
 type Options struct {
 	// NoRenewal, when true, skips the hostInRenewalWindow check for every
 	// host. A host whose cert is within its renew_before window is treated
-	// as up-to-date for this run. All other re-sign triggers — new host,
-	// missing artifact, CA label mismatch — are unaffected.
+	// as up-to-date for this run. All other re-sign triggers (new host,
+	// missing artifact, CA label mismatch) are unaffected.
 	// The zero value (false) preserves the existing behaviour.
 	NoRenewal bool
 }
@@ -155,14 +155,14 @@ func hostInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) boo
 //  2. signing CA label matches the manifest record
 //  3. provenance matches: both config and manifest agree on in_pub vs regular
 //  4. cert artifact is present on disk
-//  5. key artifact is present on disk (skipped for in_pub hosts — no key is written)
+//  5. key artifact is present on disk (skipped for in_pub hosts; no key is written)
 //  6. the cert is NOT within its renew_before window, OR noRenewal is true
 //
 // Any failing condition → sign.
 //
 // Note on in_pub idempotency (ADR-018): if the content of the in_pub file
 // changes at the same path (same filename, different key bytes), this check
-// does NOT detect it — only cert presence and provenance are compared. For
+// does NOT detect it; only cert presence and provenance are compared. For
 // hardware-bound keys this is correct (key never changes). For other cases
 // the operator must delete the cert file to force a re-sign.
 func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time.Time, exists func(string) bool, noRenewal bool) Action {
@@ -188,7 +188,7 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time
 		if noRenewal || !hostInRenewalWindow(rb, mh.NotAfter, now) {
 			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
 		}
-		// Inside renewal window and renewal is not suppressed — fall through to sign.
+		// Inside renewal window and renewal is not suppressed; fall through to sign.
 	}
 	return Action{
 		Op:    OpSign,
@@ -211,7 +211,7 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time
 // reference action when the files are present and defers the real
 // idempotency decision to apply. apply reads the CA, rebuilds the
 // candidate manifest, and writes only when it differs from what is already
-// recorded — so a reference run whose inputs are unchanged still produces
+// recorded; so a reference run whose inputs are unchanged still produces
 // a byte-identical tree, while a swapped reference file is detected via
 // its changed fingerprint. Keeping plan pure (no cert parsing) is the
 // reason the OpReference action is not collapsed to a noop here.

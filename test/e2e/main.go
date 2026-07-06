@@ -28,7 +28,7 @@ func nebulaPkiMain() int {
 
 // genHostPub is a testscript command that generates a device keypair and
 // writes the public key PEM to the given path. This is TEST INFRASTRUCTURE
-// only — it is never shipped as a subcommand (see ADR-018 on why nebula-pki
+// only; it is never shipped as a subcommand (see ADR-018 on why nebula-pki
 // does not include a keygen command).
 //
 // Usage in txtar scripts:

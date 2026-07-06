@@ -222,7 +222,7 @@ func newCheckCmd(configPath *string) *cobra.Command {
 			}
 			// This line reports that the HCL parsed and passed every validation
 			// rule. The file reads below are about the referenced artifacts, not
-			// the config itself — failures here surface after this line.
+			// the config itself; failures here surface after this line.
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"config valid: %s (cas=%d, hosts=%d)\n",
 				cfg.Path, len(cfg.CAs), len(cfg.Hosts),
@@ -266,7 +266,7 @@ func newCheckCmd(configPath *string) *cobra.Command {
 // checkReferenceCA reads and verifies one reference-mode CA, printing its
 // fingerprint on success. Returns the CA's curve string so the caller can
 // use it for in_pub host curve checks. An expired CA is a warning on stderr
-// but not a check failure — the files are a coherent CA the operator owns.
+// but not a check failure; the files are a coherent CA the operator owns.
 func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) (curveStr string, err error) {
 	certReal := cfg.Resolve(cfg.CACertPathForCA(*ca))
 	keyReal := cfg.Resolve(cfg.CAKeyPathForCA(*ca))
@@ -316,7 +316,7 @@ func checkInPubHost(cmd *cobra.Command, cfg *config.Config, h *config.Host, caCu
 	expectedCurve := caCurves[signingCA.Label]
 	if pubCurveStr != expectedCurve {
 		return fmt.Errorf(
-			"host %q: in_pub %s has curve %s but signing CA %q uses curve %s — "+
+			"host %q: in_pub %s has curve %s but signing CA %q uses curve %s; "+
 				"re-generate the device keypair with the correct curve or switch to a matching CA",
 			h.Label, h.InPub, pubCurveStr, signingCA.Label, expectedCurve,
 		)

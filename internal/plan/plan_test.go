@@ -327,7 +327,7 @@ func TestBuild_CANoopHostSign_ChangesTrue(t *testing.T) {
 	cfg := parseCfg(t, hostHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	// CA is tracked and both files present — CA action is noop.
+	// CA is tracked and both files present; CA action is noop.
 	// Hosts are untracked.
 
 	ca := cfg.CAs[0]
@@ -561,7 +561,7 @@ func TestPlanHost_InPub_NoopWhenCertPresent(t *testing.T) {
 }
 
 func TestPlanHost_InPub_NoKeyCheckNeeded(t *testing.T) {
-	// The key file is absent — for in_pub hosts this must not trigger a re-sign.
+	// The key file is absent; for in_pub hosts this must not trigger a re-sign.
 	cfg := parseCfg(t, inPubBaseCfg)
 	art := cfg.HostArtifactPath(cfg.Hosts[0])
 	m := inPubTracked(art.CertPath)

@@ -689,7 +689,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("config.Load: %v", err)
 	}
 	manReal := cfg.Resolve(cfg.ManifestPath())
-	// Place alpha's not_after 15 days from now — inside the 30-day window.
+	// Place alpha's not_after 15 days from now, inside the 30-day window.
 	patchManifestNotAfter(t, manReal, "alpha", time.Now().UTC().Add(15*24*time.Hour))
 
 	hostCertReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath)
@@ -817,7 +817,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 }
 
 // TestNoRenewalFlag_NoRenewBeforeConfig_StillNoop verifies that --no-renewal
-// has no effect on a config without renew_before — the run stays noop.
+// has no effect on a config without renew_before; the run stays noop.
 func TestNoRenewalFlag_NoRenewBeforeConfig_StillNoop(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "nebula.hcl")

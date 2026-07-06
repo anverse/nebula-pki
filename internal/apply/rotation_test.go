@@ -1,6 +1,6 @@
 package apply
 
-// Tests for v0.0.10: archived CA bundle filtering, RenewBefore in manifest,
+// Tests for archived CA bundle filtering, RenewBefore in manifest,
 // deadline computation, and the full CA-rotation scenario.
 
 import (
@@ -277,7 +277,7 @@ host "alpha" {
 }
 
 func TestComputeDeadlines_SoonItems_WithinWindow(t *testing.T) {
-	// Host expires in 30 days — within the 60-day soon window.
+	// Host expires in 30 days, within the 60-day soon window.
 	now := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	hostExpiry := now.Add(30 * 24 * time.Hour)
 
@@ -397,7 +397,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	// Step 2: add "next" CA (default stays on "current")
 	// We simulate this as a new config in the same dir.
 	// To keep this test self-contained, we write a separate config.
-	// Step 2 adds "next" with no default change — hosts stay on "current".
+	// Step 2 adds "next" with no default change; hosts stay on "current".
 	src2 := `
 ca "current" {
   name    = "mesh-2026"
@@ -490,7 +490,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		t.Error("step4: manifest CAs[current].Archived = false, want true")
 	}
 
-	// Step 5: idempotency — re-run step 4 config must be a noop.
+	// Step 5: idempotency; re-run step 4 config must be a noop.
 	cfg5 := reloadConfig(t, cfg4, src4)
 	rep5, err := Reconcile(cfg5, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
@@ -536,7 +536,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("step2 Reconcile: %v", err)
 	}
 
-	// Step 3: promote "next" to default — hosts are re-signed with "next".
+	// Step 3: promote "next" to default; hosts are re-signed with "next".
 	cfg = reloadConfig(t, cfg, `
 ca "current" { name = "mesh-2026" }
 ca "next" {
@@ -550,7 +550,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	}
 
 	// Step 4 config: archive "current". Hosts are already on "next", so the
-	// plan has no mutations — yet the bundle must shrink from 2 to 1 CA.
+	// plan has no mutations, yet the bundle must shrink from 2 to 1 CA.
 	cfgArchive := reloadConfig(t, cfg, `
 ca "current" {
   name     = "mesh-2026"
@@ -576,7 +576,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("plan.Build: %v", err)
 	}
 	if p.Changes() {
-		t.Fatal("plan.Changes() = true, want false — hosts already signed with 'next', no CA to generate")
+		t.Fatal("plan.Changes() = true, want false; hosts already signed with 'next', no CA to generate")
 	}
 
 	// Dry-run must list the bundle write because active CA count changed 2→1.

@@ -4,7 +4,7 @@ import "path/filepath"
 
 // Path resolution lives here, next to the parsed configuration that owns
 // the relevant inputs (the config file location and the storage block).
-// These helpers are pure string manipulation — no filesystem access — so
+// These helpers are pure string manipulation with no filesystem access, so
 // they stay in `config` rather than in `fsutil`.
 //
 // "Logical" paths are the paths as they appear in (or default from) the

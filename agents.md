@@ -68,7 +68,7 @@ ca "shared-root" {
 
 In reference mode, generate-only fields (`name`, `duration`, `curve`, `version`, `encrypt`, `argon_*`, `out_*`) are rejected. The tool only reads the CA files; it never rewrites them.
 
-On a run, nebula-pki loads the referenced pair and verifies it before recording anything: the certificate must be a CA (`IsCA`), its self-signature must verify, the key's curve must match the certificate, and the key must correspond to the certificate's public key. A missing `cert_file`/`key_file` is a hard error. An **expired** referenced CA is recorded anyway with a warning on stderr — the operator owns the CA in reference mode. The manifest records `ca.mode = "reference"` with the CA's fingerprint, validity window, and the referenced paths; `out/ca/` is never written. `nebula-pki check` additionally reads the referenced files and prints the CA fingerprint.
+On a run, nebula-pki loads the referenced pair and verifies it before recording anything: the certificate must be a CA (`IsCA`), its self-signature must verify, the key's curve must match the certificate, and the key must correspond to the certificate's public key. A missing `cert_file`/`key_file` is a hard error. An **expired** referenced CA is recorded anyway with a warning on stderr; the operator owns the CA in reference mode. The manifest records `ca.mode = "reference"` with the CA's fingerprint, validity window, and the referenced paths; `out/ca/` is never written. `nebula-pki check` additionally reads the referenced files and prints the CA fingerprint.
 
 Reference-mode reconcile is idempotent: a second run against an unchanged referenced CA writes nothing (the manifest stays byte-identical). Pointing `cert_file`/`key_file` at a different CA updates the manifest's recorded fingerprint on the next run.
 
@@ -96,7 +96,7 @@ ca "label" {
   networks          = ["10.42.0.0/16"]
   unsafe_networks   = ["192.168.0.0/16"]
 
-  # Key encryption (not yet implemented — planned for v0.2)
+  # Key encryption: not yet implemented, planned for v0.2
   encrypt           = true
   argon_memory      = 2097152
   argon_iterations  = 1
@@ -270,7 +270,7 @@ The manifest already carries an explicit `schema_version` field from day one —
 
 Current release: **v0.0.11** (`in_pub` air-gapped signing). Installable via Homebrew and Nix. The implementation tracks [`spec/`](./spec/readme.md). Version, supported platforms, and the pinned upstream Nebula version are surfaced via `nebula-pki --version` and the manifest's `generator.nebula_library_version` field. See [ADR-012](./spec/adr/012-upstream-nebula-coupling.md) for the upstream coupling policy.
 
-**Not yet implemented**: `storage.encryption` (any backend). The parser accepts the block and reports a clear error — encryption ships in v0.2.
+**Not yet implemented**: `storage.encryption` (any backend). The parser accepts the block and reports a clear error. Encryption ships in v0.2.
 
 ## Validation rules (selected)
 

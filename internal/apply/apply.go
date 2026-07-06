@@ -1,6 +1,6 @@
 // Package apply is the only component in nebula-pki that mutates the
 // filesystem. It loads the current manifest, asks internal/plan what must
-// change, and — when something must — generates or loads each CA via
+// change, and (when something must) generates or loads each CA via
 // internal/pki and persists the manifest via internal/fsutil.
 //
 // Everything upstream of apply (config, pki, manifest, plan) is pure and
@@ -48,7 +48,7 @@ type Options struct {
 	GeneratorVersion string
 	// Warn receives non-fatal diagnostics (e.g. an expired reference CA).
 	// It is optional; when nil, warnings are discarded. The CLI wires this
-	// to stderr. apply never writes progress here itself — only genuine
+	// to stderr. apply never writes progress here itself, only genuine
 	// "you should know this" notices.
 	Warn io.Writer
 	// DryRun, when true, builds the plan and writes a preview to Out, then
@@ -139,7 +139,7 @@ type Report struct {
 	SignedHosts []SignedHost
 
 	// StaleArtifacts is the list of logical paths from a previous run that
-	// are no longer written by the current configuration — for example, the
+	// are no longer written by the current configuration, for example the
 	// old cert/key under a directory that was renamed via output_dir. The
 	// files are never deleted automatically; the operator must clean them up.
 	// Populated only when Changed is true and at least one stale file exists.
@@ -161,7 +161,7 @@ type caPEMs struct {
 //
 // It loads the manifest, builds a plan, executes each CA action in order,
 // then signs any hosts that need signing. In every mode an up-to-date tree
-// stays byte-identical across runs: nothing — not even the manifest — is
+// stays byte-identical across runs: nothing (not even the manifest) is
 // rewritten when the recorded state already matches (spec/adr/002).
 func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	manifestLogical := cfg.ManifestPath()
@@ -191,7 +191,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 
 	// Collect CA PEM bytes while executing CA actions. Reference CAs must
 	// always be processed so their fingerprint can be compared to what is
-	// already in the manifest — generate-mode CAs that are up-to-date are
+	// already in the manifest; generate-mode CAs that are up-to-date are
 	// read from disk.
 	caKeys := make(map[string]caPEMs, len(cfg.CAs))
 	next := newManifest(cfg, opts)
@@ -307,7 +307,7 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, opt
 			return nil, caPEMs{}, fmt.Errorf("read CA %q key: %w", ca.Label, err)
 		}
 		// Carry the existing manifest entry forward, but always reflect the
-		// current config's Archived and Default flags — these can change
+		// current config's Archived and Default flags; these can change
 		// (e.g. during rotation) without triggering a CA re-generation.
 		if rec := current.CAs[ca.Label]; rec != nil {
 			updated := *rec
@@ -402,7 +402,7 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 				}
 				// Flag the old key as stale when:
 				//   • the key path changed (output_dir rename, etc.), OR
-				//   • the host switched from regular signing to in_pub —
+				//   • the host switched from regular signing to in_pub:
 				//     the old key still exists on disk but will never be
 				//     managed again. The operator should delete it.
 				newKeyPath := newArt.KeyPath
@@ -650,7 +650,7 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, current *mani
 			if h, ok := hostByLabel[ha.Label]; ok {
 				art := cfg.HostArtifactPath(*h)
 				writes = append(writes, art.CertPath)
-				// in_pub hosts write only a certificate — no key file.
+				// in_pub hosts write only a certificate, no key file.
 				if h.InPub == "" {
 					writes = append(writes, art.KeyPath)
 				}

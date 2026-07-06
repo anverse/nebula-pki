@@ -48,7 +48,7 @@ to prod and vice versa, even though the overlay /16 is shared.
   `out/<env>/hosts/`.
 - `lighthouse` group on every control-plane cert. Which node actually
   runs as a lighthouse is a **runtime** decision in `config.yaml`, not
-  a cert property — `nebula-pki` deliberately has no `is_lighthouse`
+  a cert property. `nebula-pki` deliberately has no `is_lighthouse`
   concept.
 - Sops encryption with an empty block, deferring recipients to
   `.sops.yaml`. Drop in `age = [...]` for inline recipients.
@@ -92,7 +92,7 @@ homelab/
 ```
 
 Both `nebula-pki.json` manifest files are safe to commit. They hold cert
-fingerprints, validity, and artifact paths — no secret material.
+fingerprints, validity, and artifact paths. It contains no secret material.
 
 ## Mobile devices
 
@@ -125,7 +125,7 @@ them is different from a laptop:
 
    `in_pub` maps directly to `nebula-cert sign -in-pub`. Because we are
    supplying the public key, `nebula-pki` does NOT generate a private
-   key for this host. No `.key` (or `.key.enc`) file is produced — only
+   key for this host. No `.key` (or `.key.enc`) file is produced; only
    the `.crt`.
 
 4. **Reconcile.**
@@ -138,7 +138,7 @@ them is different from a laptop:
    key is still on the phone, where it has always been.
 
 5. **Back to the phone.** Send the signed `.crt` and the CA cert
-   (`out/dev/ca/homelab-dev.crt`) to the phone — AirDrop, signal-to-self, the
+   (`out/dev/ca/homelab-dev.crt`) to the phone: AirDrop, signal-to-self, the
    secure-share feature inside the Nebula app, whatever you trust. In
    the app: *Site → Certificate → Import* for the host cert, and
    *Site → CA → Import* for the CA cert.
@@ -148,9 +148,8 @@ them is different from a laptop:
 The mobile workflow is the cleanest demonstration of why `nebula-pki`
 was designed not to invent its own key transport: there is nothing to
 transport. The CA signs a public key handed to it, and the resulting
-cert is a public artifact. The only thing that ever needed protection —
-the private key — never enters the tool's process or the operator's
-machine.
+cert is a public artifact. The private key never enters the tool's
+process or the operator's machine.
 
 ### Rotation
 

@@ -1,6 +1,6 @@
 package config
 
-// Tests for v0.0.10 features: ca.archived, ca.renew_before, host.renew_before.
+// Tests for ca.archived, ca.renew_before, and host.renew_before.
 
 import (
 	"strings"

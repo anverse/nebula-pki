@@ -1,7 +1,7 @@
 // Package pki wraps the upstream github.com/slackhq/nebula/cert library
 // to produce nebula-pki's certificate artifacts. It is pure on the input
 // side: configuration and an issuance time in, certificate and key bytes
-// out. It performs no filesystem access — callers persist the returned
+// out. It performs no filesystem access; callers persist the returned
 // bytes (see internal/apply + internal/fsutil).
 //
 // It supports two CA paths: GenerateCA mints a fresh self-signed CA, and
@@ -132,7 +132,7 @@ var ErrReferenceCAExpired = errors.New("reference CA is expired")
 // LoadReferenceCA parses and verifies an operator-supplied existing CA
 // from its certificate and private-key PEM bytes. It performs no
 // filesystem access; the caller reads the files. On success it returns
-// the same CAResult shape as GenerateCA, but with CertPEM/KeyPEM nil —
+// the same CAResult shape as GenerateCA, but with CertPEM/KeyPEM nil;
 // reference mode never rewrites the source files.
 //
 // Verification is deliberately strict so a misconfigured pair fails now,
@@ -204,7 +204,7 @@ func LoadReferenceCA(certPEM, keyPEM []byte, now time.Time) (*CAResult, error) {
 	// Expiry is a policy decision left to the caller; surface it as a
 	// sentinel rather than swallowing it or aborting here. A non-positive
 	// validity window (NotAfter not after NotBefore) is treated the same
-	// way — the cert can never be valid. The comparison uses the caller's
+	// way (the cert can never be valid). The comparison uses the caller's
 	// now so the verdict is deterministic and never depends on wall-clock
 	// time advancing between runs.
 	if !c.NotAfter().After(c.NotBefore()) || c.NotAfter().Before(now) {
@@ -403,7 +403,7 @@ func ParseHostPublicKeyPEM(pubKeyPEM []byte) (rawPub []byte, curveStr string, er
 }
 
 // SignHostFromPub signs a host certificate using a device-supplied public key
-// (the in_pub air-gapped pattern — see ADR-018). It is identical to SignHost
+// (the in_pub air-gapped pattern; see ADR-018). It is identical to SignHost
 // except that it accepts the device's PEM public key instead of generating a
 // fresh keypair, and it returns a HostResult with a nil KeyPEM because no
 // private key exists on the CA host. The curve of the supplied public key must
@@ -475,7 +475,7 @@ func SignHostFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Host, now t
 
 	return &HostResult{
 		CertPEM:       certPEM,
-		KeyPEM:        nil, // device holds the private key — never on the CA host
+		KeyPEM:        nil, // device holds the private key; never on the CA host
 		Name:          c.Name(),
 		Fingerprint:   fp,
 		Curve:         CurveString(curve),

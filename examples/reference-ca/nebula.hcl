@@ -1,7 +1,7 @@
 # Reference mode — sign against a CA you already have.
 #
 # Instead of minting a CA, point nebula-pki at an existing ca.crt / ca.key
-# pair. This is the right shape when the CA is owned elsewhere — a shared
+# pair. This is the right shape when the CA is owned elsewhere: a shared
 # root managed by another team, a CA generated once by `nebula-cert ca`
 # and kept under separate control, or a CA you rotate by hand.
 #
@@ -10,7 +10,7 @@
 # verify, and the key must match the cert), records the CA's fingerprint
 # and validity window in the manifest under `ca.mode = "reference"`, and
 # leaves out/ca/ empty. An expired referenced CA is recorded anyway, with
-# a warning — in reference mode the CA is yours to manage.
+# a warning; in reference mode the CA is yours to manage.
 #
 # Reference mode rejects every generate-only field (name, duration, curve,
 # version, encrypt, argon_*, out_*): those describe how a CA would be
@@ -35,8 +35,7 @@ storage {
 }
 
 # Hosts are signed under the referenced CA exactly as they would be under a
-# generated one. (Host signing lands in a later 0.0.x release; the blocks
-# below are how they will read.)
+# generated one. Uncomment the blocks below to add hosts.
 #
 # host "gateway" {
 #   networks = ["10.50.0.1/16"]

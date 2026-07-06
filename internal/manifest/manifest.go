@@ -3,7 +3,7 @@
 // of truth for idempotency (see spec/adr/002-state-and-artifact-layout.md).
 //
 // This package is pure on the data side: it marshals and unmarshals JSON
-// and never decides what should change. It also never *writes* the file —
+// and never decides what should change. It also never *writes* the file:
 // that mutation belongs to internal/apply via internal/fsutil. Reading is
 // allowed here because a read is not a mutation.
 //
@@ -42,7 +42,7 @@ type Manifest struct {
 // TrustBundle records the emitted CA trust bundle artifact.
 // Path is where bundle.crt was written (logical, relative to manifest dir when
 // possible). CAFingerprints lists, in bundle order, the SHA-256 fingerprint of
-// every active CA cert included — lets downstream tooling verify mesh trust
+// every active CA cert included; lets downstream tooling verify mesh trust
 // without parsing PEM.
 type TrustBundle struct {
 	Path           string   `json:"path"`
@@ -86,7 +86,7 @@ type Host struct {
 	NotAfter       time.Time `json:"not_after"`
 	CAFingerprint  string    `json:"ca_fingerprint"`
 	// InPub marks hosts signed via the air-gapped in_pub pattern (ADR-018).
-	// When true, only a certificate was written — no private key exists on
+	// When true, only a certificate was written; no private key exists on
 	// the CA host. Omitted (false) for regular keypair-generating hosts.
 	InPub     bool       `json:"in_pub,omitempty"`
 	Artifacts []Artifact `json:"artifacts"`

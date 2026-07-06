@@ -84,7 +84,7 @@ host "node_5" {
 # -----------------------------------------------------------------------------
 # Admin laptops.
 #
-# Default placement: out/dev/hosts/<name>.crt — no `output_dir`,
+# Default placement: out/dev/hosts/<name>.crt, no `output_dir`,
 # since admin keys typically don't ship alongside the cluster deploy.
 # -----------------------------------------------------------------------------
 
@@ -111,7 +111,7 @@ host "laptop_2" {
 #   2. Save it to ./mobile-pubkeys/<host_label>.pub in this directory.
 #   3. Uncomment / add the host block below and re-run nebula-pki.
 #   4. Send the resulting .crt and the CA cert back to the phone.
-#      No .key file is produced for these hosts — the phone already has it.
+#      No .key file is produced for these hosts; the phone already has it.
 # -----------------------------------------------------------------------------
 
 # host "phone_1" {

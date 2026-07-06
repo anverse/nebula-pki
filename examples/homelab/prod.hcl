@@ -82,7 +82,7 @@ host "laptop_2" {
   groups   = ["admin", "remote"]
 }
 
-# Mobile devices — see dev.hcl for the workflow. Commented until needed.
+# Mobile devices. See dev.hcl for the workflow. Commented until needed.
 #
 # host "phone_1" {
 #   networks = ["172.16.100.10/16"]

@@ -3,7 +3,7 @@
 # One CA, three sites, each with its own output_dir so the relevant
 # deploy target (Terraform / Ansible) reads from its own directory.
 #
-# This example is meant to show "yes, this scales beyond a homelab" —
+# This example is meant to show "yes, this scales beyond a homelab",
 # but the tool is still aimed at the dozens-of-hosts range, not
 # thousands. The HCL is written by hand and reviewed in PRs; that's
 # the whole point of the declarative rewrite.
@@ -87,7 +87,7 @@ host "lh_hq_2" {
   output_dir  = "out/sites/hq"
 }
 
-# Admin workstations (operators). Default placement — no `output_dir`,
+# Admin workstations (operators). Default placement, no `output_dir`,
 # since admin keys don't ship with the site deploy.
 host "admin_1" {
   networks = ["10.10.0.10/16"]

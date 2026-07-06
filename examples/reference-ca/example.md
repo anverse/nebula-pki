@@ -1,7 +1,7 @@
 # Reference-CA example
 
 Use an existing CA instead of letting `nebula-pki` mint one. This is the
-right shape when the certificate authority is owned outside this tool — a
+right shape when the certificate authority is owned outside this tool: a
 shared root another team controls, a CA you created once with
 `nebula-cert ca` and keep under separate access control, or a CA you
 rotate by hand.
@@ -30,12 +30,12 @@ ca "shared-root" {
 On `nebula-pki check` and on a reconcile run, the tool:
 
 - reads `cert_file` and `key_file` **in place** and never rewrites them;
-- verifies the pair — the certificate must be a CA, its self-signature
-  must verify, the key's curve must match the certificate, and the key
-  must correspond to the certificate's public key;
+- verifies that the pair is coherent: the certificate must be a CA, its
+  self-signature must verify, the key's curve must match the certificate,
+  and the key must correspond to the certificate's public key;
 - records `ca.mode = "reference"` in `out/nebula-pki.json` with the CA's
   fingerprint, validity window, and the referenced paths;
-- writes **nothing** under `out/ca/` — that directory is only for CAs the
+- writes **nothing** under `out/ca/`; that directory is only for CAs the
   tool generates.
 
 A missing `cert_file`/`key_file` is a hard error. An expired referenced CA
@@ -44,7 +44,7 @@ yours to manage, and refusing would block you from inspecting or rotating
 it.
 
 Generate-only fields (`name`, `duration`, `curve`, `version`, `encrypt`,
-`argon_*`, `out_*`) are rejected — they describe how a CA would be
+`argon_*`, `out_*`) are rejected because they describe how a CA would be
 *created*, and reference mode creates nothing.
 
 ## Running
@@ -82,11 +82,11 @@ manifest byte-identical. Point `cert_file`/`key_file` at a different CA and
 the next run updates the recorded fingerprint.
 
 The manifest is safe to commit: it holds the CA fingerprint, validity, and
-paths — no key material.
+paths, with no key material.
 
 ## Hosts
 
 Hosts are signed under the referenced CA exactly as they would be under a
-generated one — only the `ca` block differs. The `host` blocks in
+generated one; only the `ca` block differs. The `host` blocks in
 `nebula.hcl` are commented out as a minimal starting point; uncomment or
 add them as you would in any other config.

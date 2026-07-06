@@ -5,7 +5,7 @@
 // The single reason this package exists rather than calling os.WriteFile
 // directly is durability. os.WriteFile truncates and streams bytes into
 // the target in place, so an interrupted write (Ctrl-C, OOM, full disk,
-// power loss) leaves a torn file at the real path — an unrecoverable
+// power loss) leaves a torn file at the real path, an unrecoverable
 // ca.key or a corrupt manifest. WriteFile here writes to a temp file in
 // the same directory and renames it over the target; rename(2) is atomic
 // within a filesystem, so a reader or a crash-recovery run sees either

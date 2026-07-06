@@ -1,6 +1,6 @@
 package plan
 
-// Tests for v0.0.10 renewal-window and CA-rotation plan decisions.
+// Tests for renewal-window and CA-rotation plan decisions.
 
 import (
 	"testing"
@@ -25,7 +25,7 @@ func TestHostInRenewalWindow_ZeroRenewBefore_NeverInWindow(t *testing.T) {
 func TestHostInRenewalWindow_OutsideWindow(t *testing.T) {
 	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	renewBefore := 720 * time.Hour // 30 days
-	// now is 31 days before notAfter — outside the window
+	// now is 31 days before notAfter, outside the window
 	now := notAfter.Add(-31 * 24 * time.Hour)
 	if hostInRenewalWindow(renewBefore, notAfter, now) {
 		t.Error("hostInRenewalWindow = true, want false (now is before window entry)")
@@ -44,7 +44,7 @@ func TestHostInRenewalWindow_AtWindowBoundary(t *testing.T) {
 func TestHostInRenewalWindow_InsideWindow(t *testing.T) {
 	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	renewBefore := 720 * time.Hour // 30 days
-	// now is 10 days before notAfter — deep inside the window
+	// now is 10 days before notAfter, deep inside the window
 	now := notAfter.Add(-10 * 24 * time.Hour)
 	if !hostInRenewalWindow(renewBefore, notAfter, now) {
 		t.Error("hostInRenewalWindow = false, want true (now inside window)")
@@ -133,7 +133,7 @@ ca "mesh" { name = "m" }
 host "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
-	// now is 1 second before notAfter — would renew with any threshold, but
+	// now is 1 second before notAfter, would renew with any threshold, but
 	// no threshold is set.
 	now := notAfter.Add(-time.Second)
 

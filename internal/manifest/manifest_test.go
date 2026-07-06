@@ -347,8 +347,7 @@ func TestTrustBundleRoundTrip(t *testing.T) {
 }
 
 // TestTrustBundleOmittedWhenNil verifies the trust_bundle key is absent from
-// JSON when the field is nil (e.g. manifests produced before v0.0.9 load
-// cleanly without the key).
+// JSON when the field is nil (manifests without the key load cleanly).
 func TestTrustBundleOmittedWhenNil(t *testing.T) {
 	m := New()
 	// TrustBundle deliberately left nil

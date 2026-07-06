@@ -5,7 +5,7 @@ A multi-site corporate mesh on `10.0.0.0/8`: one CA, three sites
 from its own `output_dir`.
 
 This is the "yes, it scales beyond a homelab" example. It is *not* a
-benchmark — `nebula-pki` is still a hand-written-HCL tool aimed at the
+benchmark. `nebula-pki` is still a hand-written-HCL tool aimed at the
 dozens-of-hosts range. Configs are reviewed in PRs and a diff per host
 is a feature, not a problem at this scale. For a smaller setup see
 [`../homelab/`](../homelab/example.md).
@@ -61,7 +61,7 @@ each cert.
   `out/hosts/<name>.{crt,key.enc}` and stays on the operator
   workstation.
 - **Sops backend deferring to `.sops.yaml`.** Empty `encryption "sops"
-  {}` block — recipients live next to the rest of the org's secrets
+  {}` block; recipients live next to the rest of the org's secrets
   configuration.
 
 ## Running
@@ -107,7 +107,7 @@ business/
 ```
 
 The `nebula-pki.json` manifest is safe to commit. It holds cert
-fingerprints, validity, and artifact paths — no secret material.
+fingerprints, validity, and artifact paths. It contains no secret material.
 
 ## Adding a host
 
@@ -136,5 +136,5 @@ fingerprints, validity, and artifact paths — no secret material.
 - It does not ship certs to hosts. Terraform's `file()` reading from
   `out/sites/<site>/` (or any equivalent) handles distribution.
 - It does not split into dev/staging/prod. For multiple environments,
-  use one HCL file per environment in the same directory — see the
+  use one HCL file per environment in the same directory; see the
   homelab example or [ADR-010](../../spec/adr/010-single-ca-per-config.md).

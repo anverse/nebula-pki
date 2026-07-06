@@ -59,7 +59,7 @@ func (c *Config) CAByLabel(label string) *CA {
 
 // DefaultCA returns the CA marked default = true, or the sole CA when
 // there is exactly one. Returns nil only if there are multiple CAs and
-// none is marked default — callers should ensure validate() has passed
+// none is marked default; callers should ensure validate() has passed
 // before relying on non-nil semantics.
 func (c *Config) DefaultCA() *CA {
 	for i := range c.CAs {
@@ -74,7 +74,7 @@ func (c *Config) DefaultCA() *CA {
 }
 
 // SigningCA returns the CA that should sign the given host. Returns nil
-// only when the signing CA is ambiguous — validate() rejects such configs,
+// only when the signing CA is ambiguous; validate() rejects such configs,
 // so a nil return here indicates a bug in the caller.
 func (c *Config) SigningCA(h Host) *CA {
 	if h.CARef != "" {
@@ -85,7 +85,7 @@ func (c *Config) SigningCA(h Host) *CA {
 
 // ResolvedRenewBefore returns the effective renewal threshold for h:
 // host.renew_before if set, else the signing CA's ca.renew_before if set,
-// else zero (no time-based renewal — pure ADR-002 idempotency only).
+// else zero (no time-based renewal; pure ADR-002 idempotency only).
 func (c *Config) ResolvedRenewBefore(h Host) time.Duration {
 	if h.HasRenewBefore {
 		return h.RenewBefore
@@ -184,7 +184,7 @@ type Host struct {
 	// Name is the certificate CN. Defaults to Label.
 	Name string
 
-	// CARef is the value of the `ca` field on the host block — the label
+	// CARef is the value of the `ca` field on the host block: the label
 	// of the signing CA. Empty means "use the default (or sole) CA".
 	CARef string
 
@@ -892,7 +892,7 @@ func validateGroupStrings(field string, groups []string) error {
 			return fmt.Errorf("%s: group entries must be non-empty", field)
 		}
 		if strings.Contains(g, ",") {
-			return fmt.Errorf("%s: group %q contains a comma (forbidden — nebula-cert uses comma-separated groups)", field, g)
+			return fmt.Errorf("%s: group %q contains a comma (forbidden; nebula-cert uses comma-separated groups)", field, g)
 		}
 		if g != strings.TrimSpace(g) {
 			return fmt.Errorf("%s: group %q has leading or trailing whitespace", field, g)

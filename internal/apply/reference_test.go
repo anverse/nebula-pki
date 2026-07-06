@@ -101,7 +101,7 @@ func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
 	}
 
 	// The reference CA cert/key must not be written to the default out/ca/
-	// location — reference mode reads the operator's files in place.
+	// location; reference mode reads the operator's files in place.
 	outCA := filepath.Join(filepath.Dir(cfg.Path), "out", "ca")
 	if _, err := os.Stat(filepath.Join(outCA, "ref.crt")); err == nil {
 		t.Error("out/ca/ref.crt exists; reference mode must not write default CA paths")
@@ -458,7 +458,7 @@ host "alpha" {
 		t.Errorf("host ca_fingerprint = %q, want %q", h.CAFingerprint, seed.Fingerprint)
 	}
 
-	// Second run must be a noop — files and manifest byte-identical.
+	// Second run must be a noop; files and manifest byte-identical.
 	manBefore := mustRead(t, cfg.Resolve(cfg.ManifestPath()))
 	certBefore := mustRead(t, hostCertReal)
 	keyBefore := mustRead(t, hostKeyReal)

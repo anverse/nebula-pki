@@ -44,7 +44,7 @@ func TestLoad_MissingFile(t *testing.T) {
 func TestLoad_HCLSyntaxError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.hcl")
-	// Unterminated block — guaranteed parse error.
+	// Unterminated block; guaranteed parse error.
 	if err := os.WriteFile(path, []byte(`ca "m" { name = "x"`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -406,7 +406,7 @@ host "h" {
   ca       = "permissive"
 }
 `
-	// h uses "permissive" which allows "any" — should succeed even though
+	// h uses "permissive" which allows "any", should succeed even though
 	// "strict" does not allow "any".
 	if _, err := Parse("t.hcl", []byte(src)); err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -451,7 +451,7 @@ host "phone" {
 }
 
 func TestValidate_InPub_WithOutCRT_Accepted(t *testing.T) {
-	// out_crt is fine together with in_pub — it just changes the cert filename.
+	// out_crt is fine together with in_pub; it just changes the cert filename.
 	src := `
 ca "mesh" { name = "m" }
 host "phone" {
