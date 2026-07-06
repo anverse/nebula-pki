@@ -37,7 +37,7 @@ nix run github:anverse/nebula-pki
 ### Go
 
 ```sh
-go install github.com/anverse/nebula-pki@latest
+go install github.com/anverse/nebula-pki/cmd/nebula-pki@latest
 ```
 
 ### From source
