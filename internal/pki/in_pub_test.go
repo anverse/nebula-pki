@@ -306,4 +306,3 @@ func TestSignHostFromPub_SamePubKeyProducesSameCertShape(t *testing.T) {
 		}
 	}
 }
-
