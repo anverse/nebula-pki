@@ -1,13 +1,13 @@
 # nebula-pki
 
-**Your entire Nebula mesh in one config.** Review cert changes the same way you review code.
+`nebula-pki` is a declarative layer over [`nebula-cert`](https://github.com/slackhq/nebula).
+Describe the Nebula network in one config; automatically generate and sign the certificates.
 
-`nebula-pki` is a declarative layer over [`nebula-cert`](https://github.com/slackhq/nebula): you describe the mesh once in HCL, the tool keeps the on-disk certificates in sync.
+Without it, managing a Nebula network means running `nebula-cert` commands by hand: per-host flags, signing sessions in shell history, no record of what changed or when.
 
-Using `nebula-cert` means different flags per host, signing sessions live in shell history, and no easy way to review what changed before it goes out.
 `nebula-pki` replaces that with an HCL config that describes every CA and host in one place.
-Changes flow through pull requests like any other infrastructure.
-
+After every run it writes `nebula-pki.json` with CA fingerprints, host cert windows, and signing CA labels.
+Changes flow through pull requests with a complete, readable diff.
 
 > nebula-pki is under active development. It's ready to use day-to-day, but breaking changes may still happen before v1.0.
 
@@ -197,6 +197,8 @@ nebula-pki -c other.hcl   # use a different config path
 `--dry-run` prints the planned writes to stdout and still prints the deadline advisory to stderr, the same as a normal run.
 
 ## Consuming from Terraform
+
+Use `output_dir` to place certs where your Terraform modules expect them, then read them with `file()`:
 
 ```hcl
 resource "some_provider_file" "nebula_cert" {
