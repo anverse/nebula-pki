@@ -7,7 +7,7 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 - Wraps `nebula-cert` (slackhq/nebula).
 - HCL fields mirror `nebula-cert ca` and `nebula-cert sign` flags 1:1 with underscores.
 - Adds: declarative config, per-host `output_dir` for custom certificate placement, optional at-rest encryption, a JSON manifest.
-- One or more CAs per HCL file: a single unlabelled `ca {}`, or multiple labelled `ca "<label>" {}` blocks for rotation and multi-CA meshes ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
+- One or more CAs per HCL file: a single unlabelled `ca {}`, or multiple labelled `ca "<label>" {}` blocks for rotation and multi-CA Nebula networks ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
 - Emits a CA trust bundle for `pki.ca` and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-host-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
 - Does not render `config.yaml`, does not push files (including during rotation), does not implement lighthouse/blocklist/firewall.
 

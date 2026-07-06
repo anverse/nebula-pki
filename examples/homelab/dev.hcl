@@ -1,6 +1,6 @@
 # Homelab — dev environment.
 #
-# A typical small homelab mesh: a handful of cluster nodes (k3s in this
+# A typical small homelab Nebula network: a handful of cluster nodes (k3s in this
 # example, but the tool doesn't care), a couple of admin laptops, and an
 # optional phone or two. Dev and prod share the same overlay /16 but use
 # different host ranges and different CAs, so a dev host cannot

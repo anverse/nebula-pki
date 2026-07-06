@@ -6,7 +6,7 @@
 
 ## Context and Problem Statement
 
-Provisioning a [slackhq/nebula](https://github.com/slackhq/nebula) mesh requires generating a CA, signing per-host certificates, optionally encrypting key material at rest, and feeding the resulting files into several downstream Terraform projects. The current shell-script approach is hard to read and evolve. We need a single declarative workflow that scales beyond a handful of hosts and integrates cleanly with the rest of the infrastructure repo.
+Provisioning a [slackhq/nebula](https://github.com/slackhq/nebula) Nebula network requires generating a CA, signing per-host certificates, optionally encrypting key material at rest, and feeding the resulting files into several downstream Terraform projects. The current shell-script approach is hard to read and evolve. We need a single declarative workflow that scales beyond a handful of hosts and integrates cleanly with the rest of the infrastructure repo.
 
 ## Decision Drivers
 

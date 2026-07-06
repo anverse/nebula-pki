@@ -1,6 +1,6 @@
 # Homelab example
 
-A small home or hobby mesh: a single overlay split into a dev and a prod
+A small home or hobby Nebula network: a single overlay split into a dev and a prod
 environment, each with its own CA, a handful of cluster nodes, a couple
 of admin laptops, and an optional phone or two.
 

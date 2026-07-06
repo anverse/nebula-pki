@@ -6,7 +6,7 @@ accepted
 
 ## Context
 
-A Nebula CA has a hard expiry — one year by default. When it expires, **every** host certificate it signed becomes invalid at the same instant and the mesh stops handshaking. Certificates cannot be patched to extend this: any edit invalidates the signature. The only safe path across a CA boundary is an **overlap rotation**, and the mechanism Nebula provides for it is the **trust bundle**.
+A Nebula CA has a hard expiry — one year by default. When it expires, **every** host certificate it signed becomes invalid at the same instant and the Nebula network stops handshaking. Certificates cannot be patched to extend this: any edit invalidates the signature. The only safe path across a CA boundary is an **overlap rotation**, and the mechanism Nebula provides for it is the **trust bundle**.
 
 ### What a trust bundle is
 
@@ -22,7 +22,7 @@ The [Rotating a Certificate Authority](https://nebula.defined.net/docs/guides/ro
 
 1. **Generate CA2** with the same network/group/subnet restrictions as CA1.
 2. **Distribute the bundle `CA1 + CA2`** to every host's `pki.ca` and reload. Now every host *trusts* both CAs, though all live host certs are still signed by CA1.
-3. **Re-sign every host certificate under CA2** and roll them out one at a time. Each re-signed host stays reachable because the whole mesh already trusts CA2.
+3. **Re-sign every host certificate under CA2** and roll them out one at a time. Each re-signed host stays reachable because the whole Nebula network already trusts CA2.
 4. Once every host runs a CA2 cert, **drop CA1** from the bundle and reload.
 
 This is precisely the kind of multi-step, "did I re-sign all of them?" choreography a declarative tool should own. `nebula-pki` already produces the CA and the host certs; rotation is the workflow that most justifies a declarative layer over `nebula-cert`.
@@ -32,7 +32,7 @@ This is precisely the kind of multi-step, "did I re-sign all of them?" choreogra
 The rotation dance only makes sense if the tool separates two things that a naive "one CA" model conflates:
 
 - **Which CA *signs* a given host certificate** — a per-host choice that moves from CA1 to CA2 over the rotation.
-- **Which CAs the mesh *trusts*** — the set in the bundle, which holds both CAs during the overlap and one outside it.
+- **Which CAs the Nebula network *trusts*** — the set in the bundle, which holds both CAs during the overlap and one outside it.
 
 A host can be signed by CA2 while the bundle still includes CA1, and vice versa. Modelling these as one value is what makes rotation impossible to express.
 
@@ -42,7 +42,7 @@ Rotation is expressed declaratively on top of the multi-CA schema from [ADR-015]
 
 ### 1. The trust bundle is an emitted artifact
 
-`nebula-pki` writes a concatenated-PEM trust bundle containing every CA the mesh should currently trust. By default:
+`nebula-pki` writes a concatenated-PEM trust bundle containing every CA the Nebula network should currently trust. By default:
 
 ```
 out/ca/bundle.crt        # PEM of every active (non-archived) CA cert, concatenated
@@ -83,7 +83,7 @@ ca "next" {
 
 #### Why implicit membership now, and the door left open
 
-One implicit bundle per file is the right default: rotation needs exactly one bundle (the set the mesh currently trusts), and "every non-archived CA is in it" is the obvious rule. But it forecloses nothing. If a future need arises to (a) state bundle membership **explicitly** rather than by the archived flag, or (b) emit **multiple** bundles from one config (e.g. distinct trust sets for distinct host populations), it is reachable additively via a named `bundle` block — without breaking the implicit form:
+One implicit bundle per file is the right default: rotation needs exactly one bundle (the set the Nebula network currently trusts), and "every non-archived CA is in it" is the obvious rule. But it forecloses nothing. If a future need arises to (a) state bundle membership **explicitly** rather than by the archived flag, or (b) emit **multiple** bundles from one config (e.g. distinct trust sets for distinct host populations), it is reachable additively via a named `bundle` block — without breaking the implicit form:
 
 ```hcl
 # Possible future shape — NOT in this milestone:
@@ -156,7 +156,7 @@ The manifest records each CA in `cas` (fingerprint, validity, `archived` flag) a
 
 ### Negative
 
-- Operators can still foot-gun the *ordering*: moving the `default` to `next` (step 3) before shipping the `CA1+CA2` bundle (step 2) will partition the mesh. The tool emits the correct artifacts but cannot enforce the *distribution* order, because it does not push. `--dry-run` showing "N hosts will be re-signed under `next`" plus documentation are the mitigations; a future guard could warn when the default (or a `host.ca`) names a CA whose cert is newer than the last-emitted bundle the manifest recorded.
+- Operators can still foot-gun the *ordering*: moving the `default` to `next` (step 3) before shipping the `CA1+CA2` bundle (step 2) will partition the Nebula network. The tool emits the correct artifacts but cannot enforce the *distribution* order, because it does not push. `--dry-run` showing "N hosts will be re-signed under `next`" plus documentation are the mitigations; a future guard could warn when the default (or a `host.ca`) names a CA whose cert is newer than the last-emitted bundle the manifest recorded.
 - Generate mode for a second CA means a second CA private key on disk on the signing workstation. This is inherent to rotating without an HSM and is the same exposure as the first CA key.
 - Bundle emission adds a small artifact and manifest surface (`trust_bundle`).
 

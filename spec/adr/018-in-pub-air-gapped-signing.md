@@ -100,7 +100,7 @@ Rejected. Any window in which the private key exists on the CA workstation break
 
 ### C. Leave `in_pub` unimplemented and tell operators to run raw `nebula-cert sign`
 
-Rejected. `in_pub` hosts would then be invisible to the declarative config and absent from the manifest — no single view of the mesh, no idempotency, no fan-out for their certs. Wiring the existing field through is cheap and keeps these hosts first-class.
+Rejected. `in_pub` hosts would then be invisible to the declarative config and absent from the manifest — no single view of the Nebula network, no idempotency, no fan-out for their certs. Wiring the existing field through is cheap and keeps these hosts first-class.
 
 ## Links
 

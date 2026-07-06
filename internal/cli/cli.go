@@ -32,8 +32,8 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "nebula-pki",
-		Short: "Declarative PKI manager for Nebula mesh networks",
-		Long: `nebula-pki reconciles the PKI for a Nebula mesh network.
+		Short: "Declarative PKI manager for Nebula networks",
+		Long: `nebula-pki reconciles the PKI for a Nebula network.
 
 On each run it reads nebula.hcl (or the path given by -c), generates or
 loads the CA, signs any host certificates that are new or missing, and
@@ -176,7 +176,7 @@ func printDeadlineReport(w io.Writer, d apply.DeadlineReport, now time.Time) {
 	}
 
 	if now.Before(d.NextDeadline) {
-		fmt.Fprintf(w, "hint: run nebula-pki again before %s to keep the mesh current\n", date)
+		fmt.Fprintf(w, "hint: run nebula-pki again before %s to keep the Nebula network current\n", date)
 	}
 }
 

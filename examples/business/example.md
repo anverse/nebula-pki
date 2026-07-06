@@ -1,6 +1,6 @@
 # Business example
 
-A multi-site corporate mesh on `10.0.0.0/8`: one CA, three sites
+A multi-site corporate Nebula network on `10.0.0.0/8`: one CA, three sites
 (on-prem HQ + two AWS regions), each location's deploy pipeline reads
 from its own `output_dir`.
 
@@ -118,7 +118,7 @@ fingerprints, validity, and artifact paths. It contains no secret material.
 3. Run `nebula-pki --dry-run` to confirm the plan, then
    `nebula-pki` to reconcile.
 4. The PR diff is one host block. Reviewers see exactly what changes
-   on the mesh.
+   on the Nebula network.
 
 ## Adding a site
 

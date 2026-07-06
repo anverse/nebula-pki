@@ -12,7 +12,7 @@ accepted
 
 This is that ADR.
 
-The deferred behaviour is a real operational gap. Host certificates default to expiring one second before their signing CA, but operators frequently set shorter per-host durations (a laptop on `720h`, say). With no renewal threshold, the tool considers such a host "up to date" right up until the instant it expires, then the host drops off the mesh. The only remedies under the ADR-002 rules are awkward:
+The deferred behaviour is a real operational gap. Host certificates default to expiring one second before their signing CA, but operators frequently set shorter per-host durations (a laptop on `720h`, say). With no renewal threshold, the tool considers such a host "up to date" right up until the instant it expires, then the host drops off the Nebula network. The only remedies under the ADR-002 rules are awkward:
 
 - **Bump `duration`** — but that changes the validity *length*, not just the expiry, and an operator who wants a steady 30-day cert does not want to keep editing the number.
 - **`--force`** — re-signs *everything*, indiscriminately, and is itself deferred.
@@ -58,7 +58,7 @@ Because renewal depends on wall-clock time, two runs straddling the threshold le
 
 ### Not a daemon, not a cron
 
-`nebula-pki` does not run in the background. `renew_before` only does anything when the tool is actually invoked. The intended deployment is the same scheduled CI/GitOps run that already reconciles the mesh (e.g. a nightly pipeline): on each run, any host inside its window is re-signed and the new artifacts are committed/distributed by the existing pipeline. The tool provides the *threshold*; the operator's scheduler provides the *cadence*. This keeps the tool a single-shot reconciler (no new long-running mode, consistent with [ADR-001](./001-tooling-approach.md)).
+`nebula-pki` does not run in the background. `renew_before` only does anything when the tool is actually invoked. The intended deployment is the same scheduled CI/GitOps run that already reconciles the Nebula network (e.g. a nightly pipeline): on each run, any host inside its window is re-signed and the new artifacts are committed/distributed by the existing pipeline. The tool provides the *threshold*; the operator's scheduler provides the *cadence*. This keeps the tool a single-shot reconciler (no new long-running mode, consistent with [ADR-001](./001-tooling-approach.md)).
 
 ### Reporting the next deadline
 
@@ -77,7 +77,7 @@ Output shape (illustrative; exact wording settled during implementation):
 reconciled: CA up to date, 12 hosts up to date
 next renewal due: host "laptop" enters its renewal window on 2027-04-18 (in 27d)
   also expiring soon: CA "current" not-after 2027-05-17 (in 56d); host "edge" not-after 2027-04-30 (in 39d)
-hint: run nebula-pki again before 2027-04-18 to keep the mesh current
+hint: run nebula-pki again before 2027-04-18 to keep the Nebula network current
 ```
 
 Rules:
@@ -85,7 +85,7 @@ Rules:
 - **When.** Printed on reconcile and `--dry-run`, including **no-op** runs — the whole point is that an operator can re-run at any time purely to re-read "when next." Not printed by `check` (it does not read `out/`) or `version`.
 - **Stream.** stderr, like other progress/advisory output; it is advisory, not machine-consumed. Downstream tooling that wants these dates reads them from the manifest (`not_after`, `renew_before`), not by scraping stdout.
 - **Soon threshold.** The "also expiring soon" line lists items whose deadline falls within a small, fixed look-ahead window (e.g. the next 60 days; final value chosen in implementation). When nothing is within the window, only the single "next renewal due" line is printed.
-- **Nothing due / empty mesh.** With no hosts and only a long-lived CA, the line still reports the CA's expiry. With no certificates at all, the deadline section is omitted.
+- **Nothing due / empty Nebula network.** With no hosts and only a long-lived CA, the line still reports the CA's expiry. With no certificates at all, the deadline section is omitted.
 - **Past-due / expired.** Any certificate already inside its window (or already expired) that was *not* re-signed this run — e.g. an `in_pub` host whose upstream public key is missing, or a reference-mode CA the operator owns — is surfaced as **overdue** in the same block, so a stale deadline is never silently hidden.
 - **Determinism.** "now" comes from the injectable `pki.Clock`, so the printed relative offsets (`in 27d`) are deterministic under test.
 
@@ -112,7 +112,7 @@ This is purely informational. It changes no exit code and triggers no writes; it
 
 ### A. No threshold; rely on `duration` edits and `--force`
 
-The ADR-002 status quo. Rejected: it makes short-lived certs impractical and forces a manual sweep for both ordinary renewal and CA rotation. The whole value of a reconciler is lost at the most important moment — keeping the mesh from going dark.
+The ADR-002 status quo. Rejected: it makes short-lived certs impractical and forces a manual sweep for both ordinary renewal and CA rotation. The whole value of a reconciler is lost at the most important moment — keeping the Nebula network from going dark.
 
 ### B. Renew at a fixed fraction of validity (e.g. always at 2/3 of lifetime)
 

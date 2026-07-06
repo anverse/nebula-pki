@@ -1,4 +1,4 @@
-# Business example — multi-site corporate mesh on 10.0.0.0/8.
+# Business example — multi-site corporate Nebula network on 10.0.0.0/8.
 #
 # One CA, three sites, each with its own output_dir so the relevant
 # deploy target (Terraform / Ansible) reads from its own directory.
@@ -133,7 +133,7 @@ host "db_hq_replica" {
 
 # Edge router. Bridges the overlay onto the HQ office LAN so admins on
 # the office Wi-Fi can reach overlay services without each laptop
-# joining the mesh directly. `unsafe_networks` advertises the route;
+# joining the Nebula network directly. `unsafe_networks` advertises the route;
 # Nebula's firewall on each peer decides whether to honour traffic to
 # 192.168.10.0/24.
 host "router_hq" {

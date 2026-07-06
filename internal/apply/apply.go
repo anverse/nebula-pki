@@ -146,7 +146,7 @@ type Report struct {
 	StaleArtifacts []string
 
 	// Deadlines is the post-run "run again before" advisory. Always
-	// populated (including on no-op runs and --dry-run), unless the mesh has
+	// populated (including on no-op runs and --dry-run), unless the Nebula network has
 	// no managed certificates yet.
 	Deadlines DeadlineReport
 }
@@ -237,7 +237,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	// Compute deadline advisory from the candidate manifest (already fully
 	// populated at this point). This covers no-op runs too: the candidate
 	// equals the current manifest in that case, so the report still reflects
-	// the current state of the mesh.
+	// the current state of the Nebula network.
 	report.Deadlines = computeDeadlines(cfg, next, opts.Now)
 
 	// For all-generate configs without any changes: skip the manifest write.

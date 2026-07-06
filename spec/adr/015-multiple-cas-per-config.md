@@ -10,11 +10,11 @@ Amended in v0.0.8: the unlabelled `ca {}` form has been removed; all CAs must be
 
 [ADR-010](./010-single-ca-per-config.md) restricted a configuration file to exactly one `ca` block and deferred multi-CA support as YAGNI. That call was correct for the early milestones: it kept the manifest single-rooted, removed a class of validation rules, and the "one HCL file per CA" workaround covered the only motivating case at the time (isolated `dev`/`staging`/`prod` environments).
 
-The constraint stops being correct the moment **CA rotation** enters scope. Nebula CAs expire — one year by default — and the only safe way across that boundary is an **overlap window** in which two CAs are trusted simultaneously while host certificates are re-signed from the old CA onto the new one (see the upstream [Rotating a Certificate Authority](https://nebula.defined.net/docs/guides/rotating-certificate-authority/) guide, and [ADR-016](./016-ca-rotation-and-trust-bundles.md)). Rotation is therefore not an exotic feature; it is the one operational task every long-lived mesh must perform, and it is intrinsically a **two-CA** state.
+The constraint stops being correct the moment **CA rotation** enters scope. Nebula CAs expire — one year by default — and the only safe way across that boundary is an **overlap window** in which two CAs are trusted simultaneously while host certificates are re-signed from the old CA onto the new one (see the upstream [Rotating a Certificate Authority](https://nebula.defined.net/docs/guides/rotating-certificate-authority/) guide, and [ADR-016](./016-ca-rotation-and-trust-bundles.md)). Rotation is therefore not an exotic feature; it is the one operational task every long-lived Nebula network must perform, and it is intrinsically a **two-CA** state.
 
 The "two HCL files" workaround does not model rotation well:
 
-- The two CAs are not independent environments; they are the *same* mesh in transition. Splitting them across files means no single `nebula-pki` run sees both, so the tool cannot emit a combined trust bundle, cannot decide which CA should sign a given host, and cannot report rotation progress.
+- The two CAs are not independent environments; they are the *same* Nebula network in transition. Splitting them across files means no single `nebula-pki` run sees both, so the tool cannot emit a combined trust bundle, cannot decide which CA should sign a given host, and cannot report rotation progress.
 - The host list is shared between old and new CA. Duplicating it across two files invites drift exactly when correctness matters most.
 
 ## Decision
@@ -100,7 +100,7 @@ The manifest uses a `cas` map keyed by CA label (always). There is no single-CA 
 
 ### Positive
 
-- Rotation becomes expressible declaratively (ADR-016): two CAs in one file, one mesh, one run, one manifest, one trust bundle.
+- Rotation becomes expressible declaratively (ADR-016): two CAs in one file, one Nebula network, one run, one manifest, one trust bundle.
 - The host list lives in exactly one place during rotation; no cross-file duplication.
 - Environment isolation (`dev`/`prod`) still works the same way — separate files — for operators who prefer it.
 - The manifest `cas` shape is uniform: every manifest has a `cas` map, regardless of how many CAs are declared.

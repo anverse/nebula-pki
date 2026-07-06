@@ -84,7 +84,7 @@ It generates the CA if it doesn't exist, signs missing host certs, and updates t
 
 ## Per-host output directory
 
-Running a mesh that spans several Terraform projects, providers, or deploy targets? Each one usually only needs the certs for the hosts it owns. `output_dir` places a host's cert and key in a specific directory so every downstream project reads from its own folder and sees nothing else.
+Running a Nebula network that spans several Terraform projects, providers, or deploy targets? Each one usually only needs the certs for the hosts it owns. `output_dir` places a host's cert and key in a specific directory so every downstream project reads from its own folder and sees nothing else.
 
 ```hcl
 host "lh_fra" {

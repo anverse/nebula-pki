@@ -139,7 +139,7 @@ The manifest always uses the `cas` map — there is no legacy single-CA `ca` obj
 - `config_path` — path to the HCL config that produced this manifest, relative to the manifest's directory when possible (absolute fallback). Lets future tooling detect "wrong config writing to my manifest" without enforcing it at runtime.
 - `cas` — map of CA label → CA record. Always present; always has at least one entry. Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, `archived`, validity window, and paths. See [ADR-015](./015-multiple-cas-per-config.md).
 - `cas.<label>.default` — `true` for the one CA marked `default = true` in HCL (the signer for hosts that omit `host.ca`); `false` for the rest. At most one record has `true`. Absent in the legacy single-CA `ca` object. This replaces the earlier top-level `default_ca` field. See [ADR-015](./015-multiple-cas-per-config.md).
-- `trust_bundle` — `{ path, ca_fingerprints }`. `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in bundle order, the fingerprint of every active (non-`archived`) CA cert included. Lets downstream tooling verify what the mesh currently trusts without parsing the PEM. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
+- `trust_bundle` — `{ path, ca_fingerprints }`. `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in bundle order, the fingerprint of every active (non-`archived`) CA cert included. Lets downstream tooling verify what the Nebula network currently trusts without parsing the PEM. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
 - `cas.<label>.archived` — `true` when the CA is excluded from the trust bundle and barred from signing. The CA's record is retained either way (archiving never deletes history).
 - `cas.<label>.mode` — `"generate"` or `"reference"`.
 - `*.fingerprint` (on `ca`, `cas.*`, and `hosts.*`) — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every host), not of the public key and not of any private material — so it is always safe to commit.
@@ -182,7 +182,7 @@ Existing files are not overwritten silently — Nebula refuses to overwrite, so 
 
 - The manifest is the single comparator; no separate state file.
 - Per-host output placement is recorded explicitly so downstream tooling can locate artifacts without inferring paths.
-- Multiple CAs and rotation progress are observable from `cas` + `hosts.*.ca`; the emitted `trust_bundle` records exactly what the mesh trusts. See [ADR-015](./015-multiple-cas-per-config.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md).
+- Multiple CAs and rotation progress are observable from `cas` + `hosts.*.ca`; the emitted `trust_bundle` records exactly what the Nebula network trusts. See [ADR-015](./015-multiple-cas-per-config.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md).
 - Reference-mode CA is fully supported: the tool does not touch the existing CA files.
 - Renaming a host counts as remove + add. The old fingerprint is still in the previous git commit if needed for an external blocklist.
 - If a user deletes any artifact for a host, the next run reissues that host's certificate (and key, unless `in_pub`).

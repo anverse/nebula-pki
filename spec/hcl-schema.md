@@ -12,7 +12,7 @@ The CLI is a thin declarative wrapper around `nebula-cert ca` and `nebula-cert s
 
 | Block | Cardinality | Purpose |
 |---|---|---|
-| `ca` | 1..N | Certificate authority — either generated or referenced from existing files. Every `ca` block must carry a label: `ca "<label>" {}`. One or more labelled CAs enable CA rotation and multi-CA meshes in a single file. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
+| `ca` | 1..N | Certificate authority — either generated or referenced from existing files. Every `ca` block must carry a label: `ca "<label>" {}`. One or more labelled CAs enable CA rotation and multi-CA Nebula networks in a single file. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
 | `storage` | 0..1 | Default output directory, trust-bundle path, and encryption backend. |
 | `host` | 0..N | A host certificate to sign. Maps 1:1 to `nebula-cert sign`. Selects a signing CA via `host.ca` when more than one CA exists. Each host's cert and key are written to a per-host `output_dir` (defaults to `<storage.out_dir>/hosts`). |
 
@@ -313,7 +313,7 @@ host "alice_phone" {
 
 ## Multi-config in one directory
 
-A single HCL file may declare multiple CAs (see [ADR-015](./adr/015-multiple-cas-per-config.md)) — this is the right shape for **rotation**, where old and new CA are the same mesh in transition. For **isolated environments** (`dev`, `staging`, `prod`), prefer one HCL file per environment sharing the working directory: separate manifests, separate output directories, and separate review/approval flows align with how operators want environments kept apart.
+A single HCL file may declare multiple CAs (see [ADR-015](./adr/015-multiple-cas-per-config.md)) — this is the right shape for **rotation**, where old and new CA are the same Nebula network in transition. For **isolated environments** (`dev`, `staging`, `prod`), prefer one HCL file per environment sharing the working directory: separate manifests, separate output directories, and separate review/approval flows align with how operators want environments kept apart.
 
 Each config must own a distinct manifest, and the resolved artifact paths must not overlap between configs.
 
@@ -393,7 +393,7 @@ Hosts:
 
 - Two `host` blocks share a label.
 - Two `host` blocks (after `name` defaulting) share a certificate `name`.
-- Two `host` blocks share an overlay address (the `Addr()` of the first prefix in `networks`, regardless of prefix length). `nebula-cert` cannot detect cross-host conflicts; catching them at config time avoids deploying a broken mesh.
+- Two `host` blocks share an overlay address (the `Addr()` of the first prefix in `networks`, regardless of prefix length). `nebula-cert` cannot detect cross-host conflicts; catching them at config time avoids deploying a broken Nebula network.
 - A `host.networks` entry is not a valid CIDR.
 - A `host.duration` exceeds its signing CA's `not_after`.
 - A `host` sets both `in_pub` and `out_key` (no key is written when signing a supplied public key).

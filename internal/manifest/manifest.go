@@ -42,7 +42,7 @@ type Manifest struct {
 // TrustBundle records the emitted CA trust bundle artifact.
 // Path is where bundle.crt was written (logical, relative to manifest dir when
 // possible). CAFingerprints lists, in bundle order, the SHA-256 fingerprint of
-// every active CA cert included; lets downstream tooling verify mesh trust
+// every active CA cert included; lets downstream tooling verify Nebula network trust
 // without parsing PEM.
 type TrustBundle struct {
 	Path           string   `json:"path"`

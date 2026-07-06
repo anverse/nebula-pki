@@ -1,6 +1,6 @@
 # Full CA rotation scenario.
 #
-# Step 1: initial mesh with a single "current" CA.
+# Step 1: initial Nebula network with a single "current" CA.
 # Step 2: add "next" CA — both appear in the trust bundle; hosts unchanged.
 # Step 3: promote "next" to default — hosts re-sign; bundle unchanged.
 # Step 4: archive "current" — bundle shrinks to "next" only; hosts unchanged.

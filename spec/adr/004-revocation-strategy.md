@@ -25,7 +25,7 @@ The tool's only revocation-adjacent feature is that the manifest records every i
 ## Consequences
 
 - The CLI stays tightly aligned with `nebula-cert`'s feature surface.
-- No false impression that issuing a "revoke" command via this tool affects any running mesh.
+- No false impression that issuing a "revoke" command via this tool affects any running Nebula network.
 - Removing a host from the HCL deletes its manifest entry on the next run. Whether its certificate files on disk are also deleted is a tool decision (see ADR-002: artifacts of removed hosts are removed from the manifest; on-disk files are left untouched and may be cleaned up manually).
 - Operators who want declarative revocation can layer it on top of this tool by maintaining a small companion file consumed by their config-rendering pipeline.
 - If a future need emerges for first-class blocklist management here, it can be added as an additive feature without breaking the current schema.
