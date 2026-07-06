@@ -11,7 +11,7 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 - Emits a CA trust bundle for `pki.ca` and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-host-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
 - Does not render `config.yaml`, does not push files (including during rotation), does not implement lighthouse/blocklist/firewall.
 
-> Capability detail for the four areas above (multi-CA, rotation/bundle, `renew_before`, `in_pub`) currently lives in [`spec/`](./spec/readme.md) and the cited ADRs. The full option tables in this file are refreshed at the v0.1.0 cut (see [`spec/milestones/v0.1.md`](./spec/milestones/v0.1.md)); until then, treat `spec/hcl-schema.md` as authoritative where they differ.
+> Capability detail for the four areas above (multi-CA, rotation/bundle, `renew_before`, `in_pub`) is also covered in [`spec/`](./spec/readme.md) and the cited ADRs. Where anything conflicts, `spec/hcl-schema.md` is the final authority.
 
 ## CLI
 
@@ -60,7 +60,7 @@ The only cross-block reference is `host.ca` (with the CA marked `default = true`
 ## Using an existing CA (reference mode)
 
 ```hcl
-ca {
+ca "shared-root" {
   cert_file = "/path/to/ca.crt"
   key_file  = "/path/to/ca.key"
 }
@@ -232,6 +232,13 @@ nebula/
       012-upstream-nebula-coupling.md
       013-atomic-artifact-writes.md
       014-flake-version-sync.md
+      015-multiple-cas-per-config.md
+      016-ca-rotation-and-trust-bundles.md
+      017-host-renewal-threshold.md
+      018-in-pub-air-gapped-signing.md
+      019-manifest-compactness.md
+      020-output-dir-per-host.md
+      021-ca-cert-links.md
   out/                  # generated; safe to commit when encryption is on
     nebula-pki.json     # manifest; rename via storage.manifest_file
     ca/
@@ -261,7 +268,7 @@ The manifest already carries an explicit `schema_version` field from day one —
 
 ## Status
 
-Current release: **v0.0.10** (CA rotation + `renew_before`). Installable via Homebrew and Nix. The implementation tracks [`spec/`](./spec/readme.md). Version, supported platforms, and the pinned upstream Nebula version are surfaced via `nebula-pki --version` and the manifest's `generator.nebula_library_version` field. See [ADR-012](./spec/adr/012-upstream-nebula-coupling.md) for the upstream coupling policy.
+Current release: **v0.0.11** (`in_pub` air-gapped signing). Installable via Homebrew and Nix. The implementation tracks [`spec/`](./spec/readme.md). Version, supported platforms, and the pinned upstream Nebula version are surfaced via `nebula-pki --version` and the manifest's `generator.nebula_library_version` field. See [ADR-012](./spec/adr/012-upstream-nebula-coupling.md) for the upstream coupling policy.
 
 **Not yet implemented**: `storage.encryption` (any backend). The parser accepts the block and reports a clear error — encryption ships in v0.2.
 

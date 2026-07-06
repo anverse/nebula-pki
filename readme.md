@@ -163,6 +163,24 @@ host "edge" {
 
 After every run — including no-op runs — the tool prints to stderr the earliest upcoming deadline and a "run again before \<date\>" hint. It's advisory only and does not affect exit codes or writes.
 
+## Air-gapped signing
+
+For hosts whose private key must never leave the device (phones, HSMs, or any
+separation-of-duties setup) the device generates its own keypair and exports
+only the public key. Point `in_pub` at that file; `nebula-pki` signs it and
+writes only the cert. No private key is generated, stored, or encrypted.
+
+```hcl
+host "alice_phone" {
+  networks = ["10.42.5.20/16"]
+  groups   = ["mobile"]
+  in_pub   = "./inbox/alice_phone.pub"   # device-exported public key
+  # no out_key; only alice_phone.crt is written
+}
+```
+
+`in_pub` is mutually exclusive with `out_key` and is a validation error together with it. The key's curve must match the signing CA. Renewal re-signs the same public key. See [ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md).
+
 ## Encryption at rest (coming in v0.2, opt-in)
 
 By default, host keys land on disk as plaintext, which means you can't safely keep `out/` in git. The optional `storage.encryption` block will fix that: keys encrypted at rest using sops (built-in, no extra CLI needed) or any external command. The block is parsed but rejected in the current release.

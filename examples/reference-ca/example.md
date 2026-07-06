@@ -87,7 +87,6 @@ paths — no key material.
 ## Hosts
 
 Hosts are signed under the referenced CA exactly as they would be under a
-generated one; the `host` blocks in `nebula.hcl` are commented out because
-host signing lands in a later `0.0.x` release. Nothing about the host
-blocks changes between generate and reference mode — only the CA block
-differs.
+generated one — only the `ca` block differs. The `host` blocks in
+`nebula.hcl` are commented out as a minimal starting point; uncomment or
+add them as you would in any other config.
