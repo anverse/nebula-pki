@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
+	"github.com/anverse/nebula-pki/internal/crypto"
 	"github.com/anverse/nebula-pki/internal/fsutil"
 	"github.com/anverse/nebula-pki/internal/manifest"
 	"github.com/anverse/nebula-pki/internal/pki"
@@ -151,10 +152,15 @@ type Report struct {
 	Deadlines DeadlineReport
 }
 
-// caPEMs holds the PEM bytes for one CA, used to sign hosts.
+// caPEMs holds the material for one CA, used to sign hosts.
 type caPEMs struct {
 	cert []byte
 	key  []byte
+	// encrypted is true when key holds encrypted ciphertext (not usable for
+	// signing). This happens in the OpNoop path when the CA key is encrypted on
+	// disk and the decrypt path is not yet implemented (v0.1.1). Any host action
+	// that actually needs the key to sign will fail with a clear error.
+	encrypted bool
 }
 
 // Reconcile brings the output tree in line with cfg and returns a Report.
@@ -189,6 +195,11 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return report, nil
 	}
 
+	enc, err := crypto.New(cfg.Storage.Encryption)
+	if err != nil {
+		return nil, fmt.Errorf("init encryption backend: %w", err)
+	}
+
 	// Collect CA PEM bytes while executing CA actions. Reference CAs must
 	// always be processed so their fingerprint can be compared to what is
 	// already in the manifest; generate-mode CAs that are up-to-date are
@@ -199,24 +210,28 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	hasAnyChange := false
 	for _, caAction := range p.CAActions() {
 		ca := cfg.CAByLabel(caAction.Label)
-		result, pems, err := reconcileOneCA(cfg, ca, caAction, opts, current, next)
+		result, pems, err := reconcileOneCA(cfg, ca, caAction, enc, opts, current, next)
 		if err != nil {
 			return nil, err
 		}
 		caKeys[ca.Label] = pems
 		if caAction.Op != plan.OpNoop {
 			hasAnyChange = true
+			keyPath := cfg.CAKeyPathForCA(*ca)
+			if caAction.EncryptKey {
+				keyPath += enc.Suffix()
+			}
 			report.CAs = append(report.CAs, CAReport{
 				Label:    ca.Label,
 				Mode:     ca.Mode.String(),
 				Name:     result.Name,
 				CertPath: cfg.CACertPathForCA(*ca),
-				KeyPath:  cfg.CAKeyPathForCA(*ca),
+				KeyPath:  keyPath,
 			})
 		}
 	}
 
-	signed, stale, err := applyHosts(cfg, opts, p.HostActions(), caKeys, current, next)
+	signed, stale, err := applyHosts(cfg, enc, opts, p.HostActions(), caKeys, current, next)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +292,7 @@ func hasReferenceCA(cfg *config.Config) bool {
 // reconcileOneCA executes one CA action and returns the CA metadata plus
 // the PEM bytes needed to sign hosts. It also populates next.CAs for the
 // given CA label.
-func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, opts Options, current *manifest.Manifest, next *manifest.Manifest) (*pki.CAResult, caPEMs, error) {
+func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc crypto.Encryptor, opts Options, current *manifest.Manifest, next *manifest.Manifest) (*pki.CAResult, caPEMs, error) {
 	certPath := cfg.CACertPathForCA(*ca)
 	keyPath := cfg.CAKeyPathForCA(*ca)
 
@@ -290,21 +305,22 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, opt
 		if err := fsutil.WriteFile(cfg.Resolve(certPath), result.CertPEM, certMode); err != nil {
 			return nil, caPEMs{}, fmt.Errorf("write CA %q certificate: %w", ca.Label, err)
 		}
-		if err := fsutil.WriteFile(cfg.Resolve(keyPath), result.KeyPEM, keyMode); err != nil {
-			return nil, caPEMs{}, fmt.Errorf("write CA %q key: %w", ca.Label, err)
+		// Encrypt the key if the active backend requires it; otherwise write plaintext.
+		keyManifestPath, encRec, err := writeKeyFile(cfg, enc, keyPath, result.KeyPEM, fmt.Sprintf("CA %q key", ca.Label))
+		if err != nil {
+			return nil, caPEMs{}, err
 		}
-		next.CAs[ca.Label] = caResultToManifest(ca, result, certPath, keyPath)
+		mCA := caResultToManifest(ca, result, certPath, keyManifestPath)
+		mCA.Encryption = encRec
+		next.CAs[ca.Label] = mCA
+		// Return the in-memory plaintext key so hosts can be signed in this run.
 		return result, caPEMs{cert: result.CertPEM, key: result.KeyPEM}, nil
 
 	case plan.OpNoop:
-		// CA is up to date; read from disk so we can sign hosts.
+		// CA is up to date; attempt to read from disk so we can sign hosts.
 		certPEM, err := os.ReadFile(cfg.Resolve(certPath))
 		if err != nil {
 			return nil, caPEMs{}, fmt.Errorf("read CA %q certificate: %w", ca.Label, err)
-		}
-		keyPEM, err := os.ReadFile(cfg.Resolve(keyPath))
-		if err != nil {
-			return nil, caPEMs{}, fmt.Errorf("read CA %q key: %w", ca.Label, err)
 		}
 		// Carry the existing manifest entry forward, but always reflect the
 		// current config's Archived and Default flags; these can change
@@ -314,6 +330,27 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, opt
 			updated.Default = ca.Default
 			updated.Archived = ca.Archived
 			next.CAs[ca.Label] = &updated
+		}
+
+		if caAction.EncryptKey {
+			// The key is encrypted on disk. Read the ciphertext but do not
+			// attempt to parse it as PEM — decrypt support ships in v0.1.2.
+			// Signing hosts using this CA in the same run still works because
+			// the plaintext was generated earlier in OpGenerate (if any). For
+			// an idempotent re-run where all hosts are also noop, the caPEMs
+			// key is never used for signing, so returning ciphertext is safe.
+			encKeyPath := keyPath + enc.Suffix()
+			encKeyBytes, err := os.ReadFile(cfg.Resolve(encKeyPath))
+			if err != nil {
+				return nil, caPEMs{}, fmt.Errorf("read CA %q encrypted key: %w", ca.Label, err)
+			}
+			// result is unused for OpNoop in the caller (report skips noop CAs).
+			return &pki.CAResult{}, caPEMs{cert: certPEM, key: encKeyBytes, encrypted: true}, nil
+		}
+
+		keyPEM, err := os.ReadFile(cfg.Resolve(keyPath))
+		if err != nil {
+			return nil, caPEMs{}, fmt.Errorf("read CA %q key: %w", ca.Label, err)
 		}
 		// We need the result for the report's Name field; parse it minimally.
 		result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
@@ -364,12 +401,41 @@ func caResultToManifest(ca *config.CA, result *pki.CAResult, certPath, keyPath s
 	}
 }
 
+// writeKeyFile writes a private key to disk, encrypting it if the active
+// backend requires it. It returns the on-disk path (including any encryption
+// suffix) and the EncryptionRecord to store in the manifest (nil for none
+// backend). The caller is responsible for error-wrapping the returned error.
+func writeKeyFile(cfg *config.Config, enc crypto.Encryptor, basePath string, keyPEM []byte, label string) (diskPath string, encRec *manifest.EncryptionRecord, err error) {
+	if enc.Suffix() == "" {
+		// No encryption: write plaintext.
+		if err := fsutil.WriteFile(cfg.Resolve(basePath), keyPEM, keyMode); err != nil {
+			return "", nil, fmt.Errorf("write %s: %w", label, err)
+		}
+		return basePath, nil, nil
+	}
+
+	diskPath = basePath + enc.Suffix()
+	ciphertext, err := enc.Encrypt(keyPEM, cfg.Resolve(diskPath))
+	if err != nil {
+		return "", nil, fmt.Errorf("encrypt %s: %w", label, err)
+	}
+	if err := fsutil.WriteFile(cfg.Resolve(diskPath), ciphertext, keyMode); err != nil {
+		return "", nil, fmt.Errorf("write encrypted %s: %w", label, err)
+	}
+	encRec = &manifest.EncryptionRecord{
+		Backend:        enc.BackendName(),
+		RecipientsHash: enc.RecipientsHash(),
+		Suffix:         enc.Suffix(),
+	}
+	return diskPath, encRec, nil
+}
+
 // applyHosts executes host actions: signs hosts with OpSign, carries
 // forward existing manifest entries for OpNoop. It writes cert and key
 // files for each signed host and populates next.Hosts. Returns the list
 // of newly signed hosts (in action order) and any logical paths from a
 // previous run that are no longer written by the current configuration.
-func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
+func applyHosts(cfg *config.Config, enc crypto.Encryptor, opts Options, hostActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
 	var signed []SignedHost
 	var stale []string
 
@@ -400,15 +466,14 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 						stale = append(stale, oldArt.CertPath)
 					}
 				}
-				// Flag the old key as stale when:
-				//   • the key path changed (output_dir rename, etc.), OR
-				//   • the host switched from regular signing to in_pub:
-				//     the old key still exists on disk but will never be
-				//     managed again. The operator should delete it.
-				newKeyPath := newArt.KeyPath
+				// The new key path includes any active encryption suffix.
+				newKeyPath := newArt.KeyPath + enc.Suffix()
 				if h.InPub != "" {
 					newKeyPath = "" // in_pub hosts write no key
 				}
+				// oldArt.KeyPath already contains the suffix it was written with
+				// (the manifest records on-disk paths). Flag it stale when the
+				// path changed or the host switched to/from in_pub.
 				if oldArt.KeyPath != "" && oldArt.KeyPath != newKeyPath {
 					if fsutil.Exists(cfg.Resolve(oldArt.KeyPath)) {
 						stale = append(stale, oldArt.KeyPath)
@@ -424,6 +489,15 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 		pems, ok := caKeys[signingCA.Label]
 		if !ok {
 			return nil, nil, fmt.Errorf("host %q: signing CA %q PEM not available", h.Label, signingCA.Label)
+		}
+		if pems.encrypted {
+			return nil, nil, fmt.Errorf(
+				"host %q: signing CA %q key is encrypted on disk; "+
+					"signing hosts under an encrypted CA key requires decrypt support, "+
+					"which ships in v0.1.2 — run nebula-pki once with encryption \"none\" "+
+					"first, or wait for v0.1.2",
+				h.Label, signingCA.Label,
+			)
 		}
 
 		var result *pki.HostResult
@@ -449,11 +523,16 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 		if err := fsutil.WriteFile(cfg.Resolve(newArt.CertPath), result.CertPEM, certMode); err != nil {
 			return nil, nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
 		}
+
 		// Only write a key file for regular (non-in_pub) hosts. in_pub hosts
 		// keep their private key on the device; writing nothing here is correct.
+		var artKeyPath string
+		var artEncRec *manifest.EncryptionRecord
 		if result.KeyPEM != nil {
-			if err := fsutil.WriteFile(cfg.Resolve(newArt.KeyPath), result.KeyPEM, keyMode); err != nil {
-				return nil, nil, fmt.Errorf("write host key %q: %w", h.Label, err)
+			var err error
+			artKeyPath, artEncRec, err = writeKeyFile(cfg, enc, newArt.KeyPath, result.KeyPEM, fmt.Sprintf("host key %q", h.Label))
+			if err != nil {
+				return nil, nil, err
 			}
 		}
 
@@ -465,14 +544,6 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 		renewBeforeStr := ""
 		if rb := cfg.ResolvedRenewBefore(*h); rb > 0 {
 			renewBeforeStr = rb.String()
-		}
-
-		// in_pub hosts have no key artifact: omit KeyPath so it is absent from
-		// the manifest JSON (Artifact.KeyPath has omitempty). This lets
-		// downstream tooling distinguish cert-only hosts at a glance.
-		artKeyPath := newArt.KeyPath
-		if h.InPub != "" {
-			artKeyPath = ""
 		}
 
 		next.Hosts[h.Label] = manifest.Host{
@@ -489,9 +560,10 @@ func applyHosts(cfg *config.Config, opts Options, hostActions []plan.Action, caK
 			CAFingerprint:  result.CAFingerprint,
 			InPub:          h.InPub != "",
 			Artifacts: []manifest.Artifact{{
-				Dir:      newArt.Dir,
-				CertPath: newArt.CertPath,
-				KeyPath:  artKeyPath,
+				Dir:        newArt.Dir,
+				CertPath:   newArt.CertPath,
+				KeyPath:    artKeyPath,
+				Encryption: artEncRec,
 			}},
 		}
 
@@ -630,13 +702,19 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, current *manifest.Manifest, exists func(string) bool) {
 	var writes []string
 
+	suffix := cfg.Storage.Encryption.KeySuffix()
+
 	anyCAGenerate := false
 	for _, caAction := range p.CAActions() {
 		if caAction.Op == plan.OpGenerate {
 			anyCAGenerate = true
 			ca := cfg.CAByLabel(caAction.Label)
 			if ca != nil {
-				writes = append(writes, cfg.CACertPathForCA(*ca), cfg.CAKeyPathForCA(*ca))
+				keyPath := cfg.CAKeyPathForCA(*ca)
+				if caAction.EncryptKey {
+					keyPath += suffix
+				}
+				writes = append(writes, cfg.CACertPathForCA(*ca), keyPath)
 			}
 		}
 	}
@@ -652,7 +730,11 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, current *mani
 				writes = append(writes, art.CertPath)
 				// in_pub hosts write only a certificate, no key file.
 				if h.InPub == "" {
-					writes = append(writes, art.KeyPath)
+					keyPath := art.KeyPath
+					if ha.EncryptKey {
+						keyPath += suffix
+					}
+					writes = append(writes, keyPath)
 				}
 			}
 		}

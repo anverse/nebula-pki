@@ -53,6 +53,11 @@ type Action struct {
 	Path string
 	// Desc is a human-readable one-line summary.
 	Desc string
+	// EncryptKey is true when the active storage encryption backend should
+	// encrypt the private key artifact for this action. Always false for
+	// in_pub hosts (no key is written) and for reference-mode CAs (the tool
+	// never writes reference CA files).
+	EncryptKey bool
 }
 
 // Plan is the ordered set of actions a reconcile would perform.
@@ -178,24 +183,34 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time
 	// public key source and the manifest records the right shape.
 	provenanceMatch := tracked && m.Hosts[h.Label].InPub == isInPub
 
+	// in_pub hosts never write a key file; encryption does not apply to them.
+	suffix := ""
+	if !isInPub {
+		suffix = cfg.Storage.Encryption.KeySuffix()
+	}
+	encKeyPath := artifact.KeyPath + suffix // equals artifact.KeyPath when suffix is ""
+
 	certOK := exists(artifact.CertPath)
 	// in_pub hosts never write a key file; skip the key-existence check for them.
-	keyOK := isInPub || exists(artifact.KeyPath)
+	keyOK := isInPub || exists(encKeyPath)
+
+	encryptKey := !isInPub && !cfg.Storage.Encryption.IsNone()
 
 	if tracked && caMatch && provenanceMatch && certOK && keyOK {
 		rb := cfg.ResolvedRenewBefore(*h)
 		mh := m.Hosts[h.Label]
 		if noRenewal || !hostInRenewalWindow(rb, mh.NotAfter, now) {
-			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("host %q up to date", h.Label)}
 		}
 		// Inside renewal window and renewal is not suppressed; fall through to sign.
 	}
 	return Action{
-		Op:    OpSign,
-		Kind:  KindHost,
-		Label: h.Label,
-		Path:  artifact.CertPath,
-		Desc:  fmt.Sprintf("sign host %q", h.Label),
+		Op:         OpSign,
+		Kind:       KindHost,
+		Label:      h.Label,
+		Path:       artifact.CertPath,
+		Desc:       fmt.Sprintf("sign host %q", h.Label),
+		EncryptKey: encryptKey,
 	}
 }
 
@@ -257,28 +272,37 @@ func referenceMissingError(label string, haveCert, haveKey bool, certPath, keyPa
 //   - anything else (files present but untracked, or
 //     only one of the pair present)                   -> error
 //
+// The key file path used for existence checks includes the active
+// encryption suffix (e.g. ".enc") so that idempotency works correctly
+// after the first encrypted write.
+//
 // The tool never silently overwrites an existing CA, matching upstream
 // nebula-cert's refuse-to-overwrite behaviour.
 func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func(string) bool) (Action, error) {
 	certPath := cfg.CACertPathForCA(*ca)
 	keyPath := cfg.CAKeyPathForCA(*ca)
+	suffix := cfg.Storage.Encryption.KeySuffix()
+	encKeyPath := keyPath + suffix // equals keyPath when suffix is ""
+
 	haveCert := exists(certPath)
-	haveKey := exists(keyPath)
+	haveKey := exists(encKeyPath)
 	tracked := m != nil && m.CAs[ca.Label] != nil
+	encryptKey := !cfg.Storage.Encryption.IsNone()
 
 	switch {
 	case tracked && haveCert && haveKey:
-		return Action{Op: OpNoop, Kind: KindCA, Label: ca.Label, Desc: fmt.Sprintf("CA %q up to date", ca.Label)}, nil
+		return Action{Op: OpNoop, Kind: KindCA, Label: ca.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("CA %q up to date", ca.Label)}, nil
 	case !haveCert && !haveKey:
 		return Action{
-			Op:    OpGenerate,
-			Kind:  KindCA,
-			Label: ca.Label,
-			Path:  certPath,
-			Desc:  fmt.Sprintf("generate CA %q (%s)", ca.Label, ca.Name),
+			Op:         OpGenerate,
+			Kind:       KindCA,
+			Label:      ca.Label,
+			Path:       certPath,
+			Desc:       fmt.Sprintf("generate CA %q (%s)", ca.Label, ca.Name),
+			EncryptKey: encryptKey,
 		}, nil
 	default:
-		return Action{}, caStateError(ca.Label, tracked, haveCert, haveKey, certPath, keyPath)
+		return Action{}, caStateError(ca.Label, tracked, haveCert, haveKey, certPath, encKeyPath)
 	}
 }
 

@@ -9,9 +9,9 @@ stderr 'duplicate label'
 ! exec nebula-pki check -c dup-overlay.hcl
 stderr 'overlay address 10\.0\.0\.1 already used'
 
-# Encryption block is parsed but rejected — ships in a later release.
-! exec nebula-pki check -c encryption.hcl
-stderr 'encryption ships in a later release'
+# Unknown encryption backend is rejected.
+! exec nebula-pki check -c bad-encryption.hcl
+stderr 'not supported'
 
 # Missing `ca` block.
 ! exec nebula-pki check -c no-ca.hcl
@@ -31,10 +31,10 @@ ca "m" { name = "m" }
 host "a" { networks = ["10.0.0.1/16"] }
 host "b" { networks = ["10.0.0.1/24"] }
 
--- encryption.hcl --
+-- bad-encryption.hcl --
 ca "m" { name = "m" }
 storage {
-  encryption "sops" {}
+  encryption "pkcs11" {}
 }
 
 -- no-ca.hcl --

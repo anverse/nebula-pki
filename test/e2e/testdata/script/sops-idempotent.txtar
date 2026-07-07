@@ -1,0 +1,49 @@
+# A second `nebula-pki` run with sops encryption is a byte-identical noop:
+# the plan detects the .enc files alongside the manifest record and marks all
+# actions OpNoop, so no file (not even the manifest) is rewritten.
+
+[!exec:sops] skip 'sops not in PATH'
+
+# First run: generate and encrypt.
+exec nebula-pki
+stderr '^generated CA "test-ca" \(test-ca\)$'
+stderr '  key:  out/ca/test-ca\.key\.enc'
+stderr '^signed host "alpha"$'
+stderr '  key:  out/hosts/alpha\.key\.enc'
+! stdout .
+
+# Snapshot all artifacts after the first run.
+cp out/ca/test-ca.crt ca.crt.first
+cp out/ca/test-ca.key.enc ca.key.enc.first
+cp out/hosts/alpha.crt alpha.crt.first
+cp out/hosts/alpha.key.enc alpha.key.enc.first
+cp out/nebula-pki.json manifest.first
+
+# Second run must report "up to date" and touch nothing.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'generated CA'
+! stderr 'signed host'
+! stdout .
+
+# Every artifact is byte-identical to the first run.
+cmp out/ca/test-ca.crt ca.crt.first
+cmp out/ca/test-ca.key.enc ca.key.enc.first
+cmp out/hosts/alpha.crt alpha.crt.first
+cmp out/hosts/alpha.key.enc alpha.key.enc.first
+cmp out/nebula-pki.json manifest.first
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"]
+  }
+}

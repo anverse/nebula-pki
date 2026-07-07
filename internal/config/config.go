@@ -167,13 +167,50 @@ type CA struct {
 }
 
 // Storage holds the storage block.
-//
-// The encryption sub-block is parsed only well enough to reject it with
-// a clear error message; no encryption state is retained.
 type Storage struct {
 	OutDir          string
 	ManifestFile    string
 	TrustBundleFile string
+	Encryption      EncryptionConfig
+}
+
+// EncryptionConfig is the parsed encryption block.
+type EncryptionConfig struct {
+	// Backend is "none", "sops", or "external" (external not yet implemented).
+	Backend string
+	// Sops is non-nil when Backend == "sops".
+	Sops *SopsConfig
+}
+
+// KeySuffix returns the encryption suffix appended to private key filenames
+// (e.g. ".enc"). Returns "" when the backend is "none" or unset.
+func (e EncryptionConfig) KeySuffix() string {
+	if e.Backend != "sops" {
+		return ""
+	}
+	if e.Sops != nil && e.Sops.OutputSuffix != "" {
+		return e.Sops.OutputSuffix
+	}
+	return ".enc"
+}
+
+// IsNone reports whether no encryption is active.
+func (e EncryptionConfig) IsNone() bool {
+	return e.Backend == "" || e.Backend == "none"
+}
+
+// SopsConfig holds the fields from an encryption "sops" {} block.
+// All fields are optional; an empty block relies on .sops.yaml discovery.
+type SopsConfig struct {
+	Age             []string
+	PGP             []string
+	KMS             []string
+	GCPKMS          []string
+	AzureKV         []string
+	HCVaultTransit  []string
+	ShamirThreshold int
+	ConfigFile      string
+	OutputSuffix    string
 }
 
 // Host is a host certificate to sign. Networks, UnsafeNetworks, Groups
@@ -321,15 +358,28 @@ type rawStorage struct {
 	Range hcl.Range `hcl:",def_range"`
 }
 
-// rawEncryptionRaw captures the encryption block label and ignores its
-// body. The CLI rejects any non-"none" backend with a clear error, so
-// staying tolerant of unknown attributes inside the block keeps the
-// failure mode about the feature, not about the HCL.
+// rawEncryptionRaw captures the encryption block label and defers body
+// decoding to the backend-specific struct (rawSopsBody). Remaining
+// attributes are captured so unknown fields produce a useful diagnostic
+// rather than a hard gohcl error.
 type rawEncryptionRaw struct {
 	Label string   `hcl:"label,label"`
 	Body  hcl.Body `hcl:",remain"`
 
 	Range hcl.Range `hcl:",def_range"`
+}
+
+// rawSopsBody decodes the body of an encryption "sops" {} block.
+type rawSopsBody struct {
+	Age             []string `hcl:"age,optional"`
+	PGP             []string `hcl:"pgp,optional"`
+	KMS             []string `hcl:"kms,optional"`
+	GCPKMS          []string `hcl:"gcp_kms,optional"`
+	AzureKV         []string `hcl:"azure_kv,optional"`
+	HCVaultTransit  []string `hcl:"hc_vault_transit,optional"`
+	ShamirThreshold *int     `hcl:"shamir_threshold,optional"`
+	ConfigFile      *string  `hcl:"config,optional"`
+	OutputSuffix    *string  `hcl:"output_suffix,optional"`
 }
 
 type rawHost struct {
@@ -545,9 +595,18 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 		}
 		if len(r.Encryption) == 1 {
 			enc := r.Encryption[0]
-			if enc.Label != "none" {
+			switch enc.Label {
+			case "none":
+				s.Encryption = EncryptionConfig{Backend: "none"}
+			case "sops":
+				sc, err := decodeSopsBody(filename, enc)
+				if err != nil {
+					return nil, err
+				}
+				s.Encryption = EncryptionConfig{Backend: "sops", Sops: sc}
+			default:
 				return nil, fmt.Errorf(
-					"%s: storage: encryption %q is not implemented in this release; encryption ships in a later release (v0.2). For now, remove the `encryption` block or use `encryption \"none\" {}`.",
+					"%s: storage: encryption backend %q is not supported; available backends: none, sops",
 					filename, enc.Label,
 				)
 			}
@@ -618,6 +677,37 @@ func decodeHost(filename string, r *rawHost) (*Host, error) {
 	}
 
 	return h, nil
+}
+
+func decodeSopsBody(filename string, enc rawEncryptionRaw) (*SopsConfig, error) {
+	var raw rawSopsBody
+	if diags := gohcl.DecodeBody(enc.Body, nil, &raw); diags.HasErrors() {
+		return nil, diagsError(diags)
+	}
+	sc := &SopsConfig{
+		Age:            raw.Age,
+		PGP:            raw.PGP,
+		KMS:            raw.KMS,
+		GCPKMS:         raw.GCPKMS,
+		AzureKV:        raw.AzureKV,
+		HCVaultTransit: raw.HCVaultTransit,
+	}
+	if raw.ShamirThreshold != nil {
+		if *raw.ShamirThreshold < 1 {
+			return nil, fmt.Errorf("%s: storage: encryption \"sops\".shamir_threshold must be at least 1", filename)
+		}
+		sc.ShamirThreshold = *raw.ShamirThreshold
+	}
+	if raw.ConfigFile != nil {
+		sc.ConfigFile = *raw.ConfigFile
+	}
+	if raw.OutputSuffix != nil {
+		if *raw.OutputSuffix == "" {
+			return nil, fmt.Errorf("%s: storage: encryption \"sops\".output_suffix must not be empty", filename)
+		}
+		sc.OutputSuffix = *raw.OutputSuffix
+	}
+	return sc, nil
 }
 
 func parsePrefixes(filename, field string, raw []string) ([]netip.Prefix, error) {

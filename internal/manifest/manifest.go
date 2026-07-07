@@ -56,6 +56,20 @@ type Generator struct {
 	Version string `json:"version"`
 }
 
+// EncryptionRecord describes how a private key file was encrypted. It is
+// stored per-artifact so the tool can detect recipient mismatches and
+// locate the file even if output_suffix is later reconfigured.
+type EncryptionRecord struct {
+	// Backend is "sops" or "external".
+	Backend string `json:"backend"`
+	// RecipientsHash is a SHA-256 fingerprint of the configured inline
+	// recipients (sorted). Empty when .sops.yaml discovery was used.
+	RecipientsHash string `json:"recipients_sha,omitempty"`
+	// Suffix is the output_suffix that was active when the file was written
+	// (e.g. ".enc"). Stored so the file can be located if the suffix changes.
+	Suffix string `json:"suffix,omitempty"`
+}
+
 // CA is the certificate-authority record. Mode is "generate" or
 // "reference".
 type CA struct {
@@ -70,6 +84,8 @@ type CA struct {
 	KeyPath     string    `json:"key_path"`
 	Default     bool      `json:"default,omitempty"`
 	Archived    bool      `json:"archived,omitempty"`
+	// Encryption is non-nil when the CA key file was written encrypted.
+	Encryption *EncryptionRecord `json:"encryption,omitempty"`
 }
 
 // Host is a signed host record.
@@ -99,6 +115,8 @@ type Artifact struct {
 	Dir      string `json:"dir,omitempty"`
 	CertPath string `json:"cert_path"`
 	KeyPath  string `json:"key_path,omitempty"`
+	// Encryption is non-nil when the key file was written encrypted.
+	Encryption *EncryptionRecord `json:"encryption,omitempty"`
 }
 
 // New returns an empty manifest with the current schema version and

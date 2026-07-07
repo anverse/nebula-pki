@@ -1,0 +1,113 @@
+package crypto
+
+import (
+	"testing"
+
+	"github.com/anverse/nebula-pki/internal/config"
+)
+
+func TestNoneBackend(t *testing.T) {
+	enc := &NoneBackend{}
+
+	plain := []byte("NEBULA PRIVATE KEY PEM DATA")
+	got, err := enc.Encrypt(plain, "/any/path.key")
+	if err != nil {
+		t.Fatalf("NoneBackend.Encrypt: %v", err)
+	}
+	if string(got) != string(plain) {
+		t.Errorf("NoneBackend.Encrypt mutated plaintext: got %q, want %q", got, plain)
+	}
+	if enc.Suffix() != "" {
+		t.Errorf("NoneBackend.Suffix() = %q, want %q", enc.Suffix(), "")
+	}
+	if enc.BackendName() != "none" {
+		t.Errorf("NoneBackend.BackendName() = %q, want %q", enc.BackendName(), "none")
+	}
+	if enc.RecipientsHash() != "" {
+		t.Errorf("NoneBackend.RecipientsHash() = %q, want empty", enc.RecipientsHash())
+	}
+}
+
+func TestSopsBackend_Defaults(t *testing.T) {
+	b := newSopsBackend(nil)
+	if b.Suffix() != ".enc" {
+		t.Errorf("default Suffix() = %q, want %q", b.Suffix(), ".enc")
+	}
+	if b.BackendName() != "sops" {
+		t.Errorf("BackendName() = %q, want %q", b.BackendName(), "sops")
+	}
+	if b.RecipientsHash() != "" {
+		t.Errorf("empty config RecipientsHash() = %q, want empty", b.RecipientsHash())
+	}
+}
+
+func TestSopsBackend_CustomSuffix(t *testing.T) {
+	b := newSopsBackend(&config.SopsConfig{OutputSuffix: ".sops"})
+	if b.Suffix() != ".sops" {
+		t.Errorf("Suffix() = %q, want %q", b.Suffix(), ".sops")
+	}
+}
+
+func TestSopsBackend_RecipientsHash(t *testing.T) {
+	cfg := &config.SopsConfig{
+		Age: []string{"age1abc", "age1xyz"},
+		PGP: []string{"DEADBEEF"},
+	}
+	b := newSopsBackend(cfg)
+	h1 := b.RecipientsHash()
+	if h1 == "" {
+		t.Fatal("RecipientsHash() returned empty for non-empty config")
+	}
+
+	// Same config in different order produces same hash (sorted).
+	cfg2 := &config.SopsConfig{
+		Age: []string{"age1xyz", "age1abc"},
+		PGP: []string{"DEADBEEF"},
+	}
+	h2 := newSopsBackend(cfg2).RecipientsHash()
+	if h1 != h2 {
+		t.Errorf("RecipientsHash not stable across input order: %q vs %q", h1, h2)
+	}
+
+	// Different recipients produce a different hash.
+	cfg3 := &config.SopsConfig{Age: []string{"age1different"}}
+	h3 := newSopsBackend(cfg3).RecipientsHash()
+	if h1 == h3 {
+		t.Error("different recipients produced the same hash")
+	}
+}
+
+func TestNew_NoneBackend(t *testing.T) {
+	enc, err := New(config.EncryptionConfig{})
+	if err != nil {
+		t.Fatalf("New(empty): %v", err)
+	}
+	if enc.BackendName() != "none" {
+		t.Errorf("BackendName() = %q, want %q", enc.BackendName(), "none")
+	}
+
+	enc2, err := New(config.EncryptionConfig{Backend: "none"})
+	if err != nil {
+		t.Fatalf("New(none): %v", err)
+	}
+	if enc2.BackendName() != "none" {
+		t.Errorf("BackendName() = %q, want %q", enc2.BackendName(), "none")
+	}
+}
+
+func TestNew_SopsBackend(t *testing.T) {
+	enc, err := New(config.EncryptionConfig{Backend: "sops", Sops: nil})
+	if err != nil {
+		t.Fatalf("New(sops): %v", err)
+	}
+	if enc.BackendName() != "sops" {
+		t.Errorf("BackendName() = %q, want %q", enc.BackendName(), "sops")
+	}
+}
+
+func TestNew_UnknownBackend(t *testing.T) {
+	_, err := New(config.EncryptionConfig{Backend: "pkcs11"})
+	if err == nil {
+		t.Fatal("expected error for unknown backend, got nil")
+	}
+}

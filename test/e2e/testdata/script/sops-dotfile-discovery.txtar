@@ -1,0 +1,29 @@
+# `nebula-pki` with an empty sops block (no inline recipients) discovers the
+# age recipient from a .sops.yaml in the work directory. Sops searches for
+# .sops.yaml upward from the temp file's directory (out/ca/), so a .sops.yaml
+# at the testscript work root is found via the two-level walk.
+
+[!exec:sops] skip 'sops not in PATH'
+
+exec nebula-pki
+stderr '^generated CA "test-ca" \(test-ca\)$'
+stderr '^  key:  out/ca/test-ca\.key\.enc$'
+! stdout .
+
+# Encryption applied via discovered .sops.yaml — no inline recipient needed.
+exists out/ca/test-ca.key.enc
+! exists out/ca/test-ca.key
+! grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key.enc
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+storage {
+  encryption "sops" {}
+}
+
+-- .sops.yaml --
+creation_rules:
+  - age: age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt

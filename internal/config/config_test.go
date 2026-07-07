@@ -40,6 +40,87 @@ func TestParse_MinimalGenerateMode(t *testing.T) {
 	}
 }
 
+func TestParse_SopsEncryption(t *testing.T) {
+	cases := []struct {
+		name        string
+		src         string
+		wantBackend string
+		wantAge     []string
+		wantSuffix  string
+		wantNilSops bool
+	}{
+		{
+			name: "empty block uses defaults",
+			src: minimalGenerate + `
+storage {
+  encryption "sops" {}
+}`,
+			wantBackend: "sops",
+			wantSuffix:  ".enc", // KeySuffix() default
+			wantNilSops: false,
+		},
+		{
+			name: "inline age recipients",
+			src: minimalGenerate + `
+storage {
+  encryption "sops" {
+    age = ["age1abc", "age1xyz"]
+  }
+}`,
+			wantBackend: "sops",
+			wantAge:     []string{"age1abc", "age1xyz"},
+		},
+		{
+			name: "custom output_suffix",
+			src: minimalGenerate + `
+storage {
+  encryption "sops" {
+    output_suffix = ".sops"
+  }
+}`,
+			wantBackend: "sops",
+			wantSuffix:  ".sops",
+		},
+		{
+			name: "none backend",
+			src: minimalGenerate + `
+storage {
+  encryption "none" {}
+}`,
+			wantBackend: "none",
+			wantNilSops: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Parse("test.hcl", []byte(tc.src))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			enc := cfg.Storage.Encryption
+			if enc.Backend != tc.wantBackend {
+				t.Errorf("Backend = %q, want %q", enc.Backend, tc.wantBackend)
+			}
+			if tc.wantNilSops && enc.Sops != nil {
+				t.Errorf("Sops = %+v, want nil", enc.Sops)
+			}
+			if !tc.wantNilSops && enc.Backend == "sops" && enc.Sops == nil {
+				t.Error("Sops = nil, want non-nil for sops backend")
+			}
+			if len(tc.wantAge) > 0 && enc.Sops != nil {
+				if got := enc.Sops.Age; len(got) != len(tc.wantAge) {
+					t.Errorf("Sops.Age = %v, want %v", got, tc.wantAge)
+				}
+			}
+			if tc.wantSuffix != "" {
+				if got := enc.KeySuffix(); got != tc.wantSuffix {
+					t.Errorf("KeySuffix() = %q, want %q", got, tc.wantSuffix)
+				}
+			}
+		})
+	}
+}
+
 func TestParse_ReferenceMode(t *testing.T) {
 	src := `
 ca "ref" {
@@ -303,13 +384,44 @@ host "a" {
 			wantErr: "exceeds ca",
 		},
 		{
-			name: "encryption_not_implemented",
+			name: "encryption_sops_empty_is_valid",
 			src: minimalGenerate + `
 storage {
   encryption "sops" {}
 }
 `,
-			wantErr: "encryption ships in a later release",
+			wantErr: "", // happy case — empty sops block uses .sops.yaml discovery
+		},
+		{
+			name: "encryption_sops_with_age_is_valid",
+			src: minimalGenerate + `
+storage {
+  encryption "sops" {
+    age = ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"]
+  }
+}
+`,
+			wantErr: "", // happy case
+		},
+		{
+			name: "encryption_sops_empty_suffix_rejected",
+			src: minimalGenerate + `
+storage {
+  encryption "sops" {
+    output_suffix = ""
+  }
+}
+`,
+			wantErr: "output_suffix must not be empty",
+		},
+		{
+			name: "encryption_unknown_backend",
+			src: minimalGenerate + `
+storage {
+  encryption "pkcs11" {}
+}
+`,
+			wantErr: "not supported",
 		},
 		{
 			name: "encryption_none_is_allowed",
