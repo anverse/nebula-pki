@@ -88,7 +88,7 @@ No fields. Private keys are written as plaintext.
 
 #### `encryption "sops" { ... }`
 
-Behaves like the `sops` CLI: every field is optional and maps 1:1 to a sops CLI flag. When all key-type fields are empty, the sops library performs its standard upward search for `.sops.yaml` and applies whichever `creation_rules` match the output path. When at least one is set, the inline values take precedence for files written by nebula-pki — same precedence as `sops -e --age ... --pgp ...` on the CLI.
+Shells out to the `sops` binary. **The `sops` binary must be in PATH** when this backend is active — both for initial key generation (encrypt) and for any reconcile that signs hosts under an encrypted CA key (decrypt). Every field is optional and maps 1:1 to a `sops` CLI flag. When all key-type fields are empty, sops performs its standard upward search for `.sops.yaml` from the output file's directory and applies whichever `creation_rules` match. When at least one recipient field is set, those values are passed as explicit flags to sops and take precedence over `.sops.yaml` — same behaviour as `sops --encrypt --age ... --pgp ...`.
 
 | Field | Type | sops CLI flag | Description |
 |---|---|---|---|

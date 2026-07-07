@@ -25,49 +25,50 @@ Private key material must be safe to commit to a (private) git repository and sa
 
 ## Decision Outcome
 
-Chosen option: **C, with the built-in sops backend implemented via option B (in-process library) and behaving exactly like the sops CLI.** This gives a smooth out-of-the-box experience while letting operators reuse their existing sops setup.
+Chosen option: **C, with the built-in sops backend implemented via option A (CLI subprocess) and behaving exactly like the sops CLI.** This gives first-class sops integration while keeping the binary lean.
 
 Specifically:
 
 - `encryption "none" {}` is the default. The tool ships and runs without any encryption configured.
-- `encryption "sops" { ... }` uses the sops Go library directly. **All sops key types are supported** — age, PGP, AWS KMS, GCP KMS, Azure Key Vault, HashiCorp Vault Transit — exposed as optional HCL fields that map 1:1 to sops CLI flags.
-- When the HCL block has no recipients configured, the sops library performs its standard upward search for `.sops.yaml` and applies whichever `creation_rules` match the output path. The HCL block can be empty (`encryption "sops" {}`) when `.sops.yaml` is authoritative.
-- When the HCL block lists recipients explicitly, they take precedence over `.sops.yaml` for files written by nebula-pki — same precedence rules as `sops -e --age ... --pgp ...` on the CLI.
+- `encryption "sops" { ... }` shells out to the `sops` binary. **All sops key types are supported** — age, PGP, AWS KMS, GCP KMS, Azure Key Vault, HashiCorp Vault Transit — exposed as optional HCL fields that map 1:1 to sops CLI flags. The `sops` binary must be in PATH when this backend is active.
+- When the HCL block has no recipients configured, sops performs its standard upward search for `.sops.yaml` from the output file's directory. The HCL block can be empty (`encryption "sops" {}`) when `.sops.yaml` is authoritative.
+- When the HCL block lists recipients explicitly, they are passed as flags to sops and take precedence over `.sops.yaml` for files written by nebula-pki — same precedence rules as `sops --encrypt --age ... --pgp ...`.
 - `encryption "external" { encrypt_command = [...], decrypt_command = [...] }` invokes a user-supplied command. Placeholders `{{.In}}` and `{{.Out}}` are substituted at invocation time.
 - Only **private key files** are encrypted. Public certificates, QRs, and the manifest stay plaintext.
 
 ### Positive Consequences
 
-* Single static binary; no `sops` CLI on PATH required.
-* Operators with an existing `.sops.yaml` (e.g. one already using PGP) get zero-config integration.
+* Binary remains small; no transitive SDK dependencies (no AWS/GCP/Azure SDK embedded).
+* Operators with an existing `.sops.yaml` get zero-config integration — they already have sops installed.
 * The default path is one line of HCL.
-* All sops key types are supported on day one; no future schema break to add KMS or Vault.
+* All sops key types are supported on day one via the sops CLI flags.
 
 ### Negative Consequences
 
-* Embedding the sops library bloats the binary (a few MB).
-* We track sops library breaking changes.
-* Two code paths for encryption (library vs. subprocess) need testing.
+* `sops` binary must be present in PATH when using this backend.
+* Subprocess error handling is noisier than library calls (stderr captured and re-emitted).
 
 ## Pros and Cons of the Options
 
 ### A. Sops CLI subprocess only
 
-* Good, because it is the simplest implementation.
-* Good, because users probably already have sops installed.
-* Bad, because it requires `sops` on PATH for the *recommended* path, which contradicts the "easy to get started" goal.
+* Good, because no transitive SDK dependencies; binary stays lean.
+* Good, because users who choose `encryption "sops"` almost certainly have sops installed.
+* Good, because `.sops.yaml` discovery is native to the sops binary — no re-implementation needed.
+* Bad, because requires `sops` on PATH; the tool can't run in environments without sops.
 * Bad, because subprocess error handling is noisier than library calls.
 
-Rejected as the default; retained as the model for the `external` backend.
+Accepted as the implementation of the built-in `sops` backend.
 
 ### B. Sops Go library in-process
 
-* Good, because no external dependency for the recommended path.
+* Good, because no external binary required for the recommended path.
 * Good, because errors and diagnostics are first-class Go values.
 * Good, because the library reads `.sops.yaml` natively via the same code path as the CLI.
-* Bad, because of binary size and library version coupling.
+* Bad, because embedding the Go library pulls in AWS SDK, GCP SDK, Azure SDK, and HashiCorp Vault SDK as transitive dependencies regardless of which key types the operator actually uses — significant binary bloat.
+* Bad, because we track sops library breaking changes.
 
-Accepted as the implementation of the built-in `sops` backend.
+Rejected in favour of option A. The "easy to get started" goal is still met: any operator configuring `encryption "sops"` is already a sops user and has the binary. The `external` backend covers the general "shell out to any command" use case.
 
 ### C. Pluggable backends (none / sops / external)
 
@@ -90,7 +91,19 @@ Operators who want to protect certificate metadata (network topology, group memb
 
 ## Decryption on reuse
 
-When a CA is in generate mode and its key was written encrypted in a previous run, subsequent runs must decrypt the key before using it to sign hosts. The active backend's `Decrypt` method is called in-memory; no plaintext temp file is written to disk. This means the operator's decryption credentials (age private key, PGP keyring, AWS IAM role, etc.) must be present in the environment on every reconcile run, not only at CA generation time. This constraint is documented in `hcl-schema.md` under the `encryption "sops"` and `encryption "external"` block references.
+When a CA is in generate mode and its key was written encrypted in a previous run, subsequent runs must decrypt the key before using it to sign hosts. For the `sops` backend, `sops --decrypt` is invoked; for `external`, the configured `decrypt_command` is run. The operator's decryption credentials (age private key, GPG keyring, AWS IAM role, etc.) must be present in the environment on every reconcile run that triggers a host re-sign, not only at CA generation time. This constraint is documented in `hcl-schema.md` under the `encryption "sops"` and `encryption "external"` block references.
+
+No plaintext temp file is written to disk during decryption: the decrypted bytes are piped through stdout directly into memory.
+
+## Manifest encryption metadata
+
+The manifest stores, per encrypted artifact (key file):
+
+- `encryption.backend` — `"sops"` or `"external"`.
+- `encryption.recipients_sha` — SHA-256 of the sorted configured recipient strings (e.g. `"age:<pubkey>"`, `"pgp:<fp>"`). Empty when no inline recipients are configured (i.e., `.sops.yaml` is authoritative). Used by the mismatch warning (see below).
+- `encryption.suffix` — the `output_suffix` value that was active when the file was written (e.g. `".enc"`). Stored so that the tool can locate existing encrypted files even if `output_suffix` is later reconfigured.
+
+The artifact's `key_path` always records the path as it exists on disk (including the suffix), e.g. `"out/ca/mesh.key.enc"`.
 
 ## Recipient-mismatch warning
 
