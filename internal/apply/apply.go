@@ -302,13 +302,15 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc
 		if err != nil {
 			return nil, caPEMs{}, err
 		}
-		if err := fsutil.WriteFile(cfg.Resolve(certPath), result.CertPEM, certMode); err != nil {
-			return nil, caPEMs{}, fmt.Errorf("write CA %q certificate: %w", ca.Label, err)
-		}
-		// Encrypt the key if the active backend requires it; otherwise write plaintext.
+		// Write the key before the cert: a crash between the two leaves a
+		// key-without-cert state (no CA identity established on disk yet) which
+		// is unambiguous and safe to recover by removing the orphaned key.
 		keyManifestPath, encRec, err := writeKeyFile(cfg, enc, keyPath, result.KeyPEM, fmt.Sprintf("CA %q key", ca.Label))
 		if err != nil {
 			return nil, caPEMs{}, err
+		}
+		if err := fsutil.WriteFile(cfg.Resolve(certPath), result.CertPEM, certMode); err != nil {
+			return nil, caPEMs{}, fmt.Errorf("write CA %q certificate: %w", ca.Label, err)
 		}
 		mCA := caResultToManifest(ca, result, certPath, keyManifestPath)
 		mCA.Encryption = encRec
@@ -522,12 +524,9 @@ func applyHosts(cfg *config.Config, enc crypto.Encryptor, opts Options, hostActi
 			}
 		}
 
-		if err := fsutil.WriteFile(cfg.Resolve(newArt.CertPath), result.CertPEM, certMode); err != nil {
-			return nil, nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
-		}
-
-		// Only write a key file for regular (non-in_pub) hosts. in_pub hosts
-		// keep their private key on the device; writing nothing here is correct.
+		// Write the key before the cert (same rationale as the CA path): a crash
+		// between the two leaves an orphaned key that is overwritten on the next
+		// sign run, with no lasting inconsistency.
 		var artKeyPath string
 		var artEncRec *manifest.EncryptionRecord
 		if result.KeyPEM != nil {
@@ -536,6 +535,10 @@ func applyHosts(cfg *config.Config, enc crypto.Encryptor, opts Options, hostActi
 			if err != nil {
 				return nil, nil, err
 			}
+		}
+
+		if err := fsutil.WriteFile(cfg.Resolve(newArt.CertPath), result.CertPEM, certMode); err != nil {
+			return nil, nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
 		}
 
 		durationStr := ""
