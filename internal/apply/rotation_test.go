@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
+	"github.com/anverse/nebula-pki/internal/crypto"
 	"github.com/anverse/nebula-pki/internal/manifest"
 	"github.com/anverse/nebula-pki/internal/plan"
 )
@@ -580,8 +581,12 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	}
 
 	// Dry-run must list the bundle write because active CA count changed 2→1.
+	archiveEnc, err := crypto.New(cfgArchive.Storage.Encryption)
+	if err != nil {
+		t.Fatalf("crypto.New: %v", err)
+	}
 	var buf bytes.Buffer
-	writeDryRunPlan(&buf, cfgArchive, p, current, exists)
+	writeDryRunPlan(&buf, cfgArchive, archiveEnc, p, current, exists)
 	out := buf.String()
 	if strings.Contains(out, "up to date; nothing to do") {
 		t.Errorf("dry-run = %q; want bundle write listed (archival shrinks bundle)", out)
@@ -597,7 +602,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	current2, _ := manifest.Load(cfgArchive.Resolve(cfgArchive.ManifestPath()))
 
 	var buf2 bytes.Buffer
-	writeDryRunPlan(&buf2, cfgArchive, p, current2, exists)
+	writeDryRunPlan(&buf2, cfgArchive, archiveEnc, p, current2, exists)
 	if !strings.Contains(buf2.String(), "up to date; nothing to do") {
 		t.Errorf("post-archival dry-run = %q; want 'up to date; nothing to do'", buf2.String())
 	}

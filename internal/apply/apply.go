@@ -190,8 +190,13 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return nil, err
 	}
 
+	enc, err := crypto.New(cfg.Storage.Encryption)
+	if err != nil {
+		return nil, fmt.Errorf("init encryption backend: %w", err)
+	}
+
 	if opts.DryRun {
-		writeDryRunPlan(coalesceWriter(opts.Out), cfg, p, current, exists)
+		writeDryRunPlan(coalesceWriter(opts.Out), cfg, enc, p, current, exists)
 		report.Deadlines = computeDeadlines(cfg, current, opts.Now)
 		return report, nil
 	}
@@ -199,11 +204,6 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	// Remove any .nebula-pki-plain-* files left behind by a previous SIGKILL.
 	// See spec/adr/003-encryption-strategy.md §"Plaintext temp file during encryption".
 	sweepPlaintextTemps(cfg.Resolve(cfg.Storage.OutDir), opts.Warn)
-
-	enc, err := crypto.New(cfg.Storage.Encryption)
-	if err != nil {
-		return nil, fmt.Errorf("init encryption backend: %w", err)
-	}
 
 	// Collect CA PEM bytes while executing CA actions. Reference CAs must
 	// always be processed so their fingerprint can be compared to what is
@@ -729,10 +729,10 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 // writeDryRunPlan writes a human-readable preview of what a real reconcile
 // would write. Each file is prefixed with "+ write ". When the plan has no
 // mutations (all noops), it prints "up to date; nothing to do".
-func writeDryRunPlan(w io.Writer, cfg *config.Config, p plan.Plan, current *manifest.Manifest, exists func(string) bool) {
+func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p plan.Plan, current *manifest.Manifest, exists func(string) bool) {
 	var writes []string
 
-	suffix := cfg.Storage.Encryption.KeySuffix()
+	suffix := enc.Suffix()
 
 	anyCAGenerate := false
 	for _, caAction := range p.CAActions() {
