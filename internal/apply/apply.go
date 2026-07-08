@@ -419,6 +419,9 @@ func writeKeyFile(cfg *config.Config, enc crypto.Encryptor, basePath string, key
 	if err != nil {
 		return "", nil, fmt.Errorf("encrypt %s: %w", label, err)
 	}
+	if len(ciphertext) == 0 {
+		return "", nil, fmt.Errorf("encrypt %s: backend returned empty ciphertext", label)
+	}
 	if err := fsutil.WriteFile(cfg.Resolve(diskPath), ciphertext, keyMode); err != nil {
 		return "", nil, fmt.Errorf("write encrypted %s: %w", label, err)
 	}
@@ -493,9 +496,8 @@ func applyHosts(cfg *config.Config, enc crypto.Encryptor, opts Options, hostActi
 		if pems.encrypted {
 			return nil, nil, fmt.Errorf(
 				"host %q: signing CA %q key is encrypted on disk; "+
-					"signing hosts under an encrypted CA key requires decrypt support, "+
-					"which ships in v0.1.2 — run nebula-pki once with encryption \"none\" "+
-					"first, or wait for v0.1.2",
+					"signing hosts under an encrypted CA key is not yet supported "+
+					"(decrypt ships in v0.1.2) — upgrade to v0.1.2 to sign new or renewing hosts",
 				h.Label, signingCA.Label,
 			)
 		}

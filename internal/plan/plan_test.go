@@ -99,6 +99,98 @@ func TestBuild_PartialPairError(t *testing.T) {
 	}
 }
 
+// TestBuild_EncryptionConfigChanged_SopsRemoved covers the case where a CA
+// key was previously written encrypted (.key.enc) and the operator removes the
+// encryption block. The planner should emit a targeted error about the config
+// change rather than the generic "inconsistent CA state / remove the cert" message.
+func TestBuild_EncryptionConfigChanged_SopsRemoved(t *testing.T) {
+	cfg := parseCfg(t, `ca "mesh" { name = "m" }`) // no encryption block → suffix ""
+	ca := cfg.CAs[0]
+	certPath := cfg.CACertPathForCA(ca)
+	oldKeyPath := cfg.CAKeyPathForCA(ca) + ".enc" // written in the previous encrypted run
+
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Mode:    "generate",
+		Name:    "m",
+		KeyPath: oldKeyPath, // manifest records the on-disk encrypted path
+	}
+
+	_, err := Build(cfg, m, testNow, existsSet(certPath, oldKeyPath), Options{})
+	if err == nil {
+		t.Fatal("Build: want error for encryption-config change, got nil")
+	}
+	if !strings.Contains(err.Error(), "encryption configuration changed") {
+		t.Errorf("error = %q, want it to mention 'encryption configuration changed'", err.Error())
+	}
+	if !strings.Contains(err.Error(), oldKeyPath) {
+		t.Errorf("error = %q, want it to name the manifest-recorded key path %q", err.Error(), oldKeyPath)
+	}
+}
+
+// TestBuild_EncryptionConfigChanged_SopsAdded mirrors the removal case: a CA
+// key was previously written as plaintext (.key) and the operator adds sops
+// encryption. The planner should detect the path mismatch from the manifest.
+func TestBuild_EncryptionConfigChanged_SopsAdded(t *testing.T) {
+	cfg := parseCfg(t, `
+ca "mesh" { name = "m" }
+storage {
+  encryption "sops" {
+    age = ["age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"]
+  }
+}`)
+	ca := cfg.CAs[0]
+	certPath := cfg.CACertPathForCA(ca)
+	oldKeyPath := cfg.CAKeyPathForCA(ca) // plaintext path from previous run
+	newKeyPath := oldKeyPath + ".enc"    // what the current config expects
+
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Mode:    "generate",
+		Name:    "m",
+		KeyPath: oldKeyPath, // manifest records the plaintext path
+	}
+
+	// Disk has cert + old plaintext key, but NOT the new .enc path.
+	_, err := Build(cfg, m, testNow, existsSet(certPath, oldKeyPath), Options{})
+	if err == nil {
+		t.Fatal("Build: want error for encryption-config change, got nil")
+	}
+	if !strings.Contains(err.Error(), "encryption configuration changed") {
+		t.Errorf("error = %q, want it to mention 'encryption configuration changed'", err.Error())
+	}
+	// Error must name both the old path (where the key is) and the new path (what was expected).
+	if !strings.Contains(err.Error(), oldKeyPath) {
+		t.Errorf("error = %q, want it to name the manifest-recorded key path %q", err.Error(), oldKeyPath)
+	}
+	if !strings.Contains(err.Error(), newKeyPath) {
+		t.Errorf("error = %q, want it to name the expected key path %q", err.Error(), newKeyPath)
+	}
+}
+
+// TestBuild_GenuinelyMissingKeyStillErrors verifies that a genuinely missing
+// key (manifest records the same path as the current config, but the file is
+// absent) still produces the ordinary "inconsistent CA state" error, not the
+// encryption-config-changed message.
+func TestBuild_GenuinelyMissingKeyStillErrors(t *testing.T) {
+	cfg := parseCfg(t, `ca "mesh" { name = "m" }`) // no encryption
+	ca := cfg.CAs[0]
+	certPath := cfg.CACertPathForCA(ca)
+	keyPath := cfg.CAKeyPathForCA(ca)
+
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m", KeyPath: keyPath}
+
+	// cert present, key genuinely absent
+	_, err := Build(cfg, m, testNow, existsSet(certPath), Options{})
+	if err == nil {
+		t.Fatal("Build: want error for missing key, got nil")
+	}
+	if !strings.Contains(err.Error(), "inconsistent CA state") {
+		t.Errorf("error = %q, want it to mention 'inconsistent CA state'", err.Error())
+	}
+}
+
 // TestBuild_KeyOnlyError mirrors the cert-only case from the other side
 // of the partial-pair switch.
 func TestBuild_KeyOnlyError(t *testing.T) {

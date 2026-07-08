@@ -10,10 +10,24 @@ import (
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
+	"github.com/anverse/nebula-pki/internal/crypto"
 	"github.com/anverse/nebula-pki/internal/manifest"
 	"github.com/anverse/nebula-pki/internal/pki"
 	"github.com/slackhq/nebula/cert"
 )
+
+// emptyEncryptor is a test stub that implements crypto.Encryptor. It reports a
+// non-empty suffix (so writeKeyFile takes the encryption branch) but returns
+// empty ciphertext without an error, simulating a sops bug where the process
+// exits 0 with no stdout.
+type emptyEncryptor struct{}
+
+func (e *emptyEncryptor) Encrypt(_ []byte, _ string) ([]byte, error) { return []byte{}, nil }
+func (e *emptyEncryptor) Suffix() string                             { return ".enc" }
+func (e *emptyEncryptor) BackendName() string                        { return "test" }
+func (e *emptyEncryptor) RecipientsHash() string                     { return "" }
+
+var _ crypto.Encryptor = (*emptyEncryptor)(nil) // compile-time interface check
 
 // fixedNow is a deterministic issuance time for assertions.
 var fixedNow = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -1589,4 +1603,21 @@ func parseCertBytes(t *testing.T, pemBytes []byte) nebulaPublicKeyer {
 // nebulaPublicKeyer is the subset of cert.Certificate we use in tests.
 type nebulaPublicKeyer interface {
 	PublicKey() []byte
+}
+
+// TestWriteKeyFile_EmptyCiphertextError verifies that writeKeyFile rejects
+// a zero-byte ciphertext returned by the encryption backend. This guards
+// against sops exiting 0 with empty stdout, which would otherwise silently
+// write a zero-byte file and permanently lose the private key.
+func TestWriteKeyFile_EmptyCiphertextError(t *testing.T) {
+	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+	enc := &emptyEncryptor{}
+
+	_, _, err := writeKeyFile(cfg, enc, "out/ca/mesh.key", []byte("fake key PEM"), "CA \"mesh\" key")
+	if err == nil {
+		t.Fatal("writeKeyFile: want error for empty ciphertext, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty ciphertext") {
+		t.Errorf("error = %q, want it to mention 'empty ciphertext'", err.Error())
+	}
 }

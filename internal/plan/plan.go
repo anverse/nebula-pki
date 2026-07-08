@@ -301,6 +301,21 @@ func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func
 			Desc:       fmt.Sprintf("generate CA %q (%s)", ca.Label, ca.Name),
 			EncryptKey: encryptKey,
 		}, nil
+	case tracked && haveCert && !haveKey:
+		// Before emitting a generic caStateError, check whether the key exists
+		// at the manifest-recorded path. If it does, the encryption config changed
+		// between runs (e.g. sops enabled/disabled or output_suffix renamed) rather
+		// than the key being genuinely missing.
+		if rec := m.CAs[ca.Label]; rec != nil && rec.KeyPath != "" && rec.KeyPath != encKeyPath && exists(rec.KeyPath) {
+			return Action{}, fmt.Errorf(
+				"ca %q: encryption configuration changed: CA key exists at %s "+
+					"(recorded in manifest) but current config expects it at %s; "+
+					"use `nebula-pki reencrypt` to migrate between encryption configs, "+
+					"or manually move/rename the key file to the expected path",
+				ca.Label, rec.KeyPath, encKeyPath,
+			)
+		}
+		return Action{}, caStateError(ca.Label, tracked, haveCert, haveKey, certPath, encKeyPath)
 	default:
 		return Action{}, caStateError(ca.Label, tracked, haveCert, haveKey, certPath, encKeyPath)
 	}
