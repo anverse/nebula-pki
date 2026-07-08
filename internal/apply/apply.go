@@ -21,6 +21,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
@@ -194,6 +195,10 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		report.Deadlines = computeDeadlines(cfg, current, opts.Now)
 		return report, nil
 	}
+
+	// Remove any .nebula-pki-plain-* files left behind by a previous SIGKILL.
+	// See spec/adr/003-encryption-strategy.md §"Plaintext temp file during encryption".
+	sweepPlaintextTemps(cfg.Resolve(cfg.Storage.OutDir), opts.Warn)
 
 	enc, err := crypto.New(cfg.Storage.Encryption)
 	if err != nil {
@@ -401,6 +406,26 @@ func caResultToManifest(ca *config.CA, result *pki.CAResult, certPath, keyPath s
 		Default:     ca.Default,
 		Archived:    ca.Archived,
 	}
+}
+
+// sweepPlaintextTemps removes any leftover .nebula-pki-plain-* files under
+// root. These are plaintext key temp files created by SopsBackend.Encrypt that
+// survive when the process is killed before defer os.Remove fires (e.g.
+// SIGKILL, OOM, power loss). The sweep is best-effort: individual remove
+// errors are printed to warn but do not abort the reconcile.
+// Note: per-host output_dir values outside root are not swept.
+func sweepPlaintextTemps(root string, warn io.Writer) {
+	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error { //nolint:errcheck
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".nebula-pki-plain-") {
+			if removeErr := os.Remove(path); removeErr != nil {
+				fmt.Fprintf(coalesceWriter(warn), "warning: could not remove stale plaintext temp file %s: %v\n", path, removeErr)
+			}
+		}
+		return nil
+	})
 }
 
 // writeKeyFile writes a private key to disk, encrypting it if the active

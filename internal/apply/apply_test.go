@@ -1605,6 +1605,35 @@ type nebulaPublicKeyer interface {
 	PublicKey() []byte
 }
 
+// TestSweepPlaintextTemps verifies that sweepPlaintextTemps removes
+// .nebula-pki-plain-* files and leaves unrelated files untouched.
+func TestSweepPlaintextTemps(t *testing.T) {
+	dir := t.TempDir()
+
+	write := func(name string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		return path
+	}
+
+	plain1 := write(".nebula-pki-plain-abc123")
+	plain2 := write(".nebula-pki-plain-def456")
+	unrelated := write("mesh.key.enc")
+
+	sweepPlaintextTemps(dir, nil)
+
+	for _, p := range []string{plain1, plain2} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("expected %s to be removed, but it still exists", filepath.Base(p))
+		}
+	}
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Errorf("unrelated file %s was unexpectedly removed", filepath.Base(unrelated))
+	}
+}
+
 // TestWriteKeyFile_EmptyCiphertextError verifies that writeKeyFile rejects
 // a zero-byte ciphertext returned by the encryption backend. This guards
 // against sops exiting 0 with empty stdout, which would otherwise silently

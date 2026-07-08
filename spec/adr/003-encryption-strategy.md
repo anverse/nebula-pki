@@ -47,6 +47,7 @@ Specifically:
 
 * `sops` binary must be present in PATH when using this backend.
 * Subprocess error handling is noisier than library calls (stderr captured and re-emitted).
+* During encryption a plaintext temp file (`.nebula-pki-plain-*`) is written to the output directory so sops can discover `.sops.yaml`. A `defer os.Remove` cleans it up on normal exit; SIGKILL or power loss can leave it behind. `nebula-pki` sweeps these files at the start of the next run (see §"Plaintext temp file during encryption").
 
 ## Pros and Cons of the Options
 
@@ -94,6 +95,18 @@ Operators who want to protect certificate metadata (network topology, group memb
 When a CA is in generate mode and its key was written encrypted in a previous run, subsequent runs must decrypt the key before using it to sign hosts. For the `sops` backend, `sops --decrypt` is invoked; for `external`, the configured `decrypt_command` is run. The operator's decryption credentials (age private key, GPG keyring, AWS IAM role, etc.) must be present in the environment on every reconcile run that triggers a host re-sign, not only at CA generation time. This constraint is documented in `hcl-schema.md` under the `encryption "sops"` and `encryption "external"` block references.
 
 No plaintext temp file is written to disk during decryption: the decrypted bytes are piped through stdout directly into memory.
+
+## Plaintext temp file during encryption
+
+The sops backend must write the key material to a temporary file in the target output directory before invoking `sops --encrypt`. This lets sops perform its standard upward search for `.sops.yaml` from the correct location. The file is created with mode `0o600` (owner-only read/write) and removed via `defer` immediately after sops returns.
+
+A `defer os.Remove` does not execute when the process is killed with SIGKILL, by the OOM killer, or by a hardware power loss. In those cases a `.nebula-pki-plain-*` file containing plaintext key material is left in the output directory.
+
+**Mitigation — startup sweep:** On every real reconcile run (not `--dry-run`), `nebula-pki` walks the standard output tree (`storage.out_dir`) and removes any `.nebula-pki-plain-*` files before doing any other work. This makes the SIGKILL case self-healing on the next run.
+
+**Known gap:** per-host `output_dir` values set to an absolute path outside `storage.out_dir` are not included in the sweep. Operators using custom output dirs should verify no orphaned files remain after an abnormal exit.
+
+This is a known limitation of the CLI subprocess approach — it does not apply to the `none` backend and will not apply to the `external` backend either, since those do not require a plaintext input file on disk.
 
 ## Manifest encryption metadata
 

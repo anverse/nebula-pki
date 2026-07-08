@@ -102,7 +102,7 @@ Shells out to the `sops` binary. **The `sops` binary must be in PATH** when this
 | `config` | string | `--config` | Explicit `.sops.yaml` path. Defaults to upward search from each output file. |
 | `output_suffix` | string | — | nebula-pki-specific. Default `".enc"`. |
 
-When the block is left empty (`encryption "sops" {}`), nebula-pki relies entirely on `.sops.yaml`. This is the recommended setup when an operator already runs sops for other secrets.
+When the block is left empty (`encryption "sops" {}`), nebula-pki relies entirely on `.sops.yaml`. This is the recommended setup when an operator already runs sops for other secrets. On every non-dry-run reconcile, `nebula-pki` sweeps the output directory for leftover `.nebula-pki-plain-*` temp files from any previous abnormal exit and removes them before proceeding (see ADR-003 §"Plaintext temp file during encryption").
 
 #### `encryption "external" { ... }`
 
