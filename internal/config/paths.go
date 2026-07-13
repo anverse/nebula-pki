@@ -96,6 +96,16 @@ type ArtifactPath struct {
 	KeyPath  string
 }
 
+// CACertFilename returns the filename (basename only) of the CA certificate.
+// When out_crt is set, it is the basename of that path; otherwise it is
+// <label>.crt. This is the filename used for link_crt symlinks (ADR-021).
+func (c *Config) CACertFilename(ca CA) string {
+	if ca.OutCRT != "" {
+		return filepath.Base(ca.OutCRT)
+	}
+	return ca.Label + ".crt"
+}
+
 // HostArtifactPath returns the single destination a host's cert and key
 // should be written to. This is the single source of truth used by both
 // plan and apply.

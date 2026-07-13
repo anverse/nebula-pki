@@ -161,6 +161,11 @@ type CA struct {
 	// See ADR-016.
 	Archived bool
 
+	// LinkCrt is a list of directories where a relative symlink to this CA's
+	// certificate should be created. Symlink filename follows CACertFilename.
+	// See ADR-021 and spec/milestones/v0.2.md §"CA cert links".
+	LinkCrt []string
+
 	// Reference-mode fields.
 	CertFile string
 	KeyFile  string
@@ -345,6 +350,7 @@ type rawCA struct {
 	KeyFile          *string  `hcl:"key_file,optional"`
 	RenewBefore      *string  `hcl:"renew_before,optional"`
 	Archived         *bool    `hcl:"archived,optional"`
+	LinkCrt          []string `hcl:"link_crt,optional"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
@@ -538,6 +544,7 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 	if r.Archived != nil {
 		ca.Archived = *r.Archived
 	}
+	ca.LinkCrt = append(ca.LinkCrt, r.LinkCrt...)
 
 	return ca, nil
 }
@@ -823,6 +830,12 @@ func validateOneCA(filename string, ca *CA) error {
 	// making the configuration immediately invalid.
 	if ca.Archived && ca.Default {
 		return fmt.Errorf("ca %q: an archived CA cannot be marked default = true", ca.Label)
+	}
+
+	for i, d := range ca.LinkCrt {
+		if d == "" {
+			return fmt.Errorf("ca %q: link_crt[%d]: directory path must not be empty", ca.Label, i)
+		}
 	}
 
 	return nil

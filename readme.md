@@ -109,6 +109,55 @@ host "lh_fra" {
 }
 ```
 
+## CA cert links
+
+When hosts are fanned out to per-provider directories via `output_dir`, each directory also needs the CA certificate for that host to authenticate against. The CA cert lives under `out/ca/` — it doesn't follow `output_dir` automatically.
+
+Use `link_crt` on a `ca` block to place a relative symlink of the CA certificate into each directory that needs it:
+
+```hcl
+ca "mesh" {
+  name     = "mesh-2026"
+  duration = "8760h"
+  link_crt = ["out/hetzner", "out/aws"]
+}
+
+host "lh_fra" {
+  networks   = ["10.42.0.1/16"]
+  output_dir = "out/hetzner"
+}
+
+host "app_01" {
+  networks   = ["10.42.1.10/16"]
+  output_dir = "out/aws"
+}
+```
+
+After `nebula-pki`, each output directory contains both the host's cert/key pair and a symlink to the CA cert:
+
+```
+out/
+  ca/mesh.crt           ← actual CA certificate
+  hetzner/
+    lh-fra.crt
+    lh-fra.key
+    mesh.crt → ../ca/mesh.crt   ← symlink
+  aws/
+    app-01.crt
+    app-01.key
+    mesh.crt → ../ca/mesh.crt   ← symlink
+```
+
+**Symlink name** is the CA cert filename: `<label>.crt` by default, or the basename of `out_crt` when that is set. This is the same name across the CA cert file and all its links.
+
+**Relative targets** — symlink targets are always relative (computed via `filepath.Rel`), so they survive `git clone` to any absolute path on any machine. The link `out/hetzner/mesh.crt` stores `../ca/mesh.crt` as its target, not an absolute path.
+
+**Idempotency** — a re-run is a no-op when the symlink already points to the correct target. A broken or wrong-target symlink is recreated. A regular file at a declared link path is an error (never clobbered).
+
+**Stale cleanup** — removing a directory from `link_crt` causes the old symlink to be deleted on the next run. If a regular file now occupies the path, a notice is printed and the file is left alone.
+
+The manifest records each managed link under `cas.<label>.links` so the tool can detect stale links across runs.
+
 ## Trust bundle
 
 Every run writes `out/ca/bundle.crt`, a concatenated PEM of all active CA certificates suitable for `pki.ca` in each host's Nebula `config.yaml`. The path is configurable:

@@ -110,6 +110,12 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		fmt.Fprintf(w, "  cert: %s\n", ca.CertPath)
 		fmt.Fprintf(w, "  key:  %s\n", ca.KeyPath)
 	}
+	for _, l := range rep.CreatedLinks {
+		fmt.Fprintf(w, "linked CA %q\n  %s\n", l.CALabel, l.Path)
+	}
+	for _, p := range rep.DeletedLinks {
+		fmt.Fprintf(w, "deleted link %s\n", p)
+	}
 	for _, h := range rep.SignedHosts {
 		fmt.Fprintf(w, "signed host %q\n", h.Label)
 		for _, a := range h.Artifacts {

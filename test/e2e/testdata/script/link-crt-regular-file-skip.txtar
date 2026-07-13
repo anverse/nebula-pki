@@ -1,0 +1,35 @@
+# When a stale link path is now occupied by a regular file, the tool prints a
+# notice and skips deletion — it never auto-deletes non-symlink files.
+
+[!exec:ln] skip 'ln not in PATH'
+
+# Run 1: link_crt = ["out/hetzner"]; symlink created.
+cp nebula.v1.hcl nebula.hcl
+exec nebula-pki
+exists out/hetzner/mesh.crt
+
+# Replace the symlink with a regular file.
+rm out/hetzner/mesh.crt
+cp nebula.v1.hcl out/hetzner/mesh.crt
+
+# Run 2: link_crt removed; stale path now holds a regular file.
+cp nebula.v2.hcl nebula.hcl
+exec nebula-pki
+stderr 'notice.*out/hetzner/mesh\.crt.*not a symlink'
+! stderr 'deleted link'
+! stdout .
+
+# Regular file is untouched.
+exists out/hetzner/mesh.crt
+grep 'ca "mesh"' out/hetzner/mesh.crt
+
+-- nebula.v1.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}
+
+-- nebula.v2.hcl --
+ca "mesh" {
+  name = "mesh"
+}

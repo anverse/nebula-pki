@@ -70,6 +70,15 @@ type EncryptionRecord struct {
 	Suffix string `json:"suffix,omitempty"`
 }
 
+// CertLink records one managed symlink pointing to a CA's certificate.
+type CertLink struct {
+	// Path is the logical symlink path (relative to the config file's directory).
+	Path string `json:"path"`
+	// Target is the relative string stored inside the symlink, as returned by
+	// os.Readlink. Relative targets survive git clone to any absolute path.
+	Target string `json:"target"`
+}
+
 // CA is the certificate-authority record. Mode is "generate" or
 // "reference".
 type CA struct {
@@ -86,6 +95,8 @@ type CA struct {
 	Archived    bool      `json:"archived,omitempty"`
 	// Encryption is non-nil when the CA key file was written encrypted.
 	Encryption *EncryptionRecord `json:"encryption,omitempty"`
+	// Links records the managed link_crt symlinks for this CA (ADR-021).
+	Links []CertLink `json:"links,omitempty"`
 }
 
 // Host is a signed host record.

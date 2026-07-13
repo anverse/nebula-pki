@@ -53,10 +53,11 @@ Each CA has two mutually exclusive modes:
 | `out_qr` | string | no | unset | `-out-qr` | Optional PNG QR. Generate mode only. |
 | `cert_file` | string | no (yes for reference mode) | — | `-ca-crt` (on sign) | Path to an existing CA cert. Activates reference mode. |
 | `key_file` | string | no (yes for reference mode) | — | `-ca-key` (on sign) | Path to an existing CA key. Activates reference mode. |
+| `link_crt` | list(string) | no | `[]` | — | Directories where a relative symlink to this CA's cert should be placed. Each entry is a directory path; the symlink filename is `<label>.crt` (or `basename(out_crt)` when set). Symlink targets are relative (safe to commit to git). Parent directories are created if absent. Correct symlinks are no-ops; broken or wrong-target symlinks are recreated; a regular file at the path is an error. Stale links (directory removed from `link_crt`) are deleted; if a regular file now occupies the path, a notice is printed and the file is left alone. See [ADR-021](./adr/021-ca-cert-links.md). |
 
 **Mode selection:** if either `cert_file` or `key_file` is set, both must be set, and reference mode is active for that CA. Otherwise generate mode is active.
 
-**Generate-only fields** (`name` aside): `duration`, `version`, `curve`, `encrypt`, `argon_*`, `out_crt`, `out_key`, `out_qr`. Setting any of them in reference mode is an error.
+**Generate-only fields** (`name` aside): `duration`, `version`, `curve`, `encrypt`, `argon_*`, `out_crt`, `out_key`, `out_qr`. Setting any of them in reference mode is an error. `link_crt` is allowed in both modes.
 
 #### Signing-CA selection
 
@@ -68,6 +69,55 @@ Each host resolves to exactly one signing CA:
 4. else it is a validation error (ambiguous — name a CA or mark one default).
 
 This mirrors Terraform's provider model: one CA is the default (here via `default = true`), the rest are aliases a host selects with `host.ca`, and a host that names nothing gets the default. Per-CA `groups` / `networks` / `unsafe_networks` restrictions are validated against each host **relative to the CA that signs it**. See [ADR-015](./adr/015-multiple-cas-per-config.md). For the rotation workflow built on this, see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md) and the [rotation example](#ca-rotation-example) below.
+
+#### `link_crt` example
+
+`link_crt` is most useful paired with `host.output_dir`. Declare the same set of directories in both fields so every per-provider directory contains both the host certs and the CA cert it needs:
+
+```hcl
+ca "mesh" {
+  name     = "mesh-2026"
+  duration = "8760h"
+  link_crt = ["out/hetzner", "out/aws"]
+}
+
+host "lh_fra" {
+  networks   = ["10.42.0.1/16"]
+  output_dir = "out/hetzner"
+}
+
+host "app_01" {
+  networks   = ["10.42.1.10/16"]
+  output_dir = "out/aws"
+}
+```
+
+Result after `nebula-pki`:
+
+```
+out/
+  ca/
+    mesh.crt              ← real CA certificate
+  hetzner/
+    lh-fra.crt
+    lh-fra.key
+    mesh.crt → ../ca/mesh.crt   ← relative symlink
+  aws/
+    app-01.crt
+    app-01.key
+    mesh.crt → ../ca/mesh.crt   ← relative symlink
+```
+
+When `out_crt` renames the CA cert file, the symlink filename follows:
+
+```hcl
+ca "mesh" {
+  out_crt  = "out/ca/ca.crt"            # cert written as ca.crt
+  link_crt = ["out/hetzner", "out/aws"]
+}
+# creates: out/hetzner/ca.crt → ../../ca/ca.crt
+#          out/aws/ca.crt     → ../../ca/ca.crt
+```
 
 ### `storage`
 

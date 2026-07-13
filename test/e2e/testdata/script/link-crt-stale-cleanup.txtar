@@ -1,0 +1,33 @@
+# Removing a directory from link_crt on the next run deletes the old symlink.
+
+# Run 1: link_crt = ["out/hetzner"]
+cp nebula.v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^linked CA "mesh"$'
+stderr 'out/hetzner/mesh\.crt'
+exists out/hetzner/mesh.crt
+
+# Run 2: link_crt removed.
+cp nebula.v2.hcl nebula.hcl
+exec nebula-pki
+stderr '^deleted link out/hetzner/mesh\.crt$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stderr 'linked CA'
+! stdout .
+
+# Symlink is gone.
+! exists out/hetzner/mesh.crt
+
+# Manifest no longer records any links.
+! grep '"links"' out/nebula-pki.json
+
+-- nebula.v1.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}
+
+-- nebula.v2.hcl --
+ca "mesh" {
+  name = "mesh"
+}

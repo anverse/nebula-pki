@@ -642,3 +642,78 @@ func TestGroupsNotIn_Sorted(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_LinkCrt(t *testing.T) {
+	cases := []struct {
+		name        string
+		src         string
+		wantLinkCrt []string
+		wantErr     string
+	}{
+		{
+			name: "two dirs",
+			src: `ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner", "out/aws"]
+}`,
+			wantLinkCrt: []string{"out/hetzner", "out/aws"},
+		},
+		{
+			name: "empty list",
+			src: `ca "mesh" {
+  name     = "mesh"
+  link_crt = []
+}`,
+			wantLinkCrt: nil,
+		},
+		{
+			name: "omitted is nil",
+			src:  `ca "mesh" { name = "mesh" }`,
+			wantLinkCrt: nil,
+		},
+		{
+			name: "empty string entry rejected",
+			src: `ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/ok", ""]
+}`,
+			wantErr: `link_crt[1]: directory path must not be empty`,
+		},
+		{
+			name: "link_crt allowed in reference mode",
+			src: `ca "ref" {
+  cert_file = "ca.crt"
+  key_file  = "ca.key"
+  link_crt  = ["out/hetzner"]
+}`,
+			wantLinkCrt: []string{"out/hetzner"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Parse("test.hcl", []byte(tc.src))
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("Parse: want error containing %q, got nil", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %q, want to contain %q", err.Error(), tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			got := cfg.CAs[0].LinkCrt
+			if len(got) != len(tc.wantLinkCrt) {
+				t.Fatalf("LinkCrt = %v, want %v", got, tc.wantLinkCrt)
+			}
+			for i, v := range tc.wantLinkCrt {
+				if got[i] != v {
+					t.Errorf("LinkCrt[%d] = %q, want %q", i, got[i], v)
+				}
+			}
+		})
+	}
+}

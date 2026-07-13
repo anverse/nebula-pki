@@ -1,0 +1,35 @@
+# A symlink with the wrong target is detected and recreated with the correct
+# relative target on the next run.
+
+[!exec:ln]       skip 'ln not in PATH'
+[!exec:readlink] skip 'readlink not in PATH'
+
+# Run 1: correct symlink created.
+exec nebula-pki
+exists out/hetzner/mesh.crt
+
+# Overwrite with a wrong-target symlink.
+rm out/hetzner/mesh.crt
+exec ln -s /wrong/absolute/target.crt out/hetzner/mesh.crt
+
+exec readlink out/hetzner/mesh.crt
+stdout '^/wrong/absolute/target\.crt$'
+
+# Run 2: wrong target detected; symlink recreated.
+exec nebula-pki
+stderr '^linked CA "mesh"$'
+stderr 'out/hetzner/mesh\.crt'
+! stderr 'nothing to do'
+! stdout .
+
+exec readlink out/hetzner/mesh.crt
+stdout '^\.\.\/ca\/mesh\.crt$'
+
+# Symlink resolves to the real CA cert.
+grep 'NEBULA CERTIFICATE' out/hetzner/mesh.crt
+
+-- nebula.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}

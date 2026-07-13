@@ -1,0 +1,33 @@
+# link_crt creates a symlink into each declared directory on the first run.
+# The second run is a noop: manifest and symlink are already correct.
+
+exec nebula-pki
+stderr '^generated CA "mesh" \(mesh\)$'
+stderr '^linked CA "mesh"$'
+stderr '^  out/hetzner/mesh\.crt$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+! stdout .
+
+# Symlink exists.
+exists out/hetzner/mesh.crt
+
+# CA cert and symlink are both PEM certificates.
+grep 'NEBULA CERTIFICATE' out/ca/mesh.crt
+grep 'NEBULA CERTIFICATE' out/hetzner/mesh.crt
+
+# Manifest records the link.
+grep '"links"' out/nebula-pki.json
+grep '"out/hetzner/mesh\.crt"' out/nebula-pki.json
+
+# Second run: all up to date.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'linked CA'
+! stderr 'generated CA'
+! stdout .
+
+-- nebula.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}

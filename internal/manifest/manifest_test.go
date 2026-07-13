@@ -401,3 +401,72 @@ func TestRoundTripNormalisesNonUTCTime(t *testing.T) {
 		t.Errorf("NotBefore instant changed: got %v, want %v", tzCA.NotBefore, t0)
 	}
 }
+
+func TestCA_LinksRoundTrip(t *testing.T) {
+	m := New()
+	m.CAs["mesh"] = &CA{
+		Mode:        "generate",
+		Name:        "mesh",
+		Fingerprint: "abc123",
+		Curve:       "25519",
+		Version:     2,
+		CertPath:    "out/ca/mesh.crt",
+		KeyPath:     "out/ca/mesh.key",
+		Links: []CertLink{
+			{Path: "out/hetzner/mesh.crt", Target: "../ca/mesh.crt"},
+			{Path: "out/aws/mesh.crt", Target: "../ca/mesh.crt"},
+		},
+	}
+
+	data, err := Marshal(m)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	// Links appear in JSON.
+	if !strings.Contains(string(data), `"links"`) {
+		t.Error("marshalled JSON missing \"links\" key")
+	}
+	if !strings.Contains(string(data), `"out/hetzner/mesh.crt"`) {
+		t.Error("marshalled JSON missing first link path")
+	}
+
+	// Write and reload.
+	path := filepath.Join(t.TempDir(), "nebula-pki.json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	links := got.CAs["mesh"].Links
+	if len(links) != 2 {
+		t.Fatalf("Links len = %d, want 2", len(links))
+	}
+	if links[0].Path != "out/hetzner/mesh.crt" || links[0].Target != "../ca/mesh.crt" {
+		t.Errorf("Links[0] = %+v, unexpected", links[0])
+	}
+}
+
+func TestCA_LinksOmittedWhenNil(t *testing.T) {
+	m := New()
+	m.CAs["mesh"] = &CA{
+		Mode:        "generate",
+		Name:        "mesh",
+		Fingerprint: "abc",
+		Curve:       "25519",
+		Version:     2,
+		CertPath:    "out/ca/mesh.crt",
+		KeyPath:     "out/ca/mesh.key",
+		// Links intentionally nil
+	}
+	data, err := Marshal(m)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(data), `"links"`) {
+		t.Error("marshalled JSON contains \"links\" key for nil slice, want omitted")
+	}
+}

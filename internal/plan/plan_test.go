@@ -1,6 +1,9 @@
 package plan
 
 import (
+	"fmt"
+	"io/fs"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -845,5 +848,225 @@ host "phone" {
 		if a.Label == "phone" && a.Op != OpNoop {
 			t.Errorf("phone op = %q, want noop (NoRenewal suppresses window)", a.Op)
 		}
+	}
+}
+
+// ── link_crt planning ────────────────────────────────────────────────────────
+
+// mockLstat returns a probe that returns the given mode for a path, or
+// fs.ErrNotExist when the path is not in the map.
+func mockLstat(states map[string]os.FileMode) func(string) (os.FileMode, error) {
+	return func(path string) (os.FileMode, error) {
+		mode, ok := states[path]
+		if !ok {
+			return 0, fs.ErrNotExist
+		}
+		return mode, nil
+	}
+}
+
+// mockReadlink returns a probe that reads from the given map.
+func mockReadlink(targets map[string]string) func(string) (string, error) {
+	return func(path string) (string, error) {
+		t, ok := targets[path]
+		if !ok {
+			return "", fmt.Errorf("readlink %s: not a symlink", path)
+		}
+		return t, nil
+	}
+}
+
+func TestBuild_LinkCrt_AbsentCreatesSymlink(t *testing.T) {
+	cfg := parseCfg(t, `
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}`)
+	m := manifest.New()
+	// CA tracked and cert present (generate already done).
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "mesh"}
+	ca := cfg.CAs[0]
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)),
+		Options{
+			Lstat:    mockLstat(nil), // all absent
+			Readlink: mockReadlink(nil),
+		})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	links := p.LinkActions()
+	if len(links) != 1 {
+		t.Fatalf("LinkActions = %d, want 1", len(links))
+	}
+	if links[0].Op != OpCreateSymlink {
+		t.Errorf("op = %q, want create_symlink", links[0].Op)
+	}
+	if links[0].Label != "mesh" {
+		t.Errorf("label = %q, want mesh", links[0].Label)
+	}
+	if links[0].Path != "out/hetzner/mesh.crt" {
+		t.Errorf("path = %q, want out/hetzner/mesh.crt", links[0].Path)
+	}
+	// Target is relative: filepath.Rel("out/hetzner", "out/ca/mesh.crt") = "../ca/mesh.crt"
+	if links[0].LinkTarget != "../ca/mesh.crt" {
+		t.Errorf("target = %q, want ../ca/mesh.crt", links[0].LinkTarget)
+	}
+	if links[0].LinkDir != "out/hetzner" {
+		t.Errorf("dir = %q, want out/hetzner", links[0].LinkDir)
+	}
+}
+
+func TestBuild_LinkCrt_CorrectSymlinkIsNoop(t *testing.T) {
+	cfg := parseCfg(t, `
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}`)
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "mesh"}
+	ca := cfg.CAs[0]
+
+	// Compute the abs link path as plan.go would.
+	absLinkPath := cfg.Resolve("out/hetzner/mesh.crt")
+	expectedTarget := "../ca/mesh.crt"
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)),
+		Options{
+			Lstat:    mockLstat(map[string]os.FileMode{absLinkPath: os.ModeSymlink}),
+			Readlink: mockReadlink(map[string]string{absLinkPath: expectedTarget}),
+		})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	links := p.LinkActions()
+	if len(links) != 1 {
+		t.Fatalf("LinkActions = %d, want 1", len(links))
+	}
+	if links[0].Op != OpNoop {
+		t.Errorf("op = %q, want noop", links[0].Op)
+	}
+	// Noop link does NOT count as a change.
+	if p.Changes() {
+		// Only count non-link ops for a CA that is otherwise noop.
+		for _, a := range p.Actions {
+			if a.Kind != KindLink && a.Op != OpNoop {
+				t.Errorf("unexpected non-noop action: %+v", a)
+			}
+		}
+	}
+}
+
+func TestBuild_LinkCrt_WrongTargetRecreates(t *testing.T) {
+	cfg := parseCfg(t, `
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}`)
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "mesh"}
+	ca := cfg.CAs[0]
+
+	absLinkPath := cfg.Resolve("out/hetzner/mesh.crt")
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)),
+		Options{
+			Lstat:    mockLstat(map[string]os.FileMode{absLinkPath: os.ModeSymlink}),
+			Readlink: mockReadlink(map[string]string{absLinkPath: "/absolute/wrong/path.crt"}),
+		})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	links := p.LinkActions()
+	if len(links) != 1 || links[0].Op != OpCreateSymlink {
+		t.Fatalf("LinkActions = %v, want [create_symlink]", links)
+	}
+}
+
+func TestBuild_LinkCrt_RegularFileErrors(t *testing.T) {
+	cfg := parseCfg(t, `
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}`)
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "mesh"}
+	ca := cfg.CAs[0]
+
+	absLinkPath := cfg.Resolve("out/hetzner/mesh.crt")
+
+	_, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)),
+		Options{
+			// 0600 = regular file (no ModeSymlink bit)
+			Lstat:    mockLstat(map[string]os.FileMode{absLinkPath: 0o600}),
+			Readlink: mockReadlink(nil),
+		})
+	if err == nil {
+		t.Fatal("Build: want error for regular file at link path, got nil")
+	}
+	if !strings.Contains(err.Error(), "is not a symlink") {
+		t.Errorf("error = %q, want to contain \"is not a symlink\"", err.Error())
+	}
+}
+
+func TestBuild_LinkCrt_StaleManifestLinkDeleted(t *testing.T) {
+	// link_crt removed from config; manifest still records the old link.
+	cfg := parseCfg(t, `ca "mesh" { name = "mesh" }`) // no link_crt
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Mode: "generate", Name: "mesh",
+		Links: []manifest.CertLink{{Path: "out/hetzner/mesh.crt", Target: "../ca/mesh.crt"}},
+	}
+	ca := cfg.CAs[0]
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)),
+		Options{Lstat: mockLstat(nil)})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	links := p.LinkActions()
+	if len(links) != 1 || links[0].Op != OpDeleteSymlink {
+		t.Fatalf("LinkActions = %v, want [delete_symlink]", links)
+	}
+	if links[0].Path != "out/hetzner/mesh.crt" {
+		t.Errorf("path = %q, want out/hetzner/mesh.crt", links[0].Path)
+	}
+}
+
+func TestBuild_LinkCrt_OutCrtBasenameLinkFilename(t *testing.T) {
+	// out_crt set → symlink filename = basename(out_crt).
+	cfg := parseCfg(t, `
+ca "mesh" {
+  name     = "mesh"
+  out_crt  = "out/ca/ca.crt"
+  link_crt = ["out/hetzner"]
+}`)
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "mesh"}
+	ca := cfg.CAs[0]
+
+	p, err := Build(cfg, m, testNow,
+		existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)),
+		Options{Lstat: mockLstat(nil)})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	links := p.LinkActions()
+	if len(links) != 1 {
+		t.Fatalf("LinkActions = %d, want 1", len(links))
+	}
+	// Symlink path uses "ca.crt" (basename of out_crt), not "mesh.crt".
+	if links[0].Path != "out/hetzner/ca.crt" {
+		t.Errorf("path = %q, want out/hetzner/ca.crt", links[0].Path)
 	}
 }

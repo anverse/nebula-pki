@@ -262,3 +262,44 @@ func TestResolve(t *testing.T) {
 		t.Errorf("Resolve(abs) = %q, want %q", got, abs)
 	}
 }
+
+func TestCACertFilename(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "default is label.crt",
+			src:  `ca "mesh" { name = "mesh" }`,
+			want: "mesh.crt",
+		},
+		{
+			name: "out_crt basename used when set",
+			src: `ca "mesh" {
+  name    = "mesh"
+  out_crt = "out/ca/ca.crt"
+}`,
+			want: "ca.crt",
+		},
+		{
+			name: "out_crt bare filename",
+			src: `ca "root" {
+  name    = "root"
+  out_crt = "rootca.crt"
+}`,
+			want: "rootca.crt",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Parse("nebula.hcl", []byte(tc.src))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if got := cfg.CACertFilename(cfg.CAs[0]); got != tc.want {
+				t.Errorf("CACertFilename = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

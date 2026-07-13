@@ -1,0 +1,18 @@
+# A regular file at a declared link path causes an error; the file is
+# never clobbered.
+
+mkdir out/hetzner
+cp nebula.hcl out/hetzner/mesh.crt
+
+! exec nebula-pki
+stderr 'is not a symlink'
+! stdout .
+
+# Original file content is intact.
+grep 'ca "mesh"' out/hetzner/mesh.crt
+
+-- nebula.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}

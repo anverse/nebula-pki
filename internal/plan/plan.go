@@ -8,7 +8,11 @@
 package plan
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
@@ -29,6 +33,12 @@ const (
 	OpReference Op = "reference"
 	// OpSign means a host certificate must be signed and written.
 	OpSign Op = "sign"
+	// OpCreateSymlink means a symlink must be created (or recreated with the
+	// correct target). Used for link_crt entries (ADR-021).
+	OpCreateSymlink Op = "create_symlink"
+	// OpDeleteSymlink means a managed symlink must be removed because its
+	// directory was removed from link_crt. Used for link_crt stale cleanup.
+	OpDeleteSymlink Op = "delete_symlink"
 )
 
 // Kind is the artifact an action concerns.
@@ -39,6 +49,8 @@ const (
 	KindCA Kind = "ca"
 	// KindHost is a host certificate.
 	KindHost Kind = "host"
+	// KindLink is a link_crt symlink.
+	KindLink Kind = "link"
 )
 
 // Action is a single planned operation.
@@ -46,7 +58,7 @@ type Action struct {
 	Op   Op
 	Kind Kind
 	// Label is the config label for the artifact (CA label for KindCA,
-	// host label for KindHost).
+	// host label for KindHost, CA label for KindLink).
 	Label string
 	// Path is the primary logical artifact path, for display. Empty for
 	// no-ops.
@@ -58,6 +70,12 @@ type Action struct {
 	// in_pub hosts (no key is written) and for reference-mode CAs (the tool
 	// never writes reference CA files).
 	EncryptKey bool
+	// LinkTarget is the relative symlink target string computed via
+	// filepath.Rel. Set for OpCreateSymlink and OpNoop on KindLink actions.
+	LinkTarget string
+	// LinkDir is the logical directory path for the symlink. Set for
+	// OpCreateSymlink (apply calls os.MkdirAll on cfg.Resolve(LinkDir)).
+	LinkDir string
 }
 
 // Plan is the ordered set of actions a reconcile would perform.
@@ -101,6 +119,17 @@ func (p Plan) HostActions() []Action {
 	return hosts
 }
 
+// LinkActions returns all link_crt symlink actions from the plan.
+func (p Plan) LinkActions() []Action {
+	var links []Action
+	for _, a := range p.Actions {
+		if a.Kind == KindLink {
+			links = append(links, a)
+		}
+	}
+	return links
+}
+
 // Options configures how Build constructs the reconcile plan.
 type Options struct {
 	// NoRenewal, when true, skips the hostInRenewalWindow check for every
@@ -109,6 +138,16 @@ type Options struct {
 	// missing artifact, CA label mismatch) are unaffected.
 	// The zero value (false) preserves the existing behaviour.
 	NoRenewal bool
+
+	// Lstat returns the mode bits for the absolute filesystem path.
+	// Returns (0, fs.ErrNotExist) when the path does not exist; (0, err)
+	// for other I/O errors. Used by planCALinks to inspect symlink state.
+	// When nil, all link_crt paths are treated as absent.
+	Lstat func(realPath string) (os.FileMode, error)
+
+	// Readlink returns the stored target string for a symlink. Only called
+	// when Lstat reports os.ModeSymlink set on the same path.
+	Readlink func(realPath string) (string, error)
 }
 
 // Build computes the reconcile plan for cfg given the current manifest m,
@@ -138,6 +177,15 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		ha := planHost(cfg, m, &cfg.Hosts[i], now, exists, opts.NoRenewal)
 		actions = append(actions, ha)
 	}
+
+	for i := range cfg.CAs {
+		linkActions, err := planCALinks(cfg, &cfg.CAs[i], m, opts)
+		if err != nil {
+			return Plan{}, err
+		}
+		actions = append(actions, linkActions...)
+	}
+
 	return Plan{Actions: actions}, nil
 }
 
@@ -344,4 +392,131 @@ func caStateError(label string, tracked, haveCert, haveKey bool, certPath, keyPa
 			label, certPath, keyPath,
 		)
 	}
+}
+
+// planCALinks computes the symlink actions for one CA's link_crt list.
+// For each declared directory it checks the current symlink state via
+// opts.Lstat / opts.Readlink and emits CreateSymlink, Noop, or an error.
+// Symlinks present in the manifest but no longer in the config emit
+// DeleteSymlink for stale-link cleanup.
+func planCALinks(cfg *config.Config, ca *config.CA, m *manifest.Manifest, opts Options) ([]Action, error) {
+	if len(ca.LinkCrt) == 0 {
+		// Still need to emit DeleteSymlink for any manifest links if the
+		// entire link_crt list was removed.
+		return planCALinkStale(cfg, ca, m, nil)
+	}
+
+	certPath := cfg.CACertPathForCA(*ca)
+	linkFilename := cfg.CACertFilename(*ca)
+	absCertPath := cfg.Resolve(certPath)
+
+	// expectedPaths tracks which logical link paths are currently declared,
+	// so we can diff against the manifest for stale detection.
+	expectedPaths := make(map[string]struct{}, len(ca.LinkCrt))
+	var actions []Action
+
+	for _, dir := range ca.LinkCrt {
+		linkPath := filepath.Join(dir, linkFilename) // logical
+		absLinkDir := cfg.Resolve(dir)
+		absLinkPath := cfg.Resolve(linkPath)
+
+		target, err := filepath.Rel(absLinkDir, absCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("ca %q: link_crt %q: cannot compute relative path to CA cert: %w", ca.Label, dir, err)
+		}
+
+		expectedPaths[linkPath] = struct{}{}
+
+		if opts.Lstat == nil {
+			actions = append(actions, Action{
+				Op:         OpCreateSymlink,
+				Kind:       KindLink,
+				Label:      ca.Label,
+				Path:       linkPath,
+				LinkTarget: target,
+				LinkDir:    dir,
+				Desc:       fmt.Sprintf("create link %s → %s", linkPath, target),
+			})
+			continue
+		}
+
+		mode, err := opts.Lstat(absLinkPath)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			actions = append(actions, Action{
+				Op:         OpCreateSymlink,
+				Kind:       KindLink,
+				Label:      ca.Label,
+				Path:       linkPath,
+				LinkTarget: target,
+				LinkDir:    dir,
+				Desc:       fmt.Sprintf("create link %s → %s", linkPath, target),
+			})
+		case err != nil:
+			return nil, fmt.Errorf("ca %q: link_crt %q: lstat %s: %w", ca.Label, dir, linkPath, err)
+		case mode&os.ModeSymlink != 0:
+			currentTarget, err := opts.Readlink(absLinkPath)
+			if err != nil {
+				return nil, fmt.Errorf("ca %q: link_crt %q: readlink %s: %w", ca.Label, dir, linkPath, err)
+			}
+			if currentTarget == target {
+				actions = append(actions, Action{
+					Op:         OpNoop,
+					Kind:       KindLink,
+					Label:      ca.Label,
+					Path:       linkPath,
+					LinkTarget: target,
+					Desc:       fmt.Sprintf("link %s up to date", linkPath),
+				})
+			} else {
+				actions = append(actions, Action{
+					Op:         OpCreateSymlink,
+					Kind:       KindLink,
+					Label:      ca.Label,
+					Path:       linkPath,
+					LinkTarget: target,
+					LinkDir:    dir,
+					Desc:       fmt.Sprintf("update link %s → %s (was %s)", linkPath, target, currentTarget),
+				})
+			}
+		default:
+			return nil, fmt.Errorf(
+				"ca %q: link_crt %q: %s is not a symlink; remove it manually to let nebula-pki manage this path",
+				ca.Label, dir, linkPath,
+			)
+		}
+	}
+
+	stale, err := planCALinkStale(cfg, ca, m, expectedPaths)
+	if err != nil {
+		return nil, err
+	}
+	return append(actions, stale...), nil
+}
+
+// planCALinkStale emits DeleteSymlink actions for manifest links that are no
+// longer present in expectedPaths. When expectedPaths is nil every manifest
+// link is stale.
+func planCALinkStale(cfg *config.Config, ca *config.CA, m *manifest.Manifest, expectedPaths map[string]struct{}) ([]Action, error) {
+	if m == nil {
+		return nil, nil
+	}
+	mCA := m.CAs[ca.Label]
+	if mCA == nil {
+		return nil, nil
+	}
+	var actions []Action
+	for _, link := range mCA.Links {
+		if _, ok := expectedPaths[link.Path]; ok {
+			continue
+		}
+		actions = append(actions, Action{
+			Op:    OpDeleteSymlink,
+			Kind:  KindLink,
+			Label: ca.Label,
+			Path:  link.Path,
+			Desc:  fmt.Sprintf("delete stale link %s", link.Path),
+		})
+	}
+	return actions, nil
 }

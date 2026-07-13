@@ -2,6 +2,8 @@ package apply
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1753,5 +1755,242 @@ func TestCheckEncryptionMismatches_HostArtifact(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, `host "alpha"`) {
 		t.Errorf("want mismatch warning for host alpha, got: %q", out)
+	}
+}
+
+// ── link_crt apply tests ──────────────────────────────────────────────────────
+
+const linkCrtConfig = `
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}
+`
+
+func TestReconcile_LinkCrt_CreatesSymlink(t *testing.T) {
+	cfg := writeConfig(t, linkCrtConfig)
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+
+	linkPath := cfg.Resolve("out/hetzner/mesh.crt")
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("Lstat link: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is not a symlink (mode %v)", linkPath, info.Mode())
+	}
+
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+	if target != "../ca/mesh.crt" {
+		t.Errorf("symlink target = %q, want ../ca/mesh.crt", target)
+	}
+
+	// Report reflects the created link.
+	if len(rep.CreatedLinks) != 1 {
+		t.Fatalf("CreatedLinks = %d, want 1", len(rep.CreatedLinks))
+	}
+	if rep.CreatedLinks[0].Path != "out/hetzner/mesh.crt" {
+		t.Errorf("CreatedLinks[0].Path = %q, want out/hetzner/mesh.crt", rep.CreatedLinks[0].Path)
+	}
+
+	// Manifest records the link.
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("Load manifest: %v", err)
+	}
+	if len(m.CAs["mesh"].Links) != 1 {
+		t.Fatalf("manifest CAs[mesh].Links = %d, want 1", len(m.CAs["mesh"].Links))
+	}
+	if m.CAs["mesh"].Links[0].Path != "out/hetzner/mesh.crt" {
+		t.Errorf("manifest link path = %q", m.CAs["mesh"].Links[0].Path)
+	}
+}
+
+func TestReconcile_LinkCrt_SecondRunIsNoop(t *testing.T) {
+	cfg := writeConfig(t, linkCrtConfig)
+
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Error("Changed = true on second run, want noop")
+	}
+	if len(rep.CreatedLinks) != 0 {
+		t.Errorf("CreatedLinks = %v on noop run, want empty", rep.CreatedLinks)
+	}
+}
+
+func TestReconcile_LinkCrt_WrongTargetRecreated(t *testing.T) {
+	cfg := writeConfig(t, linkCrtConfig)
+
+	// First run to generate CA and manifest.
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	// Break the symlink.
+	linkPath := cfg.Resolve("out/hetzner/mesh.crt")
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatalf("remove symlink: %v", err)
+	}
+	if err := os.Symlink("/wrong/target.crt", linkPath); err != nil {
+		t.Fatalf("create wrong symlink: %v", err)
+	}
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Error("Changed = false after recreating wrong symlink, want true")
+	}
+	target, _ := os.Readlink(linkPath)
+	if target != "../ca/mesh.crt" {
+		t.Errorf("symlink target after fix = %q, want ../ca/mesh.crt", target)
+	}
+}
+
+func TestReconcile_LinkCrt_StaleDeleted(t *testing.T) {
+	// Run 1: link_crt = ["out/hetzner"].
+	cfg1 := writeConfig(t, linkCrtConfig)
+	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	// Verify the symlink exists.
+	linkPath := cfg1.Resolve("out/hetzner/mesh.crt")
+	if _, err := os.Lstat(linkPath); err != nil {
+		t.Fatalf("Lstat after first run: %v", err)
+	}
+
+	// Run 2: link_crt removed. Re-use the same dir (same files on disk).
+	dir := filepath.Dir(cfg1.Path)
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`ca "mesh" { name = "mesh" }`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+	cfg2, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+
+	rep, err := Reconcile(cfg2, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Error("Changed = false after link deletion, want true")
+	}
+	if len(rep.DeletedLinks) != 1 || rep.DeletedLinks[0] != "out/hetzner/mesh.crt" {
+		t.Errorf("DeletedLinks = %v, want [out/hetzner/mesh.crt]", rep.DeletedLinks)
+	}
+	if _, err := os.Lstat(linkPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Lstat after deletion: got %v, want ErrNotExist", err)
+	}
+}
+
+func TestReconcile_LinkCrt_RegularFileErrors(t *testing.T) {
+	cfg := writeConfig(t, linkCrtConfig)
+
+	// Pre-create a regular file where the symlink would go.
+	if err := os.MkdirAll(cfg.Resolve("out/hetzner"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(cfg.Resolve("out/hetzner/mesh.crt"), []byte("not a symlink"), 0o600); err != nil {
+		t.Fatalf("write regular file: %v", err)
+	}
+
+	_, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err == nil {
+		t.Fatal("Reconcile: want error for regular file at link path, got nil")
+	}
+	if !strings.Contains(err.Error(), "is not a symlink") {
+		t.Errorf("error = %q, want to contain \"is not a symlink\"", err.Error())
+	}
+
+	// Regular file must be untouched.
+	b, readErr := os.ReadFile(cfg.Resolve("out/hetzner/mesh.crt"))
+	if readErr != nil || string(b) != "not a symlink" {
+		t.Error("regular file was modified/deleted — should have been left alone")
+	}
+}
+
+func TestReconcile_LinkCrt_StaleRegularFileNoticed(t *testing.T) {
+	// Run 1: create symlink.
+	cfg1 := writeConfig(t, linkCrtConfig)
+	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	linkPath := cfg1.Resolve("out/hetzner/mesh.crt")
+
+	// Replace symlink with a regular file.
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatalf("remove symlink: %v", err)
+	}
+	if err := os.WriteFile(linkPath, []byte("regular"), 0o600); err != nil {
+		t.Fatalf("write regular file: %v", err)
+	}
+
+	// Run 2: remove link_crt from config so the link becomes stale.
+	dir := filepath.Dir(cfg1.Path)
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`ca "mesh" { name = "mesh" }`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+	cfg2, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+
+	var warnBuf strings.Builder
+	rep, err := Reconcile(cfg2, Options{Now: fixedNow, GeneratorVersion: genVersion, Warn: &warnBuf})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	// The file is not deleted (notice only).
+	if len(rep.DeletedLinks) != 0 {
+		t.Errorf("DeletedLinks = %v, want empty (file not deleted)", rep.DeletedLinks)
+	}
+	if !strings.Contains(warnBuf.String(), "not a symlink") {
+		t.Errorf("warning = %q, want to mention \"not a symlink\"", warnBuf.String())
+	}
+	// Regular file still present.
+	if _, statErr := os.Lstat(linkPath); statErr != nil {
+		t.Errorf("Lstat: %v — regular file should still exist", statErr)
+	}
+}
+
+func TestReconcile_LinkCrt_MkdirCreatesDir(t *testing.T) {
+	// The link dir does not exist; Reconcile should create it.
+	cfg := writeConfig(t, `
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/new-dir/nested"]
+}`)
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+	if _, err := os.Lstat(cfg.Resolve("out/new-dir/nested/mesh.crt")); err != nil {
+		t.Fatalf("Lstat new dir link: %v", err)
 	}
 }

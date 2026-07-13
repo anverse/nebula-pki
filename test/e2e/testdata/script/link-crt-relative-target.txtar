@@ -1,0 +1,20 @@
+# Symlink target stored in the symlink is a relative path, not absolute.
+# filepath.Rel("out/hetzner", "out/ca/mesh.crt") == "../ca/mesh.crt"
+
+[!exec:readlink] skip 'readlink not in PATH'
+
+exec nebula-pki
+exists out/hetzner/mesh.crt
+! stdout .
+
+exec readlink out/hetzner/mesh.crt
+stdout '^\.\.\/ca\/mesh\.crt$'
+
+# Verify by following the symlink: reading it through hetzner/ gives the cert.
+grep 'NEBULA CERTIFICATE' out/hetzner/mesh.crt
+
+-- nebula.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner"]
+}

@@ -151,6 +151,18 @@ type Report struct {
 	// populated (including on no-op runs and --dry-run), unless the Nebula network has
 	// no managed certificates yet.
 	Deadlines DeadlineReport
+
+	// CreatedLinks records symlinks created or updated this run (link_crt).
+	CreatedLinks []LinkReport
+	// DeletedLinks records logical symlink paths deleted this run (stale link_crt cleanup).
+	DeletedLinks []string
+}
+
+// LinkReport summarises one link_crt symlink created or updated this run.
+type LinkReport struct {
+	CALabel string
+	Path    string
+	Target  string
 }
 
 // caPEMs holds the material for one CA, used to sign hosts.
@@ -184,7 +196,17 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return fsutil.Exists(cfg.Resolve(logical))
 	}
 
-	p, err := plan.Build(cfg, current, opts.Now, exists, plan.Options{NoRenewal: opts.NoRenewal})
+	p, err := plan.Build(cfg, current, opts.Now, exists, plan.Options{
+		NoRenewal: opts.NoRenewal,
+		Lstat: func(realPath string) (os.FileMode, error) {
+			info, err := os.Lstat(realPath)
+			if err != nil {
+				return 0, err
+			}
+			return info.Mode(), nil
+		},
+		Readlink: os.Readlink,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +259,17 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		}
 	}
 
+	createdLinks, deletedLinks, err := applyLinks(cfg, p.LinkActions(), next, opts.Warn)
+	if err != nil {
+		return nil, err
+	}
+	diskChanged := len(createdLinks) > 0 || len(deletedLinks) > 0
+	if diskChanged {
+		hasAnyChange = true
+	}
+	report.CreatedLinks = createdLinks
+	report.DeletedLinks = deletedLinks
+
 	signed, stale, err := applyHosts(cfg, enc, opts, p.HostActions(), caKeys, current, next)
 	if err != nil {
 		return nil, err
@@ -268,10 +301,12 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return report, nil
 	}
 
-	// Rebuild-and-compare: if the candidate manifest is identical to what
-	// is already recorded (ignoring generated_at), skip the write so the
-	// on-disk bytes stay stable.
-	if unchanged, prev := manifestUnchanged(current, next); unchanged {
+	// Rebuild-and-compare: if the candidate manifest is identical to what is
+	// already recorded (ignoring generated_at), skip the write so the on-disk
+	// bytes stay stable — UNLESS a disk mutation (symlink create/delete)
+	// happened this run, in which case always write so generated_at advances
+	// and the CLI reports "changed".
+	if unchanged, prev := manifestUnchanged(current, next); unchanged && !diskChanged {
 		next.GeneratedAt = prev
 		return report, nil
 	}
@@ -609,6 +644,98 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 	return signed, stale, nil
 }
 
+// applyLinks executes link_crt symlink actions and updates next.CAs with the
+// resulting links array. Returns the lists of created and deleted link paths
+// for the report. Parent directories are created as needed. A regular file
+// (non-symlink) at a link path is an error for CreateSymlink; for
+// DeleteSymlink it is a notice printed to warn and the file is left alone.
+func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Manifest, warn io.Writer) (created []LinkReport, deleted []string, err error) {
+	// activeLinks tracks the post-run links for each CA label. Every CA that
+	// appears in any link action is added here (including delete-only cases,
+	// where the value stays nil to clear the manifest links array).
+	activeLinks := make(map[string][]manifest.CertLink)
+	// Mark a CA label as seen regardless of which op we process.
+	seen := func(label string) {
+		if _, ok := activeLinks[label]; !ok {
+			activeLinks[label] = nil
+		}
+	}
+
+	for _, a := range linkActions {
+		switch a.Op {
+		case plan.OpCreateSymlink:
+			seen(a.Label)
+			absDir := cfg.Resolve(a.LinkDir)
+			absLink := cfg.Resolve(a.Path)
+
+			if err := os.MkdirAll(absDir, 0o755); err != nil {
+				return nil, nil, fmt.Errorf("link %s: create directory: %w", a.Path, err)
+			}
+
+			info, lstatErr := os.Lstat(absLink)
+			if lstatErr == nil {
+				if info.Mode()&os.ModeSymlink == 0 {
+					return nil, nil, fmt.Errorf(
+						"ca %q: link_crt: %s is not a symlink; remove it manually to let nebula-pki manage this path",
+						a.Label, a.Path,
+					)
+				}
+				// Existing symlink with wrong target: remove before recreating.
+				if err := os.Remove(absLink); err != nil {
+					return nil, nil, fmt.Errorf("link %s: remove existing symlink: %w", a.Path, err)
+				}
+			} else if !errors.Is(lstatErr, fs.ErrNotExist) {
+				return nil, nil, fmt.Errorf("link %s: lstat: %w", a.Path, lstatErr)
+			}
+
+			if err := os.Symlink(a.LinkTarget, absLink); err != nil {
+				return nil, nil, fmt.Errorf("link %s: symlink: %w", a.Path, err)
+			}
+
+			created = append(created, LinkReport{CALabel: a.Label, Path: a.Path, Target: a.LinkTarget})
+			activeLinks[a.Label] = append(activeLinks[a.Label], manifest.CertLink{Path: a.Path, Target: a.LinkTarget})
+
+		case plan.OpNoop:
+			if a.Kind == plan.KindLink {
+				seen(a.Label)
+				activeLinks[a.Label] = append(activeLinks[a.Label], manifest.CertLink{Path: a.Path, Target: a.LinkTarget})
+			}
+
+		case plan.OpDeleteSymlink:
+			seen(a.Label) // marks the CA as seen; activeLinks[label] stays nil
+			absLink := cfg.Resolve(a.Path)
+			info, lstatErr := os.Lstat(absLink)
+			switch {
+			case errors.Is(lstatErr, fs.ErrNotExist):
+				// Already gone; nothing to do.
+			case lstatErr != nil:
+				return nil, nil, fmt.Errorf("link %s: lstat: %w", a.Path, lstatErr)
+			case info.Mode()&os.ModeSymlink == 0:
+				// Regular file now occupies the path — notice and skip.
+				fmt.Fprintf(coalesceWriter(warn),
+					"notice: %s is not a symlink and will not be deleted; remove it manually if no longer needed\n",
+					a.Path,
+				)
+			default:
+				if err := os.Remove(absLink); err != nil {
+					return nil, nil, fmt.Errorf("link %s: remove: %w", a.Path, err)
+				}
+				deleted = append(deleted, a.Path)
+			}
+		}
+	}
+
+	// Propagate the active links array to the candidate manifest for every CA
+	// that had link actions (including noop-only runs where no change occurred).
+	for label, links := range activeLinks {
+		if rec := next.CAs[label]; rec != nil {
+			rec.Links = links
+		}
+	}
+
+	return created, deleted, nil
+}
+
 // reconcileTrustBundle builds the concatenated-PEM trust bundle from every
 // active (non-archived) CA in declaration order. It populates next.TrustBundle
 // and writes the bundle file when the content has changed. Returns true when
@@ -730,7 +857,8 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 // would write. Each file is prefixed with "+ write ". When the plan has no
 // mutations (all noops), it prints "up to date; nothing to do".
 func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p plan.Plan, current *manifest.Manifest, exists func(string) bool) {
-	var writes []string
+	var writes []string   // paths prefixed with "write "
+	var linkLines []string // already-formatted link entries
 
 	suffix := enc.Suffix()
 
@@ -770,6 +898,15 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 		}
 	}
 
+	for _, la := range p.LinkActions() {
+		switch la.Op {
+		case plan.OpCreateSymlink:
+			linkLines = append(linkLines, fmt.Sprintf("link %s → %s", la.Path, la.LinkTarget))
+		case plan.OpDeleteSymlink:
+			linkLines = append(linkLines, fmt.Sprintf("delete link %s", la.Path))
+		}
+	}
+
 	// Include the trust bundle in the preview when it would be written:
 	// - any new CA is generated (new fingerprint enters the bundle), or
 	// - the bundle file is absent, or
@@ -790,13 +927,16 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 		writes = append(writes, cfg.TrustBundlePath())
 	}
 
-	if len(writes) == 0 {
+	if len(writes) == 0 && len(linkLines) == 0 {
 		fmt.Fprintln(w, "up to date; nothing to do")
 		return
 	}
 
 	for _, path := range writes {
 		fmt.Fprintf(w, "+ write %s\n", path)
+	}
+	for _, line := range linkLines {
+		fmt.Fprintf(w, "+ %s\n", line)
 	}
 	fmt.Fprintf(w, "+ write %s\n", cfg.ManifestPath())
 }
