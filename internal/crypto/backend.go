@@ -29,8 +29,21 @@ type Encryptor interface {
 	RecipientsHash() string
 }
 
-// New returns an Encryptor for the given encryption configuration.
-func New(enc config.EncryptionConfig) (Encryptor, error) {
+// Decryptor decrypts private key material that was previously written by an
+// Encryptor of the same backend type.
+type Decryptor interface {
+	Decrypt(ciphertext []byte) ([]byte, error)
+}
+
+// Backend is the full encryption/decryption capability of a storage backend.
+// Every concrete backend (NoneBackend, SopsBackend) implements both sides.
+type Backend interface {
+	Encryptor
+	Decryptor
+}
+
+// New returns a Backend for the given encryption configuration.
+func New(enc config.EncryptionConfig) (Backend, error) {
 	switch enc.Backend {
 	case "", "none":
 		return &NoneBackend{}, nil

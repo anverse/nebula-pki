@@ -1,0 +1,74 @@
+# When the age private key is absent from the environment and a new host needs
+# signing, nebula-pki must fail with a clear "decrypt CA" error. Existing
+# artifacts must be left untouched.
+
+[!exec:sops] skip 'sops not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate CA and sign host alpha. Both keys encrypted.
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr '^signed host "alpha"$'
+exists out/ca/test-ca.key.enc
+exists out/hosts/alpha.key.enc
+
+# Snapshot run-1 artifacts.
+cp out/ca/test-ca.crt      ca.crt.snap
+cp out/ca/test-ca.key.enc  ca.key.enc.snap
+cp out/hosts/alpha.crt     alpha.crt.snap
+cp out/hosts/alpha.key.enc alpha.key.enc.snap
+cp out/nebula-pki.json     manifest.snap
+
+# Drop credentials and switch to config that adds host beta (needs CA signing).
+env SOPS_AGE_KEY=
+cp nebula.v2.hcl nebula.hcl
+
+# Run 2: CA key cannot be decrypted → non-zero exit with a clear error.
+! exec nebula-pki
+stderr 'decrypt CA'
+
+# All run-1 artifacts are byte-identical (no partial writes).
+cmp out/ca/test-ca.crt      ca.crt.snap
+cmp out/ca/test-ca.key.enc  ca.key.enc.snap
+cmp out/hosts/alpha.crt     alpha.crt.snap
+cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+cmp out/nebula-pki.json     manifest.snap
+
+# Beta was never signed.
+! exists out/hosts/beta.crt
+! exists out/hosts/beta.key.enc
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}

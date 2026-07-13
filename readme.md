@@ -181,9 +181,74 @@ host "alice_phone" {
 
 `in_pub` is mutually exclusive with `out_key` and is a validation error together with it. The key's curve must match the signing CA. Renewal re-signs the same public key. See [ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md).
 
-## Encryption at rest (coming in v0.2, opt-in)
+## Encryption at rest (opt-in) 🚧
 
-By default, host keys land on disk as plaintext, which means you can't safely keep `out/` in git. The optional `storage.encryption` block will fix that: keys encrypted at rest using sops (built-in, no extra CLI needed) or any external command. The block is parsed but rejected in the current release.
+> This section is under **active development.** Do not rely on this in production yet.
+
+By default, CA and host private keys land on disk as plaintext, which means you cannot safely keep `out/` in git. The optional `storage.encryption "sops"` block writes every private key through the [sops](https://github.com/getsops/sops) CLI before touching disk. Certificates, the trust bundle, and the manifest are never encrypted.
+
+`sops` must be installed and available (in `PATH`) on any machine running `nebula-pki` with `sops` encryption enabled.
+
+### Inline recipients
+
+List one or more age, PGP, or KMS recipients directly in the config. sops uses them to encrypt; no `.sops.yaml` file is needed.
+
+```hcl
+storage {
+  encryption "sops" {
+    age = ["age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"]
+  }
+}
+```
+
+Keys are written with the configured suffix (default `.enc`): `out/ca/mesh.key.enc`, `out/hosts/alpha.key.enc`. Plaintext `.key` files are never written to disk.
+
+### `.sops.yaml` discovery
+
+Use an empty block and let sops discover `.sops.yaml` by searching upward from the output directory:
+
+```hcl
+storage {
+  encryption "sops" {}
+}
+```
+
+Place a `.sops.yaml` at the repo root or any ancestor of `out/`:
+
+```yaml
+creation_rules:
+  - age: age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt
+```
+
+### Decryption on rerun
+
+When a CA key is already encrypted on disk, `nebula-pki` decrypts it in-memory — no plaintext file is written — and uses it to sign new or renewing hosts. Set `SOPS_AGE_KEY`, `SOPS_AGE_KEY_FILE`, or the appropriate credential for your backend so sops can decrypt.
+
+### Changing recipients
+
+Changing the recipients in the config does **not** re-encrypt existing key files on a normal run. Instead, a warning is printed for every artifact whose recorded recipients differ from the current config:
+
+```
+warning: CA "mesh" key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt
+warning: host "alpha" key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt
+```
+
+New hosts added in the same run are encrypted with the current (new) recipients. Existing files are left under the old recipients until `nebula-pki reencrypt` is run.
+
+This is intentional: silently re-encrypting a CA private key on a routine `nebula-pki` run is risky — a crash between decrypt and re-encrypt can leave the key unrecoverable. The explicit `reencrypt` command makes recipient rotation a deliberate, audited step.
+
+### Switching backends (`none` → `sops`)
+
+Enabling `sops` after a plaintext run is detected as a configuration mismatch. `nebula-pki` errors immediately rather than creating a mix of encrypted and plaintext files:
+
+```
+ca "mesh": encryption configuration changed: CA key exists at out/ca/mesh.key
+(recorded in manifest) but current config expects it at out/ca/mesh.key.enc;
+use `nebula-pki reencrypt` to migrate between encryption configs, or manually
+move/rename the key file to the expected path
+```
+
+Run `nebula-pki reencrypt` to encrypt the existing keys in place and update the manifest. *(Subcommand ships in a later release.)*
 
 ## CLI
 

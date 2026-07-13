@@ -1,0 +1,55 @@
+# When inline recipients change between runs, a --dry-run must still print the
+# mismatch warning. checkEncryptionMismatches runs before the dry-run shortcut
+# in Reconcile, so the warning must appear even when nothing would be written.
+
+[!exec:sops] skip 'sops not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate CA with recipient A.
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+exists out/ca/test-ca.key.enc
+
+# Snapshot to verify no files change after the dry run.
+cp out/ca/test-ca.crt     ca.crt.snap
+cp out/ca/test-ca.key.enc ca.key.enc.snap
+cp out/nebula-pki.json    manifest.snap
+
+# Switch to recipient B (different key).
+cp nebula.v2.hcl nebula.hcl
+
+# --dry-run: plan is a noop but mismatch warning must still be printed.
+exec nebula-pki --dry-run
+stdout '^up to date; nothing to do$'
+stderr 'warning: CA "test-ca" key was encrypted with different recipients'
+stderr 'nebula-pki reencrypt'
+! stderr 'generated'
+! stderr 'signed'
+
+# No files were written.
+cmp out/ca/test-ca.crt     ca.crt.snap
+cmp out/ca/test-ca.key.enc ca.key.enc.snap
+cmp out/nebula-pki.json    manifest.snap
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"]
+  }
+}

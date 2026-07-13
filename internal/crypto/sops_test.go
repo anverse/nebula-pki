@@ -1,9 +1,19 @@
 package crypto
 
 import (
+	"bytes"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/anverse/nebula-pki/internal/config"
+)
+
+// testAgeKeypair is a throwaway age keypair used only in unit tests.
+// It is not used to protect any real secret material.
+const (
+	testAgePub  = "age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"
+	testAgePriv = "AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N"
 )
 
 func TestNoneBackend(t *testing.T) {
@@ -109,5 +119,45 @@ func TestNew_UnknownBackend(t *testing.T) {
 	_, err := New(config.EncryptionConfig{Backend: "pkcs11"})
 	if err == nil {
 		t.Fatal("expected error for unknown backend, got nil")
+	}
+}
+
+func TestSopsBackend_Decrypt_RoundTrip(t *testing.T) {
+	if _, err := exec.LookPath("sops"); err != nil {
+		t.Skip("sops not in PATH")
+	}
+	t.Setenv("SOPS_AGE_KEY", testAgePriv)
+
+	b := newSopsBackend(&config.SopsConfig{Age: []string{testAgePub}})
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "test.key.enc")
+	plaintext := []byte("NEBULA ED25519 PRIVATE KEY TEST BYTES")
+
+	ciphertext, err := b.Encrypt(plaintext, outputPath)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	if bytes.Equal(ciphertext, plaintext) {
+		t.Fatal("Encrypt: ciphertext equals plaintext — encryption did not happen")
+	}
+
+	recovered, err := b.Decrypt(ciphertext)
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if !bytes.Equal(recovered, plaintext) {
+		t.Errorf("round-trip mismatch: got %q, want %q", recovered, plaintext)
+	}
+}
+
+func TestNoneBackend_Decrypt(t *testing.T) {
+	enc := &NoneBackend{}
+	data := []byte("plaintext key bytes")
+	got, err := enc.Decrypt(data)
+	if err != nil {
+		t.Fatalf("NoneBackend.Decrypt: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("NoneBackend.Decrypt mutated input: got %q, want %q", got, data)
 	}
 }

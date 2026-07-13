@@ -1,0 +1,97 @@
+# When recipients change between runs AND a new host needs signing, both happen
+# in a single run: the CA key is decrypted in-memory with the old recipients
+# (SOPS_AGE_KEY=key-A), the new host is encrypted with the new (current)
+# recipients (key-B), and a warning is printed for every existing artifact
+# still under the old recipients. Existing artifacts are not rewritten.
+#
+# Verified by:
+#  - beta.key.enc is decryptable with key-B   → encrypted with new recipients
+#  - beta.key.enc is NOT decryptable with key-A → old key has no access
+#  - alpha.key.enc is still decryptable with key-A → existing file untouched
+
+[!exec:sops] skip 'sops not in PATH'
+
+# Key A: used for run 1 (CA + alpha encrypted with A).
+# The same private key is active during run 2 so nebula-pki can decrypt the CA.
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate with key A. CA + host alpha both encrypted.
+exec nebula-pki
+stderr 'generated CA'
+stderr 'signed host "alpha"'
+exists out/ca/test-ca.key.enc
+exists out/hosts/alpha.key.enc
+
+# Snapshot first-run artifacts.
+cp out/ca/test-ca.crt     ca.crt.snap
+cp out/ca/test-ca.key.enc ca.key.enc.snap
+cp out/hosts/alpha.crt    alpha.crt.snap
+cp out/hosts/alpha.key.enc alpha.key.enc.snap
+
+# Switch to key B and add host beta. SOPS_AGE_KEY remains key A so nebula-pki
+# can decrypt the CA key for signing.
+cp nebula.v2.hcl nebula.hcl
+
+# Run 2: CA decrypted with key A; beta signed and encrypted with key B;
+# mismatch warning for CA and alpha (still under key A).
+exec nebula-pki
+stderr 'signed host "beta"'
+stderr 'warning: CA "test-ca" key was encrypted with different recipients'
+stderr 'warning: host "alpha" key was encrypted with different recipients'
+stderr 'nebula-pki reencrypt'
+! stdout .
+
+# CA and alpha are byte-identical to run 1 (not rewritten).
+cmp out/ca/test-ca.crt     ca.crt.snap
+cmp out/ca/test-ca.key.enc ca.key.enc.snap
+cmp out/hosts/alpha.crt    alpha.crt.snap
+cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+
+# --- Verify which key encrypted beta ---
+
+# beta.key.enc is decryptable with key B: it was encrypted with the new recipients.
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1MPLKGZ02WPSJ5GEX32MP23XE6RMCDZ6R649TSWPVZQRE2PTKK0YQAN7MRW
+exec sops --decrypt --input-type binary --output-type binary out/hosts/beta.key.enc
+stdout 'NEBULA ED25519 PRIVATE KEY'
+
+# beta.key.enc is NOT decryptable with key A: the old key has no access.
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+! exec sops --decrypt --input-type binary --output-type binary out/hosts/beta.key.enc
+
+# alpha.key.enc is still decryptable with key A: the existing artifact was not rewritten.
+exec sops --decrypt --input-type binary --output-type binary out/hosts/alpha.key.enc
+stdout 'NEBULA ED25519 PRIVATE KEY'
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1scjfchl7adj8tnkkh6xgtlcd3h7vyzl03e4x842yzg495yvjg4xqawftfq"]
+  }
+}

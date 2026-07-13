@@ -112,6 +112,41 @@ func (b *SopsBackend) encryptArgs(inputFile string) []string {
 	return append(args, inputFile)
 }
 
+// Decrypt decrypts ciphertext previously produced by SopsBackend.Encrypt.
+// It writes ciphertext to a temp file and invokes sops --decrypt; the
+// plaintext is returned from stdout without ever being written to disk.
+// The sops binary must be in PATH.
+func (b *SopsBackend) Decrypt(ciphertext []byte) ([]byte, error) {
+	tmp, err := os.CreateTemp("", ".nebula-pki-decrypt-*")
+	if err != nil {
+		return nil, fmt.Errorf("sops decrypt: create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmp.Write(ciphertext); err != nil {
+		tmp.Close()
+		return nil, fmt.Errorf("sops decrypt: write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, fmt.Errorf("sops decrypt: close temp file: %w", err)
+	}
+
+	cmd := exec.Command("sops", "--decrypt", "--input-type", "binary", "--output-type", "binary", tmpName)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return nil, fmt.Errorf("sops decrypt: %w: %s", err, msg)
+		}
+		return nil, fmt.Errorf("sops decrypt: %w", err)
+	}
+	return stdout.Bytes(), nil
+}
+
 // RecipientsHash returns a stable SHA-256 fingerprint of the configured
 // inline recipients, or "" when no inline recipients are configured.
 func (b *SopsBackend) RecipientsHash() string {

@@ -16,18 +16,34 @@ import (
 	"github.com/slackhq/nebula/cert"
 )
 
-// emptyEncryptor is a test stub that implements crypto.Encryptor. It reports a
+// emptyEncryptor is a test stub that implements crypto.Backend. It reports a
 // non-empty suffix (so writeKeyFile takes the encryption branch) but returns
 // empty ciphertext without an error, simulating a sops bug where the process
 // exits 0 with no stdout.
 type emptyEncryptor struct{}
 
 func (e *emptyEncryptor) Encrypt(_ []byte, _ string) ([]byte, error) { return []byte{}, nil }
+func (e *emptyEncryptor) Decrypt(c []byte) ([]byte, error)           { return c, nil }
 func (e *emptyEncryptor) Suffix() string                             { return ".enc" }
 func (e *emptyEncryptor) BackendName() string                        { return "test" }
 func (e *emptyEncryptor) RecipientsHash() string                     { return "" }
 
-var _ crypto.Encryptor = (*emptyEncryptor)(nil) // compile-time interface check
+var _ crypto.Backend = (*emptyEncryptor)(nil) // compile-time interface check
+
+// fakeBackend is a configurable crypto.Backend stub for mismatch tests.
+type fakeBackend struct {
+	suffix         string
+	backendName    string
+	recipientsHash string
+}
+
+func (f *fakeBackend) Encrypt(p []byte, _ string) ([]byte, error) { return p, nil }
+func (f *fakeBackend) Decrypt(c []byte) ([]byte, error)           { return c, nil }
+func (f *fakeBackend) Suffix() string                             { return f.suffix }
+func (f *fakeBackend) BackendName() string                        { return f.backendName }
+func (f *fakeBackend) RecipientsHash() string                     { return f.recipientsHash }
+
+var _ crypto.Backend = (*fakeBackend)(nil)
 
 // fixedNow is a deterministic issuance time for assertions.
 var fixedNow = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -1648,5 +1664,94 @@ func TestWriteKeyFile_EmptyCiphertextError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "empty ciphertext") {
 		t.Errorf("error = %q, want it to mention 'empty ciphertext'", err.Error())
+	}
+}
+
+func TestCheckEncryptionMismatches_WarnWhenHashesDiffer(t *testing.T) {
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Encryption: &manifest.EncryptionRecord{Backend: "sops", RecipientsHash: "aabbcc"},
+	}
+	enc := &fakeBackend{backendName: "sops", suffix: ".enc", recipientsHash: "ddeeff"}
+
+	var buf bytes.Buffer
+	checkEncryptionMismatches(m, enc, &buf)
+
+	out := buf.String()
+	if !strings.Contains(out, `CA "mesh"`) {
+		t.Errorf("want mismatch warning for CA mesh, got: %q", out)
+	}
+	if !strings.Contains(out, "nebula-pki reencrypt") {
+		t.Errorf("want reencrypt hint in warning, got: %q", out)
+	}
+}
+
+func TestCheckEncryptionMismatches_NoWarnWhenHashesMatch(t *testing.T) {
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Encryption: &manifest.EncryptionRecord{Backend: "sops", RecipientsHash: "aabbcc"},
+	}
+	enc := &fakeBackend{backendName: "sops", suffix: ".enc", recipientsHash: "aabbcc"}
+
+	var buf bytes.Buffer
+	checkEncryptionMismatches(m, enc, &buf)
+
+	if buf.Len() != 0 {
+		t.Errorf("want no warning when hashes match, got: %q", buf.String())
+	}
+}
+
+func TestCheckEncryptionMismatches_NoWarnWhenStoredHashEmpty(t *testing.T) {
+	// Stored hash empty means the previous run used .sops.yaml discovery; no comparison possible.
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Encryption: &manifest.EncryptionRecord{Backend: "sops", RecipientsHash: ""},
+	}
+	enc := &fakeBackend{backendName: "sops", suffix: ".enc", recipientsHash: "ddeeff"}
+
+	var buf bytes.Buffer
+	checkEncryptionMismatches(m, enc, &buf)
+
+	if buf.Len() != 0 {
+		t.Errorf("want no warning for empty stored hash, got: %q", buf.String())
+	}
+}
+
+func TestCheckEncryptionMismatches_NoWarnWhenCurrentHashEmpty(t *testing.T) {
+	// Current config has no inline recipients (.sops.yaml mode); no comparison possible.
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Encryption: &manifest.EncryptionRecord{Backend: "sops", RecipientsHash: "aabbcc"},
+	}
+	enc := &fakeBackend{backendName: "sops", suffix: ".enc", recipientsHash: ""}
+
+	var buf bytes.Buffer
+	checkEncryptionMismatches(m, enc, &buf)
+
+	if buf.Len() != 0 {
+		t.Errorf("want no warning when current hash is empty, got: %q", buf.String())
+	}
+}
+
+func TestCheckEncryptionMismatches_HostArtifact(t *testing.T) {
+	m := manifest.New()
+	m.Hosts["alpha"] = manifest.Host{
+		Name: "alpha",
+		Artifacts: []manifest.Artifact{
+			{
+				CertPath:   "out/hosts/alpha.crt",
+				KeyPath:    "out/hosts/alpha.key.enc",
+				Encryption: &manifest.EncryptionRecord{Backend: "sops", RecipientsHash: "oldoldold"},
+			},
+		},
+	}
+	enc := &fakeBackend{backendName: "sops", suffix: ".enc", recipientsHash: "newnewnew"}
+
+	var buf bytes.Buffer
+	checkEncryptionMismatches(m, enc, &buf)
+
+	out := buf.String()
+	if !strings.Contains(out, `host "alpha"`) {
+		t.Errorf("want mismatch warning for host alpha, got: %q", out)
 	}
 }

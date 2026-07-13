@@ -157,10 +157,9 @@ type Report struct {
 type caPEMs struct {
 	cert []byte
 	key  []byte
-	// encrypted is true when key holds encrypted ciphertext (not usable for
-	// signing). This happens in the OpNoop path when the CA key is encrypted on
-	// disk and the decrypt path is not yet implemented (v0.1.1). Any host action
-	// that actually needs the key to sign will fail with a clear error.
+	// encrypted is true when key holds sops ciphertext rather than plaintext.
+	// It is decrypted in-memory on first use (when a host needs signing);
+	// subsequent hosts under the same CA reuse the cached plaintext.
 	encrypted bool
 }
 
@@ -194,6 +193,8 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init encryption backend: %w", err)
 	}
+
+	checkEncryptionMismatches(current, enc, opts.Warn)
 
 	if opts.DryRun {
 		writeDryRunPlan(coalesceWriter(opts.Out), cfg, enc, p, current, exists)
@@ -340,12 +341,10 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc
 		}
 
 		if caAction.EncryptKey {
-			// The key is encrypted on disk. Read the ciphertext but do not
-			// attempt to parse it as PEM — decrypt support ships in v0.1.2.
-			// Signing hosts using this CA in the same run still works because
-			// the plaintext was generated earlier in OpGenerate (if any). For
-			// an idempotent re-run where all hosts are also noop, the caPEMs
-			// key is never used for signing, so returning ciphertext is safe.
+			// The key is encrypted on disk. Hold the ciphertext here;
+			// applyHosts decrypts it in-memory on first use when a host
+			// needs signing. For all-noop runs (no host re-signs) the
+			// ciphertext is never accessed.
 			encKeyPath := keyPath + enc.Suffix()
 			encKeyBytes, err := os.ReadFile(cfg.Resolve(encKeyPath))
 			if err != nil {
@@ -465,7 +464,7 @@ func writeKeyFile(cfg *config.Config, enc crypto.Encryptor, basePath string, key
 // files for each signed host and populates next.Hosts. Returns the list
 // of newly signed hosts (in action order) and any logical paths from a
 // previous run that are no longer written by the current configuration.
-func applyHosts(cfg *config.Config, enc crypto.Encryptor, opts Options, hostActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
+func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
 	var signed []SignedHost
 	var stale []string
 
@@ -521,12 +520,13 @@ func applyHosts(cfg *config.Config, enc crypto.Encryptor, opts Options, hostActi
 			return nil, nil, fmt.Errorf("host %q: signing CA %q PEM not available", h.Label, signingCA.Label)
 		}
 		if pems.encrypted {
-			return nil, nil, fmt.Errorf(
-				"host %q: signing CA %q key is encrypted on disk; "+
-					"signing hosts under an encrypted CA key is not yet supported "+
-					"(decrypt ships in v0.1.2) — upgrade to v0.1.2 to sign new or renewing hosts",
-				h.Label, signingCA.Label,
-			)
+			plainKey, err := enc.Decrypt(pems.key)
+			if err != nil {
+				return nil, nil, fmt.Errorf("host %q: decrypt CA %q key: %w", h.Label, signingCA.Label, err)
+			}
+			pems.key = plainKey
+			pems.encrypted = false
+			caKeys[signingCA.Label] = pems
 		}
 
 		var result *pki.HostResult
@@ -873,6 +873,43 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 	}
 
 	return rep
+}
+
+// checkEncryptionMismatches compares the recipients hash recorded in the
+// manifest against the hash of the current config's inline recipients. When
+// they differ (and both are non-empty), a warning is printed for each
+// affected CA or host artifact. No warning is emitted when either side uses
+// .sops.yaml-only mode (empty hash), since there is no stable fingerprint to
+// compare in that case.
+func checkEncryptionMismatches(current *manifest.Manifest, enc crypto.Encryptor, warn io.Writer) {
+	currentHash := enc.RecipientsHash()
+	if currentHash == "" {
+		return
+	}
+	w := coalesceWriter(warn)
+	for label, rec := range current.CAs {
+		if rec == nil || rec.Encryption == nil || rec.Encryption.RecipientsHash == "" {
+			continue
+		}
+		if rec.Encryption.RecipientsHash != currentHash {
+			fmt.Fprintf(w, "warning: CA %q key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt\n", label)
+		}
+	}
+	for label, h := range current.Hosts {
+		warned := false
+		for _, art := range h.Artifacts {
+			if warned {
+				break
+			}
+			if art.Encryption == nil || art.Encryption.RecipientsHash == "" {
+				continue
+			}
+			if art.Encryption.RecipientsHash != currentHash {
+				fmt.Fprintf(w, "warning: host %q key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt\n", label)
+				warned = true
+			}
+		}
+	}
 }
 
 // coalesceWriter returns w, or io.Discard when w is nil.

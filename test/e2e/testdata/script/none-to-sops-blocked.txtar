@@ -1,0 +1,49 @@
+# Enabling sops encryption after a plaintext run is detected as an encryption
+# configuration change and blocked with a clear error. The plan fires before
+# sops is ever invoked, so this test runs without sops in PATH.
+
+# Run 1: generate with no encryption. CA key written as plaintext mesh.key.
+exec nebula-pki
+stderr 'generated CA'
+exists out/ca/mesh.crt
+exists out/ca/mesh.key
+! exists out/ca/mesh.key.enc
+
+# Snapshot all artifacts to verify they are untouched after the failed run 2.
+cp out/ca/mesh.crt     mesh.crt.snap
+cp out/ca/mesh.key     mesh.key.snap
+cp out/nebula-pki.json manifest.snap
+
+# Switch to sops config. The manifest still records key_path: out/ca/mesh.key
+# but the current config now expects out/ca/mesh.key.enc.
+cp nebula.sops.hcl nebula.hcl
+
+# Run 2 must exit non-zero with a clear error; no files are touched.
+! exec nebula-pki
+stderr 'encryption configuration changed'
+stderr 'mesh\.key'
+stderr 'mesh\.key\.enc'
+stderr 'nebula-pki reencrypt'
+! stdout .
+
+# All artifacts are byte-identical to after run 1.
+cmp out/ca/mesh.crt     mesh.crt.snap
+cmp out/ca/mesh.key     mesh.key.snap
+cmp out/nebula-pki.json manifest.snap
+! exists out/ca/mesh.key.enc
+
+-- nebula.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+-- nebula.sops.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"]
+  }
+}

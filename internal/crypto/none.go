@@ -8,6 +8,7 @@ func (n *NoneBackend) Encrypt(plaintext []byte, _ string) ([]byte, error) {
 	return plaintext, nil
 }
 
-func (n *NoneBackend) Suffix() string         { return "" }
-func (n *NoneBackend) BackendName() string    { return "none" }
-func (n *NoneBackend) RecipientsHash() string { return "" }
+func (n *NoneBackend) Suffix() string                            { return "" }
+func (n *NoneBackend) BackendName() string                       { return "none" }
+func (n *NoneBackend) RecipientsHash() string                    { return "" }
+func (n *NoneBackend) Decrypt(ciphertext []byte) ([]byte, error) { return ciphertext, nil }
