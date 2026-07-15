@@ -915,10 +915,8 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 
 	for _, la := range p.LinkActions() {
 		switch la.Op {
-		case plan.OpCreateSymlink:
-			linkLines = append(linkLines, fmt.Sprintf("link %s → %s", la.Path, la.LinkTarget))
-		case plan.OpDeleteSymlink:
-			linkLines = append(linkLines, fmt.Sprintf("delete link %s", la.Path))
+		case plan.OpCreateSymlink, plan.OpDeleteSymlink:
+			linkLines = append(linkLines, la.Desc)
 		}
 	}
 

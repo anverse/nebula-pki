@@ -2042,3 +2042,126 @@ ca "mesh" {
 		t.Fatalf("Lstat new dir link: %v", err)
 	}
 }
+
+func TestReconcile_DryRun_LinkCrt_NoSideEffects(t *testing.T) {
+	cfg := writeConfig(t, linkCrtConfig)
+
+	var out bytes.Buffer
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion, DryRun: true, Out: &out})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Fatal("Changed = true for dry run, want false")
+	}
+
+	// Symlink must not exist — dry run must not write anything.
+	linkPath := cfg.Resolve("out/hetzner/mesh.crt")
+	if _, err := os.Lstat(linkPath); err == nil {
+		t.Error("symlink was created during dry run; dry run must not write anything")
+	}
+
+	preview := out.String()
+	if !strings.Contains(preview, "create link out/hetzner/mesh.crt") {
+		t.Errorf("dry-run output %q missing link line", preview)
+	}
+}
+
+func TestReconcile_DryRun_LinkCrt_WrongTargetShowsWas(t *testing.T) {
+	// Run 1: create the correct symlink.
+	cfg1 := writeConfig(t, linkCrtConfig)
+	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	linkPath := cfg1.Resolve("out/hetzner/mesh.crt")
+
+	// Replace with a wrong-target symlink.
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	const wrongTarget = "/wrong/absolute/target.crt"
+	if err := os.Symlink(wrongTarget, linkPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	var out bytes.Buffer
+	rep, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion, DryRun: true, Out: &out})
+	if err != nil {
+		t.Fatalf("dry-run Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Fatal("Changed = true for dry run, want false")
+	}
+
+	preview := out.String()
+	if !strings.Contains(preview, "update link") || !strings.Contains(preview, "was "+wrongTarget) {
+		t.Errorf("dry-run output %q missing 'update link ... (was ...)' line", preview)
+	}
+
+	// Symlink must still point to the wrong target — dry run must not fix it.
+	got, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+	if got != wrongTarget {
+		t.Errorf("symlink target = %q after dry run, want %q (dry run must not modify disk)", got, wrongTarget)
+	}
+}
+
+func TestReconcile_DryRun_LinkCrt_UpToDate(t *testing.T) {
+	cfg := writeConfig(t, linkCrtConfig)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+
+	var out bytes.Buffer
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion, DryRun: true, Out: &out}); err != nil {
+		t.Fatalf("dry-run Reconcile: %v", err)
+	}
+	preview := out.String()
+	if !strings.Contains(preview, "up to date; nothing to do") {
+		t.Errorf("dry-run output = %q, want 'up to date; nothing to do'", preview)
+	}
+	if strings.Contains(preview, "link") {
+		t.Errorf("dry-run output %q mentions 'link' for up-to-date tree, want none", preview)
+	}
+}
+
+func TestReconcile_DryRun_LinkCrt_StaleDelete(t *testing.T) {
+	// Run 1: create symlink.
+	cfg1 := writeConfig(t, linkCrtConfig)
+	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	linkPath := cfg1.Resolve("out/hetzner/mesh.crt")
+
+	// Run 2: remove link_crt from config; dry-run the stale cleanup.
+	dir := filepath.Dir(cfg1.Path)
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`ca "mesh" { name = "mesh" }`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+	cfg2, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+
+	var out bytes.Buffer
+	rep, err := Reconcile(cfg2, Options{Now: fixedNow, GeneratorVersion: genVersion, DryRun: true, Out: &out})
+	if err != nil {
+		t.Fatalf("dry-run Reconcile: %v", err)
+	}
+	if rep.Changed {
+		t.Fatal("Changed = true for dry run, want false")
+	}
+
+	preview := out.String()
+	if !strings.Contains(preview, "delete stale link") {
+		t.Errorf("dry-run output %q missing 'delete stale link' line", preview)
+	}
+
+	// Symlink must still exist — dry run must not delete it.
+	if _, err := os.Lstat(linkPath); err != nil {
+		t.Errorf("symlink was deleted during dry run: %v", err)
+	}
+}
