@@ -667,8 +667,8 @@ func TestParse_LinkCrt(t *testing.T) {
 			wantLinkCrt: nil,
 		},
 		{
-			name: "omitted is nil",
-			src:  `ca "mesh" { name = "mesh" }`,
+			name:        "omitted is nil",
+			src:         `ca "mesh" { name = "mesh" }`,
 			wantLinkCrt: nil,
 		},
 		{
@@ -687,6 +687,14 @@ func TestParse_LinkCrt(t *testing.T) {
   link_crt  = ["out/hetzner"]
 }`,
 			wantLinkCrt: []string{"out/hetzner"},
+		},
+		{
+			name: "duplicate directory rejected",
+			src: `ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/hetzner", "out/aws", "out/hetzner"]
+}`,
+			wantErr: `link_crt[2]: duplicate directory "out/hetzner"`,
 		},
 	}
 

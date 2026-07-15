@@ -832,10 +832,15 @@ func validateOneCA(filename string, ca *CA) error {
 		return fmt.Errorf("ca %q: an archived CA cannot be marked default = true", ca.Label)
 	}
 
+	seenDirs := make(map[string]struct{}, len(ca.LinkCrt))
 	for i, d := range ca.LinkCrt {
 		if d == "" {
 			return fmt.Errorf("ca %q: link_crt[%d]: directory path must not be empty", ca.Label, i)
 		}
+		if _, dup := seenDirs[d]; dup {
+			return fmt.Errorf("ca %q: link_crt[%d]: duplicate directory %q", ca.Label, i, d)
+		}
+		seenDirs[d] = struct{}{}
 	}
 
 	return nil
