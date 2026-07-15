@@ -1975,6 +1975,54 @@ func TestReconcile_LinkCrt_StaleRegularFileNoticed(t *testing.T) {
 	}
 }
 
+func TestReconcile_LinkCrt_StaleAlreadyGoneManifestCleared(t *testing.T) {
+	// Run 1: create symlink.
+	cfg1 := writeConfig(t, linkCrtConfig)
+	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	linkPath := cfg1.Resolve("out/hetzner/mesh.crt")
+
+	// Simulate external deletion — symlink gone from disk but still in manifest.
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatalf("remove symlink: %v", err)
+	}
+
+	// Run 2: remove link_crt from config so the link becomes stale in the manifest.
+	dir := filepath.Dir(cfg1.Path)
+	cfgPath := filepath.Join(dir, "nebula.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`ca "mesh" { name = "mesh" }`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+	cfg2, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+
+	rep, err := Reconcile(cfg2, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Error("Changed = false; stale manifest record was not cleared")
+	}
+	if len(rep.DeletedLinks) != 1 || rep.DeletedLinks[0] != "out/hetzner/mesh.crt" {
+		t.Errorf("DeletedLinks = %v, want [out/hetzner/mesh.crt]", rep.DeletedLinks)
+	}
+
+	// Run 3: idempotent — stale record cleared, no further changes.
+	rep2, err := Reconcile(cfg2, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("third Reconcile: %v", err)
+	}
+	if rep2.Changed {
+		t.Error("Changed = true on third run, want idempotent no-op")
+	}
+	if len(rep2.DeletedLinks) != 0 {
+		t.Errorf("DeletedLinks = %v on third run, want empty", rep2.DeletedLinks)
+	}
+}
+
 func TestReconcile_LinkCrt_MkdirCreatesDir(t *testing.T) {
 	// The link dir does not exist; Reconcile should create it.
 	cfg := writeConfig(t, `

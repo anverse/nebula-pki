@@ -267,6 +267,19 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	if diskChanged {
 		hasAnyChange = true
 	}
+	// planCALinkStale only emits OpDeleteSymlink for entries recorded in the
+	// current manifest, so any planned delete always changes the manifest content
+	// — even when the symlink was already absent from disk (ErrNotExist path in
+	// applyLinks) and therefore didn't mutate disk (diskChanged stays false).
+	// Without this check the hasAnyChange early-return at line 300 would fire
+	// before manifestUnchanged is consulted, leaving the stale CertLink record
+	// in the manifest permanently.
+	for _, la := range p.LinkActions() {
+		if la.Op == plan.OpDeleteSymlink {
+			hasAnyChange = true
+			break
+		}
+	}
 	report.CreatedLinks = createdLinks
 	report.DeletedLinks = deletedLinks
 
@@ -707,7 +720,9 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 			info, lstatErr := os.Lstat(absLink)
 			switch {
 			case errors.Is(lstatErr, fs.ErrNotExist):
-				// Already gone; nothing to do.
+				// Already gone from disk; still report as deleted so the caller
+				// knows the stale manifest record was cleared.
+				deleted = append(deleted, a.Path)
 			case lstatErr != nil:
 				return nil, nil, fmt.Errorf("link %s: lstat: %w", a.Path, lstatErr)
 			case info.Mode()&os.ModeSymlink == 0:
