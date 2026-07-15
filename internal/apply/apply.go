@@ -693,6 +693,12 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 						a.Label, a.Path,
 					)
 				}
+				// Re-read the target: if it already matches, skip the
+				// remove+recreate so we don't report a spurious write.
+				if existing, rerr := os.Readlink(absLink); rerr == nil && existing == a.LinkTarget {
+					activeLinks[a.Label] = append(activeLinks[a.Label], manifest.CertLink{Path: a.Path, Target: a.LinkTarget})
+					continue
+				}
 				// Existing symlink with wrong target: remove before recreating.
 				if err := os.Remove(absLink); err != nil {
 					return nil, nil, fmt.Errorf("link %s: remove existing symlink: %w", a.Path, err)

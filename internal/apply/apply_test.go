@@ -15,6 +15,7 @@ import (
 	"github.com/anverse/nebula-pki/internal/crypto"
 	"github.com/anverse/nebula-pki/internal/manifest"
 	"github.com/anverse/nebula-pki/internal/pki"
+	"github.com/anverse/nebula-pki/internal/plan"
 	"github.com/slackhq/nebula/cert"
 )
 
@@ -1862,6 +1863,50 @@ func TestReconcile_LinkCrt_WrongTargetRecreated(t *testing.T) {
 	target, _ := os.Readlink(linkPath)
 	if target != "../ca/mesh.crt" {
 		t.Errorf("symlink target after fix = %q, want ../ca/mesh.crt", target)
+	}
+}
+
+func TestApplyLinks_CorrectSymlinkSkipsRecreate(t *testing.T) {
+	// Run Reconcile once to generate CA artifacts and the correct symlink.
+	cfg := writeConfig(t, linkCrtConfig)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	linkPath := cfg.Resolve("out/hetzner/mesh.crt")
+	correctTarget, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink: %v", err)
+	}
+
+	// Call applyLinks directly with OpCreateSymlink even though the symlink
+	// already has the correct target. This simulates the TOCTOU window where
+	// the planner saw a wrong/missing target but the disk was corrected before
+	// applyLinks ran.
+	action := plan.Action{
+		Op:         plan.OpCreateSymlink,
+		Kind:       plan.KindLink,
+		Label:      "mesh",
+		Path:       "out/hetzner/mesh.crt",
+		LinkTarget: correctTarget,
+		LinkDir:    "out/hetzner",
+		Desc:       "create link out/hetzner/mesh.crt → " + correctTarget,
+	}
+	next := &manifest.Manifest{}
+	created, _, err := applyLinks(cfg, []plan.Action{action}, next, nil)
+	if err != nil {
+		t.Fatalf("applyLinks: %v", err)
+	}
+	if len(created) != 0 {
+		t.Errorf("created = %v, want empty; symlink with correct target must not be recreated", created)
+	}
+
+	// Symlink must still resolve to the correct target.
+	got, rerr := os.Readlink(linkPath)
+	if rerr != nil {
+		t.Fatalf("Readlink after applyLinks: %v", rerr)
+	}
+	if got != correctTarget {
+		t.Errorf("symlink target = %q after applyLinks, want %q", got, correctTarget)
 	}
 }
 
