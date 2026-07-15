@@ -878,8 +878,8 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 // would write. Each file is prefixed with "+ write ". When the plan has no
 // mutations (all noops), it prints "up to date; nothing to do".
 func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p plan.Plan, current *manifest.Manifest, exists func(string) bool) {
-	var writes []string   // paths prefixed with "write "
-	var linkLines []string // already-formatted link entries
+	var writes []string
+	var linkLines []string
 
 	suffix := enc.Suffix()
 

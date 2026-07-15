@@ -403,7 +403,7 @@ func planCALinks(cfg *config.Config, ca *config.CA, m *manifest.Manifest, opts O
 	if len(ca.LinkCrt) == 0 {
 		// Still need to emit DeleteSymlink for any manifest links if the
 		// entire link_crt list was removed.
-		return planCALinkStale(cfg, ca, m, nil)
+		return planCALinkStale(ca, m, nil)
 	}
 
 	certPath := cfg.CACertPathForCA(*ca)
@@ -487,7 +487,7 @@ func planCALinks(cfg *config.Config, ca *config.CA, m *manifest.Manifest, opts O
 		}
 	}
 
-	stale, err := planCALinkStale(cfg, ca, m, expectedPaths)
+	stale, err := planCALinkStale(ca, m, expectedPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +497,7 @@ func planCALinks(cfg *config.Config, ca *config.CA, m *manifest.Manifest, opts O
 // planCALinkStale emits DeleteSymlink actions for manifest links that are no
 // longer present in expectedPaths. When expectedPaths is nil every manifest
 // link is stale.
-func planCALinkStale(cfg *config.Config, ca *config.CA, m *manifest.Manifest, expectedPaths map[string]struct{}) ([]Action, error) {
+func planCALinkStale(ca *config.CA, m *manifest.Manifest, expectedPaths map[string]struct{}) ([]Action, error) {
 	if m == nil {
 		return nil, nil
 	}

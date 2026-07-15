@@ -1028,7 +1028,7 @@ func TestBuild_LinkCrt_StaleManifestLinkDeleted(t *testing.T) {
 
 	p, err := Build(cfg, m, testNow,
 		existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)),
-		Options{Lstat: mockLstat(nil)})
+		Options{Lstat: mockLstat(nil), Readlink: mockReadlink(nil)})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
