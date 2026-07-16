@@ -9,7 +9,7 @@ vars:
   PKG: ./cmd/nebula-pki
 
 env:
-  # Container runtime for scripts/e2e/*; override via shell env or .envrc.
+  # Container runtime for scripts/smoke-test/*; override via shell env or .envrc.
   CONTAINER_RUNTIME: '{{.CONTAINER_RUNTIME | default "docker"}}'
   GIT_COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo none
@@ -25,7 +25,7 @@ tasks:
       - task: lint
       - task: build
       - task: test
-      - task: test:e2e
+      - task: e2e
 
   build:
     desc: Build the nebula-pki binary into bin/
@@ -54,7 +54,7 @@ tasks:
     cmds:
       - go test ./...
 
-  test:e2e:
+  e2e:
     desc: Run end-to-end testscript suite
     deps: [build]
     cmds:
@@ -64,16 +64,38 @@ tasks:
     desc: go vet + gofmt check
     cmds:
       - go vet ./...
-      - |
-        out=$(gofmt -l .)
-        if [ -n "$out" ]; then
-          echo "gofmt issues:"
-          echo "$out"
-          exit 1
-        fi
+      - cmd: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt issues:"
+            echo "$out"
+            exit 1
+          fi
+        silent: true
 
-  release:snapshot:
-    desc: Smoke-test the release pipeline locally (no publish)
+  fmt:
+    desc: Format all Go source files
+    cmds:
+      - go fmt ./...
+
+  tidy:
+    desc: Tidy go.mod and go.sum
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove build artifacts (bin/)
+    cmds:
+      - rm -rf bin
+
+  test:cover:
+    desc: Run unit tests with coverage report
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out
+
+  goreleaser:snapshot:
+    desc: Dry-run the goreleaser pipeline locally (no publish)
     cmds:
       - goreleaser release --snapshot --clean
 
@@ -96,18 +118,18 @@ tasks:
     cmds:
       - nix run .#default -- --version
 
-  e2e:brew:
-    desc: Install latest released nebula-pki via Homebrew in an isolated container
+  smoke:brew:
+    desc: Smoke-test the latest released nebula-pki via Homebrew in an isolated container
     cmds:
-      - ./scripts/e2e/brew.sh
+      - ./scripts/smoke-test/brew.sh
 
-  e2e:nix:
-    desc: Run latest released nebula-pki flake in an isolated nix container
+  smoke:nix:
+    desc: Smoke-test the latest released nebula-pki flake in an isolated nix container
     cmds:
-      - ./scripts/e2e/nix.sh
+      - ./scripts/smoke-test/nix.sh
 
-  e2e:install:
-    desc: Run both installer e2e checks (brew + nix)
+  smoke:
+    desc: Run all release smoke tests (brew + nix)
     cmds:
-      - task: e2e:brew
-      - task: e2e:nix
+      - task: smoke:brew
+      - task: smoke:nix
