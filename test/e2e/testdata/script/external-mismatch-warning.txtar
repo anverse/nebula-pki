@@ -1,0 +1,65 @@
+# Changing encrypt_command between runs triggers a mismatch warning for every
+# existing encrypted artifact. The run itself is still a noop: no key files
+# are re-encrypted automatically. The operator is directed to run
+# `nebula-pki reencrypt`.
+#
+# Uses cat (stdin/stdout identity) so no real encryption tool is required.
+
+[!exec:cat] skip 'cat not in PATH'
+
+# Run 1: generate CA and sign host using encrypt_command = ["cat", "--v1"].
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr '^signed host "alpha"'
+! stdout .
+
+# Switch to a config with a different encrypt_command (recipients hash changes).
+cp nebula.v2.hcl nebula.hcl
+
+# Run 2: all artifacts are noop but encrypt_command changed — warning for CA
+# and host.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+stderr 'warning: CA "test-ca" key was encrypted with different recipients'
+stderr 'warning: host "alpha" key was encrypted with different recipients'
+stderr 'nebula-pki reencrypt'
+! stdout .
+
+# No files were rewritten.
+! stderr 'generated'
+! stderr 'signed host'
+! stderr 'wrote manifest'
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "external" {
+    # Different encrypt_command → different recipients_sha → mismatch warning.
+    # This command is never invoked on a noop run; only the hash matters.
+    encrypt_command = ["cat", "--recipient-changed"]
+    decrypt_command = ["cat"]
+  }
+}

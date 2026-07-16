@@ -1,0 +1,90 @@
+# External backend using the sops CLI as the encryption command. This proves
+# that sops can be driven through the external interface (not the built-in
+# sops backend), enabling operators to share a single sops installation
+# across both the built-in and external code paths, or to use sops flags
+# that the built-in backend does not expose.
+#
+# Uses the same throwaway age keypair as the built-in sops tests.
+
+[!exec:sops] skip 'sops not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate CA and sign host alpha using sops via external backend.
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr 'key:  out/ca/test-ca\.key\.enc'
+stderr '^signed host "alpha"'
+stderr 'key:  out/hosts/alpha\.key\.enc'
+! stdout .
+
+exists out/ca/test-ca.crt
+exists out/ca/test-ca.key.enc
+! grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key.enc
+
+# Snapshot CA artifacts.
+cp out/ca/test-ca.crt      ca.crt.snap
+cp out/ca/test-ca.key.enc  ca.key.enc.snap
+
+# Run 2: add host beta. CA key decrypted via sops; beta signed.
+cp nebula.v2.hcl nebula.hcl
+exec nebula-pki
+! stderr 'generated CA'
+stderr '^signed host "beta"'
+! stdout .
+
+cmp out/ca/test-ca.crt     ca.crt.snap
+cmp out/ca/test-ca.key.enc ca.key.enc.snap
+
+exists out/hosts/beta.crt
+exists out/hosts/beta.key.enc
+
+# Run 3: full noop.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["sops", "--encrypt",
+                       "--input-type", "binary", "--output-type", "binary",
+                       "--age", "age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9",
+                       "{{.InPath}}"]
+    decrypt_command = ["sops", "--decrypt",
+                       "--input-type", "binary", "--output-type", "binary",
+                       "{{.InPath}}"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["sops", "--encrypt",
+                       "--input-type", "binary", "--output-type", "binary",
+                       "--age", "age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9",
+                       "{{.InPath}}"]
+    decrypt_command = ["sops", "--decrypt",
+                       "--input-type", "binary", "--output-type", "binary",
+                       "{{.InPath}}"]
+  }
+}

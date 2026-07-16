@@ -1,0 +1,84 @@
+# External backend with no {{.InPath}}/{{.OutPath}} placeholders: plaintext
+# is piped to the command's stdin and ciphertext is read from stdout. Uses
+# cat as a trivial identity transform to validate the stdin/stdout data path
+# without requiring any real encryption tool.
+#
+# The "ciphertext" equals the plaintext here — this test verifies wiring, not
+# cryptographic strength. See external-age-encrypt-decrypt.txtar for a test
+# with real encryption.
+
+[!exec:cat] skip 'cat not in PATH'
+
+# Run 1: generate CA and sign host. Keys written with .enc suffix (identity).
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr 'key:  out/ca/test-ca\.key\.enc'
+stderr '^signed host "alpha"'
+stderr 'key:  out/hosts/alpha\.key\.enc'
+! stdout .
+
+# The key files exist and carry the .enc suffix.
+exists out/ca/test-ca.crt
+exists out/ca/test-ca.key.enc
+exists out/hosts/alpha.crt
+exists out/hosts/alpha.key.enc
+! exists out/ca/test-ca.key
+! exists out/hosts/alpha.key
+
+# Snapshot first-run artifacts.
+cp out/ca/test-ca.crt      ca.crt.snap
+cp out/ca/test-ca.key.enc  ca.key.enc.snap
+
+# Run 2: add host beta. CA key decrypted via cat stdin/stdout; beta signed.
+cp nebula.v2.hcl nebula.hcl
+exec nebula-pki
+! stderr 'generated CA'
+stderr '^signed host "beta"'
+! stdout .
+
+# CA artifacts are byte-identical to run 1.
+cmp out/ca/test-ca.crt     ca.crt.snap
+cmp out/ca/test-ca.key.enc ca.key.enc.snap
+
+exists out/hosts/beta.crt
+exists out/hosts/beta.key.enc
+
+# Run 3: full noop.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+host "beta" {
+  networks = ["10.0.0.2/16"]
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+  }
+}
