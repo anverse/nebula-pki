@@ -234,11 +234,25 @@ host "alice_phone" {
 
 > This section is under **active development.** Do not rely on this in production yet.
 
-By default, CA and host private keys land on disk as plaintext, which means you cannot safely keep `out/` in git. The optional `storage.encryption "sops"` block writes every private key through the [sops](https://github.com/getsops/sops) CLI before touching disk. Certificates, the trust bundle, and the manifest are never encrypted.
+By default, CA and host private keys land on disk as plaintext. The optional `storage.encryption` block encrypts every private key before it touches disk. Certificates, the trust bundle, and the manifest are **never** encrypted.
 
-`sops` must be installed and available (in `PATH`) on any machine running `nebula-pki` with `sops` encryption enabled.
+Three backends are available:
 
-### Inline recipients
+| Backend | When to use |
+|---|---|
+| `none` | Default. Keys are plaintext. Skip the block entirely or declare it explicitly. |
+| `sops` | Uses [sops](https://github.com/getsops/sops). First-class support for age, PGP, KMS, and `.sops.yaml` discovery. |
+| `external` | Bring your encryption tool. `age` directly, `gpg`, `openssl`, a custom KMS wrapper, or any command that reads/writes on stdin/stdout. |
+
+### No encryption (default)
+
+Omit the `encryption` block (or declare `encryption "none" {}`) and keys are written as plaintext. This is the right choice for local development or when your repo is already private and the threat model doesn't require key encryption.
+
+### sops
+
+`sops` must be installed and in `PATH` on every machine running `nebula-pki` with this backend active — both for initial key generation (encrypt) and for any reconcile that signs hosts under an existing encrypted CA key (decrypt).
+
+#### Inline recipients
 
 List one or more age, PGP, or KMS recipients directly in the config. sops uses them to encrypt; no `.sops.yaml` file is needed.
 
@@ -252,7 +266,7 @@ storage {
 
 Keys are written with the configured suffix (default `.enc`): `out/ca/mesh.key.enc`, `out/hosts/alpha.key.enc`. Plaintext `.key` files are never written to disk.
 
-### `.sops.yaml` discovery
+#### `.sops.yaml` discovery
 
 Use an empty block and let sops discover `.sops.yaml` by searching upward from the output directory:
 
@@ -269,11 +283,11 @@ creation_rules:
   - age: age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt
 ```
 
-### Decryption on rerun
+#### Decryption on rerun
 
 When a CA key is already encrypted on disk, `nebula-pki` decrypts it in-memory — no plaintext file is written — and uses it to sign new or renewing hosts. Set `SOPS_AGE_KEY`, `SOPS_AGE_KEY_FILE`, or the appropriate credential for your backend so sops can decrypt.
 
-### Changing recipients
+#### Changing recipients
 
 Changing the recipients in the config does **not** re-encrypt existing key files on a normal run. Instead, a warning is printed for every artifact whose recorded recipients differ from the current config:
 
@@ -284,11 +298,96 @@ warning: host "alpha" key was encrypted with different recipients; run 'nebula-p
 
 New hosts added in the same run are encrypted with the current (new) recipients. Existing files are left under the old recipients until `nebula-pki reencrypt` is run.
 
-This is intentional: silently re-encrypting a CA private key on a routine `nebula-pki` run is risky — a crash between decrypt and re-encrypt can leave the key unrecoverable. The explicit `reencrypt` command makes recipient rotation a deliberate, audited step.
+This is intentional: silently re-encrypting a CA private key on a routine run is risky — a crash between decrypt and re-encrypt can leave the key unrecoverable. The explicit `reencrypt` command makes rotation a deliberate, audited step.
 
-### Switching backends (`none` → `sops`)
+### External command
 
-Enabling `sops` after a plaintext run is detected as a configuration mismatch. `nebula-pki` errors immediately rather than creating a mix of encrypted and plaintext files:
+The `external` backend invokes operator-supplied commands to encrypt and decrypt key files. Use it when you want to use a tool that isn't sops, or when you need to pass flags the built-in sops backend doesn't expose.
+
+#### How data flows
+
+Two placeholders control how nebula-pki passes data to your commands:
+
+| Placeholder | Where it works | What it becomes |
+|---|---|---|
+| `{{.InPath}}` | `encrypt_command`, `decrypt_command` | Absolute path to a temp file containing the input bytes (plaintext for encrypt, ciphertext for decrypt). |
+| `{{.OutPath}}` | `encrypt_command` only | Absolute path to a temp file where the command must write its output. Ciphertext is read from this file after the command exits. |
+
+When a placeholder is **absent**, the corresponding data flows via stdin (input) or stdout (output). Decrypt always reads its output from stdout; `{{.OutPath}}` is not substituted in `decrypt_command`.
+
+Both `encrypt_command` and `decrypt_command` are required.
+
+#### Examples
+
+**age** — `{{.InPath}}` for input, stdout for output:
+
+```hcl
+storage {
+  encryption "external" {
+    encrypt_command = ["age", "--encrypt", "--recipient", "age1...", "{{.InPath}}"]
+    decrypt_command = ["age", "--decrypt", "--identity", "./age.key", "{{.InPath}}"]
+  }
+}
+```
+
+**openssl** — `{{.InPath}}` + `{{.OutPath}}` for encrypt; `{{.InPath}}` + stdout for decrypt:
+
+```hcl
+storage {
+  encryption "external" {
+    encrypt_command = ["openssl", "enc", "-aes-256-cbc", "-pbkdf2",
+                       "-pass", "pass:secret",
+                       "-in", "{{.InPath}}", "-out", "{{.OutPath}}"]
+    decrypt_command = ["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2",
+                       "-pass", "pass:secret",
+                       "-in", "{{.InPath}}"]
+  }
+}
+```
+
+**stdin/stdout wrapper** — no placeholders at all; data piped in and out:
+
+```hcl
+storage {
+  encryption "external" {
+    encrypt_command = ["myencryptor", "--key-id", "prod-key"]
+    decrypt_command = ["myencryptor", "--key-id", "prod-key", "--decrypt"]
+  }
+}
+```
+
+**sops via external** — uses sops but with full control over every flag:
+
+```hcl
+storage {
+  encryption "external" {
+    encrypt_command = ["sops", "--encrypt",
+                       "--input-type", "binary", "--output-type", "binary",
+                       "--age", "age1...", "{{.InPath}}"]
+    decrypt_command = ["sops", "--decrypt",
+                       "--input-type", "binary", "--output-type", "binary",
+                       "{{.InPath}}"]
+  }
+}
+```
+
+#### Changing the encrypt_command
+
+A SHA-256 hash of the full `encrypt_command` slice is recorded in the manifest alongside each encrypted key. When this hash changes between runs (a flag changed, a key ID rotated), the same mismatch warning as sops fires:
+
+```
+warning: CA "mesh" key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt
+```
+
+No re-encryption happens automatically. Run `nebula-pki reencrypt` to rotate. *(Subcommand ships in a later release.)*
+
+#### Decryption on rerun
+
+When a CA key exists encrypted on disk, `nebula-pki` pipes the ciphertext to `decrypt_command` and reads plaintext from its stdout. No plaintext file is written to disk. Make sure any credentials your command needs (env vars, key files) are present on every machine that runs `nebula-pki`.
+
+### Switching backends
+
+When the encryption suffix changes between runs (e.g. switching from `none` to `sops` or `external`), `nebula-pki` detects the mismatch and exits with an error rather than creating a mix of plaintext and encrypted files:
 
 ```
 ca "mesh": encryption configuration changed: CA key exists at out/ca/mesh.key
@@ -297,7 +396,7 @@ use `nebula-pki reencrypt` to migrate between encryption configs, or manually
 move/rename the key file to the expected path
 ```
 
-Run `nebula-pki reencrypt` to encrypt the existing keys in place and update the manifest. *(Subcommand ships in a later release.)*
+When switching between two backends that share the same suffix (e.g. `sops` → `external`, both defaulting to `.enc`), the run succeeds as a noop but the mismatch warning fires because the stored fingerprint no longer matches the current config. Run `nebula-pki reencrypt` to migrate. *(Subcommand ships in a later release.)*
 
 ## CLI
 
