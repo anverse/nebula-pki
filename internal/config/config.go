@@ -181,22 +181,31 @@ type Storage struct {
 
 // EncryptionConfig is the parsed encryption block.
 type EncryptionConfig struct {
-	// Backend is "none", "sops", or "external" (external not yet implemented).
+	// Backend is "none", "sops", or "external".
 	Backend string
 	// Sops is non-nil when Backend == "sops".
 	Sops *SopsConfig
+	// External is non-nil when Backend == "external".
+	External *ExternalConfig
 }
 
 // KeySuffix returns the encryption suffix appended to private key filenames
 // (e.g. ".enc"). Returns "" when the backend is "none" or unset.
 func (e EncryptionConfig) KeySuffix() string {
-	if e.Backend != "sops" {
+	switch e.Backend {
+	case "sops":
+		if e.Sops != nil && e.Sops.OutputSuffix != "" {
+			return e.Sops.OutputSuffix
+		}
+		return ".enc"
+	case "external":
+		if e.External != nil && e.External.OutputSuffix != "" {
+			return e.External.OutputSuffix
+		}
+		return ".enc"
+	default:
 		return ""
 	}
-	if e.Sops != nil && e.Sops.OutputSuffix != "" {
-		return e.Sops.OutputSuffix
-	}
-	return ".enc"
 }
 
 // IsNone reports whether no encryption is active.
@@ -216,6 +225,14 @@ type SopsConfig struct {
 	ShamirThreshold int
 	ConfigFile      string
 	OutputSuffix    string
+}
+
+// ExternalConfig holds the fields from an encryption "external" {} block.
+// Both EncryptCommand and DecryptCommand are required. See ADR-023.
+type ExternalConfig struct {
+	EncryptCommand []string
+	DecryptCommand []string
+	OutputSuffix   string
 }
 
 // Host is a host certificate to sign. Networks, UnsafeNetworks, Groups
@@ -386,6 +403,13 @@ type rawSopsBody struct {
 	ShamirThreshold *int     `hcl:"shamir_threshold,optional"`
 	ConfigFile      *string  `hcl:"config,optional"`
 	OutputSuffix    *string  `hcl:"output_suffix,optional"`
+}
+
+// rawExternalBody decodes the body of an encryption "external" {} block.
+type rawExternalBody struct {
+	EncryptCommand []string `hcl:"encrypt_command,optional"`
+	DecryptCommand []string `hcl:"decrypt_command,optional"`
+	OutputSuffix   *string  `hcl:"output_suffix,optional"`
 }
 
 type rawHost struct {
@@ -611,9 +635,15 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 					return nil, err
 				}
 				s.Encryption = EncryptionConfig{Backend: "sops", Sops: sc}
+			case "external":
+				ec, err := decodeExternalBody(filename, enc)
+				if err != nil {
+					return nil, err
+				}
+				s.Encryption = EncryptionConfig{Backend: "external", External: ec}
 			default:
 				return nil, fmt.Errorf(
-					"%s: storage: encryption backend %q is not supported; available backends: none, sops",
+					"%s: storage: encryption backend %q is not supported; available backends: none, sops, external",
 					filename, enc.Label,
 				)
 			}
@@ -715,6 +745,30 @@ func decodeSopsBody(filename string, enc rawEncryptionRaw) (*SopsConfig, error) 
 		sc.OutputSuffix = *raw.OutputSuffix
 	}
 	return sc, nil
+}
+
+func decodeExternalBody(filename string, enc rawEncryptionRaw) (*ExternalConfig, error) {
+	var raw rawExternalBody
+	if diags := gohcl.DecodeBody(enc.Body, nil, &raw); diags.HasErrors() {
+		return nil, diagsError(diags)
+	}
+	if len(raw.EncryptCommand) == 0 {
+		return nil, fmt.Errorf("%s: storage: encryption \"external\".encrypt_command is required", filename)
+	}
+	if len(raw.DecryptCommand) == 0 {
+		return nil, fmt.Errorf("%s: storage: encryption \"external\".decrypt_command is required", filename)
+	}
+	ec := &ExternalConfig{
+		EncryptCommand: raw.EncryptCommand,
+		DecryptCommand: raw.DecryptCommand,
+	}
+	if raw.OutputSuffix != nil {
+		if *raw.OutputSuffix == "" {
+			return nil, fmt.Errorf("%s: storage: encryption \"external\".output_suffix must not be empty", filename)
+		}
+		ec.OutputSuffix = *raw.OutputSuffix
+	}
+	return ec, nil
 }
 
 func parsePrefixes(filename, field string, raw []string) ([]netip.Prefix, error) {
