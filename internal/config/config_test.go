@@ -725,3 +725,157 @@ func TestParse_LinkCrt(t *testing.T) {
 		})
 	}
 }
+
+func TestParse_ExternalEncryption(t *testing.T) {
+	cases := []struct {
+		name       string
+		src        string
+		wantErr    string
+		wantEnc    []string
+		wantDec    []string
+		wantSuffix string
+	}{
+		{
+			name: "full block parsed correctly",
+			src: minimalGenerate + `
+storage {
+  encryption "external" {
+    encrypt_command = ["myenc", "--in", "{{.InPath}}", "--out", "{{.OutPath}}"]
+    decrypt_command = ["mydec", "--in", "{{.InPath}}"]
+    output_suffix   = ".gpg"
+  }
+}`,
+			wantEnc:    []string{"myenc", "--in", "{{.InPath}}", "--out", "{{.OutPath}}"},
+			wantDec:    []string{"mydec", "--in", "{{.InPath}}"},
+			wantSuffix: ".gpg",
+		},
+		{
+			name: "default suffix is .enc",
+			src: minimalGenerate + `
+storage {
+  encryption "external" {
+    encrypt_command = ["enc"]
+    decrypt_command = ["dec"]
+  }
+}`,
+			wantEnc:    []string{"enc"},
+			wantDec:    []string{"dec"},
+			wantSuffix: ".enc",
+		},
+		{
+			name: "stdin/stdout commands (no placeholders) are valid",
+			src: minimalGenerate + `
+storage {
+  encryption "external" {
+    encrypt_command = ["myencryptor", "--key-id", "prod"]
+    decrypt_command = ["myencryptor", "--key-id", "prod", "--decrypt"]
+  }
+}`,
+			wantEnc: []string{"myencryptor", "--key-id", "prod"},
+			wantDec: []string{"myencryptor", "--key-id", "prod", "--decrypt"},
+		},
+		{
+			name: "missing encrypt_command is rejected",
+			src: minimalGenerate + `
+storage {
+  encryption "external" {
+    decrypt_command = ["dec"]
+  }
+}`,
+			wantErr: `encryption "external".encrypt_command is required`,
+		},
+		{
+			name: "missing decrypt_command is rejected",
+			src: minimalGenerate + `
+storage {
+  encryption "external" {
+    encrypt_command = ["enc"]
+  }
+}`,
+			wantErr: `encryption "external".decrypt_command is required`,
+		},
+		{
+			name: "empty output_suffix is rejected",
+			src: minimalGenerate + `
+storage {
+  encryption "external" {
+    encrypt_command = ["enc"]
+    decrypt_command = ["dec"]
+    output_suffix   = ""
+  }
+}`,
+			wantErr: `encryption "external".output_suffix must not be empty`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Parse("test.hcl", []byte(tc.src))
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if cfg.Storage.Encryption.Backend != "external" {
+				t.Errorf("Backend = %q, want %q", cfg.Storage.Encryption.Backend, "external")
+			}
+			ec := cfg.Storage.Encryption.External
+			if ec == nil {
+				t.Fatal("External is nil")
+			}
+			if got := strings.Join(ec.EncryptCommand, " "); got != strings.Join(tc.wantEnc, " ") {
+				t.Errorf("EncryptCommand = %v, want %v", ec.EncryptCommand, tc.wantEnc)
+			}
+			if got := strings.Join(ec.DecryptCommand, " "); got != strings.Join(tc.wantDec, " ") {
+				t.Errorf("DecryptCommand = %v, want %v", ec.DecryptCommand, tc.wantDec)
+			}
+			if tc.wantSuffix != "" {
+				if got := cfg.Storage.Encryption.KeySuffix(); got != tc.wantSuffix {
+					t.Errorf("KeySuffix() = %q, want %q", got, tc.wantSuffix)
+				}
+			}
+		})
+	}
+}
+
+func TestKeySuffix_External(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *ExternalConfig
+		want string
+	}{
+		{"default suffix", &ExternalConfig{EncryptCommand: []string{"e"}, DecryptCommand: []string{"d"}}, ".enc"},
+		{"custom suffix", &ExternalConfig{EncryptCommand: []string{"e"}, DecryptCommand: []string{"d"}, OutputSuffix: ".gpg"}, ".gpg"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := EncryptionConfig{Backend: "external", External: tc.cfg}
+			if got := enc.KeySuffix(); got != tc.want {
+				t.Errorf("KeySuffix() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParse_UnknownBackend_ListsExternal(t *testing.T) {
+	src := minimalGenerate + `
+storage {
+  encryption "pkcs11" {}
+}`
+	_, err := Parse("test.hcl", []byte(src))
+	if err == nil {
+		t.Fatal("expected error for unknown backend, got nil")
+	}
+	for _, label := range []string{"none", "sops", "external"} {
+		if !strings.Contains(err.Error(), label) {
+			t.Errorf("error %q does not mention backend %q", err.Error(), label)
+		}
+	}
+}
