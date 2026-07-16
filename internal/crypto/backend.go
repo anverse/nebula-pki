@@ -19,7 +19,7 @@ type Encryptor interface {
 	// disk, e.g. ".enc". Returns "" for the none backend.
 	Suffix() string
 
-	// BackendName returns "none" or "sops".
+	// BackendName returns "none", "sops", or "external".
 	BackendName() string
 
 	// RecipientsHash returns a stable SHA-256 fingerprint of the configured
@@ -49,6 +49,8 @@ func New(enc config.EncryptionConfig) (Backend, error) {
 		return &NoneBackend{}, nil
 	case "sops":
 		return newSopsBackend(enc.Sops), nil
+	case "external":
+		return newExternalBackend(enc.External), nil
 	default:
 		return nil, fmt.Errorf("unknown encryption backend %q", enc.Backend)
 	}
