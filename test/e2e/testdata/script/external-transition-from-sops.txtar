@@ -1,0 +1,70 @@
+# Switching from sops to external encryption (same .enc suffix) is NOT
+# blocked: the plan sees the key file at the same expected path and treats
+# the run as a noop. However, the recorded recipients_sha (sops recipients
+# hash) differs from the current external backend's hash (SHA-256 of
+# encrypt_command), so the mismatch warning fires. No files are rewritten.
+#
+# Note: a hard "configuration changed" error only fires when the suffix
+# changes (e.g. none→sops). Same-suffix backend changes surface as a
+# mismatch warning instead. Actual migration is handled by `nebula-pki
+# reencrypt` (v0.1.5).
+
+[!exec:sops] skip 'sops not in PATH'
+[!exec:cat]  skip 'cat not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate with sops. CA key written as mesh.key.enc.
+exec nebula-pki
+stderr 'generated CA'
+exists out/ca/mesh.crt
+exists out/ca/mesh.key.enc
+! exists out/ca/mesh.key
+
+# Snapshot all artifacts.
+cp out/ca/mesh.crt     mesh.crt.snap
+cp out/ca/mesh.key.enc mesh.key.enc.snap
+cp out/nebula-pki.json manifest.snap
+
+# Switch to external encryption config.
+cp nebula.external.hcl nebula.hcl
+
+# Run 2: noop (key already at mesh.key.enc) but mismatch warning fires
+# because recipients_sha changed from sops hash to external hash.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+stderr 'warning: CA "mesh" key was encrypted with different recipients'
+stderr 'nebula-pki reencrypt'
+! stdout .
+
+# No files were rewritten.
+! stderr 'generated'
+! stderr 'wrote manifest'
+
+# All artifacts are byte-identical to after run 1.
+cmp out/ca/mesh.crt     mesh.crt.snap
+cmp out/ca/mesh.key.enc mesh.key.enc.snap
+cmp out/nebula-pki.json manifest.snap
+
+-- nebula.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+-- nebula.external.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+  }
+}

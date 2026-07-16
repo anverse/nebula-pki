@@ -1,0 +1,68 @@
+# Switching from external to sops encryption (same .enc suffix) is NOT
+# blocked: the plan sees the key file at the same expected path and treats
+# the run as a noop. However, the recorded recipients_sha (SHA-256 of the
+# external encrypt_command) differs from the current sops recipients hash,
+# so the mismatch warning fires. No files are rewritten.
+#
+# Note: a hard "configuration changed" error only fires when the suffix
+# changes. Same-suffix backend changes surface as a mismatch warning instead.
+# Actual migration is handled by `nebula-pki reencrypt` (v0.1.5).
+
+[!exec:cat]  skip 'cat not in PATH'
+[!exec:sops] skip 'sops not in PATH'
+
+# Run 1: generate with external encryption (cat identity). CA key at mesh.key.enc.
+exec nebula-pki
+stderr 'generated CA'
+exists out/ca/mesh.crt
+exists out/ca/mesh.key.enc
+! exists out/ca/mesh.key
+
+# Snapshot all artifacts.
+cp out/ca/mesh.crt     mesh.crt.snap
+cp out/ca/mesh.key.enc mesh.key.enc.snap
+cp out/nebula-pki.json manifest.snap
+
+# Switch to sops encryption config. No SOPS_AGE_KEY needed: run 2 is a
+# noop (key already at mesh.key.enc), so sops is never invoked for crypto.
+cp nebula.sops.hcl nebula.hcl
+
+# Run 2: noop (key already at mesh.key.enc) but mismatch warning fires
+# because recipients_sha changed from external hash to sops recipients hash.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+stderr 'warning: CA "mesh" key was encrypted with different recipients'
+stderr 'nebula-pki reencrypt'
+! stdout .
+
+# No files were rewritten.
+! stderr 'generated'
+! stderr 'wrote manifest'
+
+# All artifacts are byte-identical to after run 1.
+cmp out/ca/mesh.crt     mesh.crt.snap
+cmp out/ca/mesh.key.enc mesh.key.enc.snap
+cmp out/nebula-pki.json manifest.snap
+
+-- nebula.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+  }
+}
+
+-- nebula.sops.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
