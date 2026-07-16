@@ -156,11 +156,17 @@ When the block is left empty (`encryption "sops" {}`), nebula-pki relies entirel
 
 #### `encryption "external" { ... }`
 
+Invokes operator-supplied commands to encrypt and decrypt private key files. Both commands are required.
+
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `encrypt_command` | list(string) | yes | Argv. `{{.In}}` / `{{.Out}}` placeholders supported. |
-| `decrypt_command` | list(string) | no | Inverse. Recommended. |
-| `output_suffix` | string | no | Default `".enc"`. |
+| `encrypt_command` | list(string) | **yes** | Argv for encryption. `{{.InPath}}` is substituted with an absolute path to a temp file containing the plaintext; if absent, plaintext is piped via stdin. `{{.OutPath}}` is substituted with the path where the command must write ciphertext; if absent, ciphertext is read from stdout. |
+| `decrypt_command` | list(string) | **yes** | Argv for decryption. `{{.InPath}}` is substituted with an absolute path to a temp file containing the ciphertext; if absent, ciphertext is piped via stdin. Output is always captured from stdout (`{{.OutPath}}` is not substituted in decrypt). |
+| `output_suffix` | string | no | Suffix appended to encrypted key filenames on disk. Default `".enc"`. |
+
+**Mismatch detection:** a SHA-256 hash of the full `encrypt_command` slice is stored as `recipients_sha` in the manifest. When this changes between runs, nebula-pki prints the same mismatch warning as the sops backend and directs the operator to run `nebula-pki reencrypt`.
+
+See [ADR-023](./adr/023-external-backend-protocol.md) for the full protocol and rationale.
 
 ### `host`
 

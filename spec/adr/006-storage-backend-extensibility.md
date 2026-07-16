@@ -45,11 +45,13 @@ The `external` backend invokes a user-supplied command:
 
 ```hcl
 encryption "external" {
-  encrypt_command = ["my-tool", "encrypt", "--in", "{{.In}}", "--out", "{{.Out}}"]
-  decrypt_command = ["my-tool", "decrypt", "--in", "{{.In}}", "--out", "{{.Out}}"]
+  encrypt_command = ["my-tool", "encrypt", "--in", "{{.InPath}}", "--out", "{{.OutPath}}"]
+  decrypt_command = ["my-tool", "decrypt", "--in", "{{.InPath}}"]
   output_suffix   = ".enc"
 }
 ```
+
+`{{.InPath}}` and `{{.OutPath}}` are substituted with absolute temp-file paths. When absent, input is piped via stdin and output is read from stdout. `{{.OutPath}}` is not substituted in `decrypt_command` — plaintext is always captured from stdout. Both commands are required. See ADR-023 for the full protocol.
 
 Placeholders `{{.In}}` and `{{.Out}}` are substituted with absolute paths to the plaintext source file (which the tool writes to a temp location) and the desired ciphertext destination. The command is expected to exit 0 on success. The tool deletes the plaintext temp file on completion.
 

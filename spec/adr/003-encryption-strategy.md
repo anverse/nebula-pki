@@ -33,7 +33,7 @@ Specifically:
 - `encryption "sops" { ... }` shells out to the `sops` binary. **All sops key types are supported** — age, PGP, AWS KMS, GCP KMS, Azure Key Vault, HashiCorp Vault Transit — exposed as optional HCL fields that map 1:1 to sops CLI flags. The `sops` binary must be in PATH when this backend is active.
 - When the HCL block has no recipients configured, sops performs its standard upward search for `.sops.yaml` from the output file's directory. The HCL block can be empty (`encryption "sops" {}`) when `.sops.yaml` is authoritative.
 - When the HCL block lists recipients explicitly, they are passed as flags to sops and take precedence over `.sops.yaml` for files written by nebula-pki — same precedence rules as `sops --encrypt --age ... --pgp ...`.
-- `encryption "external" { encrypt_command = [...], decrypt_command = [...] }` invokes a user-supplied command. Placeholders `{{.In}}` and `{{.Out}}` are substituted at invocation time.
+- `encryption "external" { encrypt_command = [...], decrypt_command = [...] }` invokes a user-supplied command. Placeholders `{{.InPath}}` and `{{.OutPath}}` are substituted with absolute temp-file paths at invocation time; see ADR-023 for the full protocol.
 - Only **private key files** are encrypted. Public certificates, QRs, and the manifest stay plaintext.
 
 ### Positive Consequences
