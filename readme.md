@@ -229,9 +229,7 @@ host "alice_phone" {
 
 `in_pub` is mutually exclusive with `out_key` and is a validation error together with it. The key's curve must match the signing CA. Renewal re-signs the same public key. See [ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md).
 
-## Encryption at rest (opt-in) 🚧
-
-> This section is under **active development.** Do not rely on this in production yet.
+## Encryption at rest (opt-in)
 
 By default, CA and host private keys land on disk as plaintext. The optional `storage.encryption` block encrypts every private key before it touches disk. Certificates, the trust bundle, and the manifest are **never** encrypted.
 
