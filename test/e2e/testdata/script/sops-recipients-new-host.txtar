@@ -38,7 +38,7 @@ exec nebula-pki
 stderr 'signed host "beta"'
 stderr 'warning: CA "test-ca" key was encrypted with different recipients'
 stderr 'warning: host "alpha" key was encrypted with different recipients'
-stderr 'nebula-pki reencrypt'
+stderr 'nebula-pki rekey'
 ! stdout .
 
 # CA and alpha are byte-identical to run 1 (not rewritten).

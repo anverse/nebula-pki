@@ -23,7 +23,7 @@ cp nebula.sops.hcl nebula.hcl
 stderr 'encryption configuration changed'
 stderr 'mesh\.key'
 stderr 'mesh\.key\.enc'
-stderr 'nebula-pki reencrypt'
+stderr 'nebula-pki rekey'
 ! stdout .
 
 # All artifacts are byte-identical to after run 1.

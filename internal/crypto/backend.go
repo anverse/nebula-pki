@@ -42,6 +42,29 @@ type Backend interface {
 	Decryptor
 }
 
+// NewDecryptorForRecord builds a Decryptor for an artifact that was encrypted
+// by storedBackend. For "sops", decryption relies on the operator's key ring
+// and no recipient config is needed. For "external", currentEnc must still
+// carry the External decrypt_command; if it was removed before running rekey,
+// an error is returned directing the operator to keep it in place during migration.
+func NewDecryptorForRecord(storedBackend string, currentEnc config.EncryptionConfig) (Decryptor, error) {
+	switch storedBackend {
+	case "sops":
+		return newSopsBackend(nil), nil
+	case "external":
+		if currentEnc.External == nil {
+			return nil, fmt.Errorf(
+				"stored backend is \"external\" but no external config is present; " +
+					"keep the external config while running 'nebula-pki rekey', " +
+					"then switch to the new backend",
+			)
+		}
+		return newExternalBackend(currentEnc.External), nil
+	default:
+		return nil, fmt.Errorf("unknown stored encryption backend %q", storedBackend)
+	}
+}
+
 // New returns a Backend for the given encryption configuration.
 func New(enc config.EncryptionConfig) (Backend, error) {
 	switch enc.Backend {

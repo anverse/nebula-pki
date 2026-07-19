@@ -1051,7 +1051,7 @@ func checkEncryptionMismatches(current *manifest.Manifest, enc crypto.Encryptor,
 			continue
 		}
 		if rec.Encryption.RecipientsHash != currentHash {
-			fmt.Fprintf(w, "warning: CA %q key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt\n", label)
+			fmt.Fprintf(w, "warning: CA %q key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt\n", label)
 		}
 	}
 	for label, h := range current.Hosts {
@@ -1064,7 +1064,7 @@ func checkEncryptionMismatches(current *manifest.Manifest, enc crypto.Encryptor,
 				continue
 			}
 			if art.Encryption.RecipientsHash != currentHash {
-				fmt.Fprintf(w, "warning: host %q key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt\n", label)
+				fmt.Fprintf(w, "warning: host %q key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt\n", label)
 				warned = true
 			}
 		}

@@ -23,7 +23,7 @@ cp nebula.v2.hcl nebula.hcl
 exec nebula-pki --dry-run
 stdout '^up to date; nothing to do$'
 stderr 'warning: CA "test-ca" key was encrypted with different recipients'
-stderr 'nebula-pki reencrypt'
+stderr 'nebula-pki rekey'
 ! stderr 'generated'
 ! stderr 'signed'
 

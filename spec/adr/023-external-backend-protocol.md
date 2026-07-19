@@ -68,7 +68,7 @@ Rationale: a config without `decrypt_command` is valid on a fresh run (only encr
 
 ### D-5: Mismatch fingerprint is SHA-256 of `encrypt_command`
 
-The `EncryptionRecord.recipients_sha` field stores a SHA-256 hash of the full `encrypt_command` slice (elements joined with a null byte as separator to prevent boundary ambiguity). When this hash changes between runs, the tool prints the same "encrypted with different recipients" warning as the sops backend and directs the operator to `nebula-pki reencrypt`.
+The `EncryptionRecord.recipients_sha` field stores a SHA-256 hash of the full `encrypt_command` slice (elements joined with a null byte as separator to prevent boundary ambiguity). When this hash changes between runs, the tool prints the same "encrypted with different recipients" warning as the sops backend and directs the operator to `nebula-pki rekey`.
 
 Using the whole `encrypt_command` (not just key IDs) as the fingerprint means any change to the encryption logic — even a flag — is detected. This is conservative but correct: the operator knows best when a "same key, different flag" change still produces interoperable ciphertext.
 

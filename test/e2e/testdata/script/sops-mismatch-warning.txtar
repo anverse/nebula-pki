@@ -1,5 +1,5 @@
 # When inline recipients change between runs, every existing encrypted artifact
-# triggers a persistent warning directing the operator to run `nebula-pki reencrypt`.
+# triggers a persistent warning directing the operator to run `nebula-pki rekey`.
 # The run itself is still a noop: no key files are re-encrypted automatically.
 
 [!exec:sops] skip 'sops not in PATH'
@@ -20,7 +20,7 @@ exec nebula-pki
 stderr '^up to date; nothing to do$'
 stderr 'warning: CA "test-ca" key was encrypted with different recipients'
 stderr 'warning: host "alpha" key was encrypted with different recipients'
-stderr 'nebula-pki reencrypt'
+stderr 'nebula-pki rekey'
 ! stdout .
 
 # No files were rewritten.

@@ -1684,8 +1684,8 @@ func TestCheckEncryptionMismatches_WarnWhenHashesDiffer(t *testing.T) {
 	if !strings.Contains(out, `CA "mesh"`) {
 		t.Errorf("want mismatch warning for CA mesh, got: %q", out)
 	}
-	if !strings.Contains(out, "nebula-pki reencrypt") {
-		t.Errorf("want reencrypt hint in warning, got: %q", out)
+	if !strings.Contains(out, "nebula-pki rekey") {
+		t.Errorf("want rekey hint in warning, got: %q", out)
 	}
 }
 

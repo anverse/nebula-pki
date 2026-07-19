@@ -1,7 +1,7 @@
 # Changing encrypt_command between runs triggers a mismatch warning for every
 # existing encrypted artifact. The run itself is still a noop: no key files
 # are re-encrypted automatically. The operator is directed to run
-# `nebula-pki reencrypt`.
+# `nebula-pki rekey`.
 #
 # Uses cat (stdin/stdout identity) so no real encryption tool is required.
 
@@ -22,7 +22,7 @@ exec nebula-pki
 stderr '^up to date; nothing to do$'
 stderr 'warning: CA "test-ca" key was encrypted with different recipients'
 stderr 'warning: host "alpha" key was encrypted with different recipients'
-stderr 'nebula-pki reencrypt'
+stderr 'nebula-pki rekey'
 ! stdout .
 
 # No files were rewritten.

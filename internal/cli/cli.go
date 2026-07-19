@@ -62,6 +62,7 @@ without touching the filesystem.`,
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newCheckCmd(&configPath))
+	root.AddCommand(newRekeyCmd(&configPath))
 
 	return root
 }

@@ -6,7 +6,7 @@
 #
 # Note: a hard "configuration changed" error only fires when the suffix
 # changes. Same-suffix backend changes surface as a mismatch warning instead.
-# Actual migration is handled by `nebula-pki reencrypt` (v0.1.5).
+# Actual migration is handled by `nebula-pki rekey` (v0.1.5).
 
 [!exec:cat]  skip 'cat not in PATH'
 [!exec:sops] skip 'sops not in PATH'
@@ -32,7 +32,7 @@ cp nebula.sops.hcl nebula.hcl
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 stderr 'warning: CA "mesh" key was encrypted with different recipients'
-stderr 'nebula-pki reencrypt'
+stderr 'nebula-pki rekey'
 ! stdout .
 
 # No files were rewritten.

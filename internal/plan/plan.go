@@ -358,7 +358,7 @@ func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func
 			return Action{}, fmt.Errorf(
 				"ca %q: encryption configuration changed: CA key exists at %s "+
 					"(recorded in manifest) but current config expects it at %s; "+
-					"use `nebula-pki reencrypt` to migrate between encryption configs, "+
+					"use `nebula-pki rekey` to migrate between encryption configs, "+
 					"or manually move/rename the key file to the expected path",
 				ca.Label, rec.KeyPath, encKeyPath,
 			)
