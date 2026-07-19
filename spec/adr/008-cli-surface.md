@@ -40,7 +40,28 @@ nebula-pki                # reconcile out/ with nebula.hcl  (default)
 nebula-pki --dry-run      # preview only; no writes
 nebula-pki check          # parse + validate nebula.hcl; no I/O against out/. In reference mode, reads ca.cert_file / ca.key_file to verify they exist and parse.
 nebula-pki -c <path>      # use a different config (default: ./nebula.hcl)
+nebula-pki rekey          # synchronize encryption of all managed private key files with the current storage config
+nebula-pki rekey --dry-run   # print what would change; no writes
+nebula-pki rekey --force     # process all managed key files regardless of detected mismatch
 ```
+
+### Why `rekey` is a subcommand
+
+`rekey` takes genuinely different inputs and has a different risk profile from the default reconcile action:
+
+- It reads and writes key material that the main reconcile normally treats as settled state.
+- It must be an explicit, deliberate operator action — silently re-encrypting a CA private key on a routine reconcile run creates a window where a crash between decrypt and re-encrypt could leave the key unrecoverable.
+- It is the resolution step for the "encryption configuration changed" error that the main reconcile emits, so it has a distinct trigger and a distinct success condition.
+
+`rekey` handles all directions of encryption state change in a single pass:
+
+- Plaintext → encrypted (storage encryption added to config since last run)
+- Encrypted → re-encrypted (recipients or backend changed)
+- Encrypted → plaintext (encryption block removed from config)
+
+Without `--force`, only files with a detectable mismatch are processed. Files encrypted using `.sops.yaml`-only mode (no inline recipients) store no hash; use `--force` after rotating `.sops.yaml` keys.
+
+The manifest is updated only when all files succeed. On partial failure the manifest is left unchanged; re-running `rekey` is safe — already-matching files are skipped.
 
 Exit codes:
 

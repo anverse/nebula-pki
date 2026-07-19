@@ -164,7 +164,7 @@ Invokes operator-supplied commands to encrypt and decrypt private key files. Bot
 | `decrypt_command` | list(string) | **yes** | Argv for decryption. `{{.InPath}}` is substituted with an absolute path to a temp file containing the ciphertext; if absent, ciphertext is piped via stdin. Output is always captured from stdout (`{{.OutPath}}` is not substituted in decrypt). |
 | `output_suffix` | string | no | Suffix appended to encrypted key filenames on disk. Default `".enc"`. |
 
-**Mismatch detection:** a SHA-256 hash of the full `encrypt_command` slice is stored as `recipients_sha` in the manifest. When this changes between runs, nebula-pki prints the same mismatch warning as the sops backend and directs the operator to run `nebula-pki reencrypt`.
+**Mismatch detection:** a SHA-256 hash of the full `encrypt_command` slice is stored as `recipients_sha` in the manifest. When this changes between runs, nebula-pki prints the same mismatch warning as the sops backend and directs the operator to run `nebula-pki rekey`.
 
 See [ADR-023](./adr/023-external-backend-protocol.md) for the full protocol and rationale.
 
@@ -429,6 +429,48 @@ out/
     router-edge.crt
     router-edge.key.enc
 ```
+
+## CLI reference
+
+### Default action
+
+```sh
+nebula-pki                # reconcile out/ with nebula.hcl
+nebula-pki --dry-run      # preview planned writes; no files modified
+nebula-pki check          # validate config only; no I/O against out/
+nebula-pki -c <path>      # use a different config (default: ./nebula.hcl)
+```
+
+### `nebula-pki rekey`
+
+Synchronizes the encryption of all managed private key files with the current storage backend config.
+
+> **Note:** `rekey` operates on private key files at rest (the storage encryption configured in the `storage { encryption ... }` block). It has nothing to do with Nebula network certificates or tunnel encryption.
+
+```sh
+nebula-pki rekey            # process all files with a detectable mismatch
+nebula-pki rekey --dry-run  # print what would change; no writes
+nebula-pki rekey --force    # process all managed key files regardless of mismatch
+```
+
+`rekey` handles three cases in a single pass:
+
+| Transition | Trigger |
+|---|---|
+| Plaintext → encrypted | Storage encryption added to config since last run |
+| Encrypted → re-encrypted | Recipients or backend changed |
+| Encrypted → plaintext | Encryption block removed from config (or set to `encryption "none" {}`) |
+
+Without `--force`, only files with a detectable mismatch are processed:
+
+- For sops with inline recipients: stored `recipients_sha` differs from current hash.
+- For sops with `.sops.yaml`-only mode (empty block): no hash is stored, so no mismatch can be detected. Use `--force` after rotating `.sops.yaml` keys.
+- For external: SHA-256 of stored `encrypt_command` differs from current hash.
+- For path mismatch (suffix changed): the manifest-recorded key path differs from the path the current config expects.
+
+The manifest is updated only when all files succeed. On partial failure the manifest is left unchanged; re-running `rekey` is safe — already-matching files are skipped.
+
+See [ADR-008](./adr/008-cli-surface.md) for the rationale for `rekey` being a subcommand.
 
 ## Validation rules
 

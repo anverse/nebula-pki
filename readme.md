@@ -292,13 +292,13 @@ When a CA key is already encrypted on disk, `nebula-pki` decrypts it in-memory �
 Changing the recipients in the config does **not** re-encrypt existing key files on a normal run. Instead, a warning is printed for every artifact whose recorded recipients differ from the current config:
 
 ```
-warning: CA "mesh" key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt
-warning: host "alpha" key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt
+warning: CA "mesh" key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt
+warning: host "alpha" key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt
 ```
 
-New hosts added in the same run are encrypted with the current (new) recipients. Existing files are left under the old recipients until `nebula-pki reencrypt` is run.
+New hosts added in the same run are encrypted with the current (new) recipients. Existing files are left under the old recipients until `nebula-pki rekey` is run.
 
-This is intentional: silently re-encrypting a CA private key on a routine run is risky — a crash between decrypt and re-encrypt can leave the key unrecoverable. The explicit `reencrypt` command makes rotation a deliberate, audited step.
+This is intentional: silently re-encrypting a CA private key on a routine run is risky — a crash between decrypt and re-encrypt can leave the key unrecoverable. The explicit `rekey` command makes rotation a deliberate, audited step.
 
 ### External command
 
@@ -376,10 +376,10 @@ storage {
 A SHA-256 hash of the full `encrypt_command` slice is recorded in the manifest alongside each encrypted key. When this hash changes between runs (a flag changed, a key ID rotated), the same mismatch warning as sops fires:
 
 ```
-warning: CA "mesh" key was encrypted with different recipients; run 'nebula-pki reencrypt' to re-encrypt
+warning: CA "mesh" key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt
 ```
 
-No re-encryption happens automatically. Run `nebula-pki reencrypt` to rotate. *(Subcommand ships in a later release.)*
+No re-encryption happens automatically. Run `nebula-pki rekey` to rotate.
 
 #### Decryption on rerun
 
@@ -392,11 +392,62 @@ When the encryption suffix changes between runs (e.g. switching from `none` to `
 ```
 ca "mesh": encryption configuration changed: CA key exists at out/ca/mesh.key
 (recorded in manifest) but current config expects it at out/ca/mesh.key.enc;
-use `nebula-pki reencrypt` to migrate between encryption configs, or manually
+use `nebula-pki rekey` to migrate between encryption configs, or manually
 move/rename the key file to the expected path
 ```
 
-When switching between two backends that share the same suffix (e.g. `sops` → `external`, both defaulting to `.enc`), the run succeeds as a noop but the mismatch warning fires because the stored fingerprint no longer matches the current config. Run `nebula-pki reencrypt` to migrate. *(Subcommand ships in a later release.)*
+When switching between two backends that share the same suffix (e.g. `sops` → `external`, both defaulting to `.enc`), the run succeeds as a noop but the mismatch warning fires because the stored fingerprint no longer matches the current config. Run `nebula-pki rekey` to migrate.
+
+### `nebula-pki rekey`
+
+`rekey` synchronizes the encryption of all managed private key files with the current storage backend config.
+
+> **Note:** `rekey` operates on private key files at rest — the encryption configured under `storage { encryption ... }`. It has nothing to do with Nebula network certificates or tunnel encryption.
+
+Run it whenever `nebula-pki` prints a mismatch warning, or after any change to the `encryption` block:
+
+```sh
+nebula-pki rekey            # process all files with a detectable mismatch
+nebula-pki rekey --dry-run  # print what would change; no writes
+nebula-pki rekey --force    # process all managed key files regardless of mismatch
+```
+
+#### What it handles
+
+| Transition | When |
+|---|---|
+| Plaintext → encrypted | Storage encryption added to config since last run |
+| Encrypted → re-encrypted | Recipients or backend changed |
+| Encrypted → plaintext | `encryption` block removed (or set to `encryption "none" {}`) |
+
+All three directions are handled in a single pass.
+
+#### Dry-run output
+
+```
+would encrypt CA "mesh" key: out/ca/mesh.key → out/ca/mesh.key.enc (sops)
+would re-encrypt host "alpha" key: out/hosts/alpha.key.enc (sops, new recipients)
+would decrypt host "beta" key: out/hosts/beta.key.enc → out/hosts/beta.key (plaintext)
+3 key files would be rekeyed.
+```
+
+#### `.sops.yaml`-only mode
+
+When no inline recipients are configured in the `encryption "sops" {}` block, nebula-pki stores no `recipients_sha` in the manifest. It cannot detect a change to `.sops.yaml` between runs.
+
+After rotating keys in `.sops.yaml`, use `--force` to re-encrypt all managed key files:
+
+```sh
+nebula-pki rekey --force
+```
+
+#### Removing encryption
+
+Removing the `encryption` block entirely is equivalent to setting `encryption "none" {}`. After removing it, `nebula-pki` will block the next reconcile with an "encryption configuration changed" error. Run `nebula-pki rekey` to decrypt all managed key files to plaintext; the following reconcile will proceed normally.
+
+#### Failure and recovery
+
+`rekey` aborts on the first error. Files already written in the same run are left on disk. The manifest is updated only when all files succeed. Re-running `rekey` is safe — already-matching files are skipped.
 
 ## CLI
 
@@ -405,6 +456,9 @@ nebula-pki                # reconcile out/ with nebula.hcl  (default action)
 nebula-pki --dry-run      # preview what would change; no writes
 nebula-pki check          # parse and validate nebula.hcl; no I/O against out/
 nebula-pki -c other.hcl   # use a different config path
+nebula-pki rekey          # synchronize encryption of managed key files with current config
+nebula-pki rekey --dry-run   # preview what rekey would change; no writes
+nebula-pki rekey --force     # rekey all managed key files regardless of mismatch
 ```
 
 `--dry-run` prints the planned writes to stdout and still prints the deadline advisory to stderr, the same as a normal run.
