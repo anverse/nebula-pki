@@ -161,3 +161,46 @@ func TestNoneBackend_Decrypt(t *testing.T) {
 		t.Errorf("NoneBackend.Decrypt mutated input: got %q, want %q", got, data)
 	}
 }
+
+// -- NewDecryptorForRecord ----------------------------------------------------
+
+func TestNewDecryptorForRecord_Sops(t *testing.T) {
+	dec, err := NewDecryptorForRecord("sops", config.EncryptionConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := dec.(*SopsBackend); !ok {
+		t.Errorf("expected *SopsBackend, got %T", dec)
+	}
+}
+
+func TestNewDecryptorForRecord_External(t *testing.T) {
+	extCfg := &config.ExternalConfig{
+		EncryptCommand: []string{"cat"},
+		DecryptCommand: []string{"cat"},
+	}
+	dec, err := NewDecryptorForRecord("external", config.EncryptionConfig{
+		Backend:  "external",
+		External: extCfg,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := dec.(*ExternalBackend); !ok {
+		t.Errorf("expected *ExternalBackend, got %T", dec)
+	}
+}
+
+func TestNewDecryptorForRecord_ExternalMissingConfig(t *testing.T) {
+	_, err := NewDecryptorForRecord("external", config.EncryptionConfig{Backend: "sops"})
+	if err == nil {
+		t.Fatal("expected error when external config is absent, got nil")
+	}
+}
+
+func TestNewDecryptorForRecord_UnknownBackend(t *testing.T) {
+	_, err := NewDecryptorForRecord("unknown", config.EncryptionConfig{})
+	if err == nil {
+		t.Fatal("expected error for unknown backend, got nil")
+	}
+}
