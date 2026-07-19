@@ -16,8 +16,7 @@ Changes flow through pull requests with a complete, readable diff.
 ### Homebrew
 
 ```sh
-brew tap anverse/nebula-pki https://github.com/anverse/nebula-pki.git
-brew install anverse/nebula-pki/nebula-pki
+brew install anverse/tap/nebula-pki
 ```
 
 ### Nix

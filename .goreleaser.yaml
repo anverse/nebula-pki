@@ -51,13 +51,12 @@ changelog:
       - "^test:"
       - "^chore:"
 
-# Homebrew formula generated into Formula/ in this repo (single-repo
-# policy — no separate tap repo).
 brews:
   - name: nebula-pki
     repository:
       owner: anverse
-      name: nebula-pki
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/anverse/nebula-pki"
     description: "Declarative wrapper around nebula-cert"
