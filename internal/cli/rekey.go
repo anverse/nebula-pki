@@ -287,6 +287,8 @@ func rekeyAction(oldRec *manifest.EncryptionRecord, newEnc crypto.Encryptor) (ac
 		return "re-encrypt", oldRec.Backend + " to " + newEnc.BackendName()
 	case oldRec.RecipientsHash != "" && oldRec.RecipientsHash != newEnc.RecipientsHash():
 		return "re-encrypt", newEnc.BackendName() + ", new recipients"
+	case oldRec.Suffix != newEnc.Suffix():
+		return "re-encrypt", newEnc.BackendName() + ", new suffix"
 	default:
 		return "re-encrypt", newEnc.BackendName() + ", forced"
 	}

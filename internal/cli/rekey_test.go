@@ -129,6 +129,10 @@ func TestRekeyAction(t *testing.T) {
 	sopsEnc := mustNewEnc(t, config.EncryptionConfig{Backend: "sops", Sops: &config.SopsConfig{
 		Age: []string{"age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"},
 	}})
+	sopsGpgEnc := mustNewEnc(t, config.EncryptionConfig{Backend: "sops", Sops: &config.SopsConfig{
+		Age:          []string{"age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"},
+		OutputSuffix: ".gpg",
+	}})
 	noneEnc := mustNewEnc(t, config.EncryptionConfig{Backend: "none"})
 	extEnc := mustNewEnc(t, config.EncryptionConfig{Backend: "external", External: &config.ExternalConfig{
 		EncryptCommand: []string{"e"},
@@ -164,6 +168,12 @@ func TestRekeyAction(t *testing.T) {
 			&manifest.EncryptionRecord{Backend: "sops", RecipientsHash: "oldhash", Suffix: ".enc"},
 			sopsEnc,
 			"re-encrypt", "sops, new recipients",
+		},
+		{
+			"sops new suffix",
+			&manifest.EncryptionRecord{Backend: "sops", RecipientsHash: sopsEnc.RecipientsHash(), Suffix: ".enc"},
+			sopsGpgEnc,
+			"re-encrypt", "sops, new suffix",
 		},
 		{
 			"sops forced (same recipients)",
@@ -241,6 +251,41 @@ func TestCollectRekeyEntries_NoOpWithForce_BothNone(t *testing.T) {
 	entries := collectRekeyEntries(m, noneEnc, true)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries when both sides are none, got %d", len(entries))
+	}
+}
+
+func TestCollectRekeyEntries_EncryptedToReencrypted(t *testing.T) {
+	sopsEnc := mustNewEnc(t, config.EncryptionConfig{Backend: "sops", Sops: &config.SopsConfig{
+		Age: []string{"age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"},
+	}})
+	sopsEnc2 := mustNewEnc(t, config.EncryptionConfig{Backend: "sops", Sops: &config.SopsConfig{
+		Age: []string{"age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"},
+	}})
+
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{
+		Mode:    "generate",
+		KeyPath: "out/ca/mesh.key.enc",
+		Encryption: &manifest.EncryptionRecord{
+			Backend:        "sops",
+			RecipientsHash: sopsEnc.RecipientsHash(),
+			Suffix:         ".enc",
+		},
+	}
+
+	// Hash mismatch without --force → entry collected.
+	entries := collectRekeyEntries(m, sopsEnc2, false)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry for hash mismatch, got %d", len(entries))
+	}
+	if entries[0].label != "mesh" || entries[0].kind != "CA" {
+		t.Errorf("unexpected entry: %+v", entries[0])
+	}
+
+	// Same encryptor → no mismatch → no entry.
+	entries = collectRekeyEntries(m, sopsEnc, false)
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries when hash matches, got %d", len(entries))
 	}
 }
 
