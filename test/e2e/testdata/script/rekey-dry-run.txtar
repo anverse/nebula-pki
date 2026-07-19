@@ -1,0 +1,67 @@
+# `nebula-pki rekey --dry-run` prints the rekeying plan without writing any
+# files. The mismatch warning still fires on the following reconcile.
+
+[!exec:sops] skip 'sops not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate CA and sign host with key A.
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr '^signed host "alpha"'
+! stdout .
+
+# Snapshot artifacts.
+cp out/ca/test-ca.key.enc  ca.key.enc.snap
+cp out/hosts/alpha.key.enc alpha.key.enc.snap
+cp out/nebula-pki.json     manifest.snap
+
+# Switch to key B — triggers mismatch.
+cp nebula.v2.hcl nebula.hcl
+
+# Dry-run: plan is printed, no files written.
+exec nebula-pki rekey --dry-run
+stdout 'would re-encrypt CA "test-ca" key'
+stdout 'would re-encrypt host "alpha" key'
+stdout '2 key files would be rekeyed'
+! stderr .
+
+# All artifacts unchanged.
+cmp out/ca/test-ca.key.enc  ca.key.enc.snap
+cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+cmp out/nebula-pki.json     manifest.snap
+
+# Mismatch warning still fires on next reconcile.
+exec nebula-pki
+stderr 'warning: CA "test-ca" key was encrypted with different recipients'
+stderr 'warning: host "alpha" key was encrypted with different recipients'
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"]
+  }
+}

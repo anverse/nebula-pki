@@ -1,0 +1,60 @@
+# `nebula-pki rekey --force` re-encrypts all managed key files even when no
+# mismatch is detected. This is the required path when .sops.yaml-only mode
+# is used (no inline recipients → no stored hash to compare against).
+
+[!exec:sops] skip 'sops not in PATH'
+
+# Provide the age private key for .sops.yaml-based encryption and decryption.
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate and sign using .sops.yaml discovery (empty sops block).
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr 'key:  out/ca/test-ca\.key\.enc'
+stderr '^signed host "alpha"'
+stderr 'key:  out/hosts/alpha\.key\.enc'
+! stdout .
+
+# No inline recipients → recipients_sha is omitted from the manifest.
+! grep 'recipients_sha' out/nebula-pki.json
+
+# Snapshot encrypted key files.
+cp out/ca/test-ca.key.enc  ca.key.enc.snap
+cp out/hosts/alpha.key.enc alpha.key.enc.snap
+
+# Without --force, no mismatch detected → nothing to rekey.
+exec nebula-pki rekey
+stdout 'nothing to rekey'
+! stderr .
+
+# --force re-encrypts regardless of missing hash.
+exec nebula-pki rekey --force
+stdout '2 key files rekeyed'
+! stderr .
+
+# Ciphertext changed (sops produces new random ciphertext each time).
+! cmp out/ca/test-ca.key.enc  ca.key.enc.snap
+! cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+
+# Run 2: noop, no warning.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'warning:'
+! stdout .
+
+-- .sops.yaml --
+creation_rules:
+  - age: age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {}
+}

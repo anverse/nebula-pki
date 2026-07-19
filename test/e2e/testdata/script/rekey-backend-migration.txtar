@@ -1,0 +1,86 @@
+# Migrating from sops to an external backend via `nebula-pki rekey`. The key
+# files are decrypted using sops (SOPS_AGE_KEY) and re-encrypted using the
+# external age command. After rekeying the mismatch warning is gone.
+
+[!exec:sops] skip 'sops not in PATH'
+[!exec:age]  skip 'age not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate and sign with sops + age key A.
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr 'key:  out/ca/test-ca\.key\.enc'
+stderr '^signed host "alpha"'
+stderr 'key:  out/hosts/alpha\.key\.enc'
+! stdout .
+
+grep '"backend": "sops"' out/nebula-pki.json
+
+# Snapshot encrypted key files.
+cp out/ca/test-ca.key.enc  ca.key.enc.snap
+cp out/hosts/alpha.key.enc alpha.key.enc.snap
+
+# Switch to external age backend (same key A as recipient for the age CLI).
+cp nebula.v2.hcl nebula.hcl
+
+# Reconcile detects backend change and prints mismatch warning.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+stderr 'warning: CA "test-ca" key was encrypted with different recipients'
+stderr 'warning: host "alpha" key was encrypted with different recipients'
+stderr 'nebula-pki rekey'
+
+# Rekey: sops decrypts (via SOPS_AGE_KEY), external age re-encrypts.
+exec nebula-pki rekey
+stdout '2 key files rekeyed'
+! stderr .
+
+# Ciphertext changed; suffix is still .enc.
+! cmp out/ca/test-ca.key.enc  ca.key.enc.snap
+! cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+
+# Manifest now records external as the backend.
+grep '"backend": "external"' out/nebula-pki.json
+
+# Run 2: noop, no mismatch warning.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'warning:'
+! stdout .
+
+-- age.key --
+# created: 2026-07-16T00:00:00Z
+# public key: age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9
+AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+-- nebula.v2.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "external" {
+    encrypt_command = ["age", "--encrypt", "--recipient", "age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9", "{{.InPath}}"]
+    decrypt_command = ["age", "--decrypt", "--identity", "age.key", "{{.InPath}}"]
+  }
+}

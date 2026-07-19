@@ -1,0 +1,77 @@
+# Removing the encryption block causes the reconcile to block with an error.
+# `nebula-pki rekey` decrypts all managed key files to plaintext. The following
+# reconcile is a noop.
+
+[!exec:sops] skip 'sops not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+# Run 1: generate CA and sign host with sops encryption.
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr 'key:  out/ca/test-ca\.key\.enc'
+stderr '^signed host "alpha"'
+stderr 'key:  out/hosts/alpha\.key\.enc'
+! stdout .
+
+exists out/ca/test-ca.key.enc
+! exists out/ca/test-ca.key
+exists out/hosts/alpha.key.enc
+! exists out/hosts/alpha.key
+
+# Switch to no-encryption config (encryption block removed).
+cp nebula.none.hcl nebula.hcl
+
+# Reconcile detects the path mismatch and blocks.
+! exec nebula-pki
+stderr 'encryption configuration changed'
+stderr 'nebula-pki rekey'
+! stdout .
+
+# Rekey decrypts all key files to plaintext.
+exec nebula-pki rekey
+stdout '2 key files rekeyed'
+! stderr .
+
+# Plaintext key files present; encrypted files removed.
+exists out/ca/test-ca.key
+! exists out/ca/test-ca.key.enc
+exists out/hosts/alpha.key
+! exists out/hosts/alpha.key.enc
+
+# Key files contain the plaintext PEM header.
+grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key
+grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key
+
+# Manifest records the plain key paths with no encryption record.
+grep '"key_path": "out/ca/test-ca\.key"' out/nebula-pki.json
+! grep '"backend"' out/nebula-pki.json
+
+# Run 2: noop.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stdout .
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+-- nebula.none.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}

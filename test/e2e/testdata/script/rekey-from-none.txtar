@@ -1,0 +1,80 @@
+# Adding a storage encryption block to an existing plaintext setup causes the
+# reconcile to block. `nebula-pki rekey` encrypts all managed key files and
+# removes the plaintext originals. The following reconcile is a noop.
+
+[!exec:sops] skip 'sops not in PATH'
+
+# Run 1: generate CA and sign host without encryption.
+exec nebula-pki
+stderr '^generated CA "test-ca"'
+stderr 'key:  out/ca/test-ca\.key$'
+stderr '^signed host "alpha"'
+stderr 'key:  out/hosts/alpha\.key$'
+! stdout .
+
+exists out/ca/test-ca.key
+! exists out/ca/test-ca.key.enc
+exists out/hosts/alpha.key
+! exists out/hosts/alpha.key.enc
+
+# Plaintext PEM header present in key files.
+grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key
+grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key
+
+# Enable sops encryption.
+cp nebula.sops.hcl nebula.hcl
+
+# Reconcile detects the path mismatch and blocks.
+! exec nebula-pki
+stderr 'encryption configuration changed'
+stderr 'nebula-pki rekey'
+! stdout .
+
+# Rekey encrypts all plaintext key files.
+exec nebula-pki rekey
+stdout '2 key files rekeyed'
+! stderr .
+
+# Encrypted key files present; plaintext files removed.
+exists out/ca/test-ca.key.enc
+! exists out/ca/test-ca.key
+exists out/hosts/alpha.key.enc
+! exists out/hosts/alpha.key
+
+# Encrypted files do not expose plaintext PEM headers.
+! grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key.enc
+! grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key.enc
+
+# Manifest records the encrypted key paths and sops backend.
+grep '"key_path": "out/ca/test-ca\.key\.enc"' out/nebula-pki.json
+grep '"backend": "sops"' out/nebula-pki.json
+
+# Run 2: noop (manifest matches config; all hosts noop so CA key not decrypted).
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'warning:'
+! stdout .
+
+-- nebula.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- nebula.sops.hcl --
+ca "test-ca" {
+  name = "test-ca"
+}
+
+host "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1ylsajqmdg4kd7u7s6mn6vxt35llrrpwj7nj578qcsx78g72w8uhqdzstdt"]
+  }
+}
