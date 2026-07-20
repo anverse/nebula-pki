@@ -24,9 +24,13 @@ exists out/nebula-pki.json
 
 # PEM material is present in each file.
 grep 'NEBULA CERTIFICATE' out/hosts/lighthouse.crt
-grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/lighthouse.key
+grep 'NEBULA X25519 PRIVATE KEY' out/hosts/lighthouse.key
 grep 'NEBULA CERTIFICATE' out/hosts/server.crt
-grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/server.key
+grep 'NEBULA X25519 PRIVATE KEY' out/hosts/server.key
+
+# Host keys must be X25519 encryption keys, not Ed25519 signing keys —
+# nebula rejects the latter when loading pki.key.
+! grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/lighthouse.key
 
 # Manifest records both hosts with CA fingerprint.
 grep '"lighthouse"' out/nebula-pki.json

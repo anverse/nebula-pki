@@ -1,6 +1,8 @@
 package pki
 
 import (
+	"bytes"
+	"crypto/ecdh"
 	"net/netip"
 	"testing"
 	"time"
@@ -403,6 +405,109 @@ host "h" { networks = ["10.0.0.1/16"] }
 	}
 	if a.Fingerprint == b.Fingerprint {
 		t.Error("two calls to SignHost share a fingerprint; key material is not unique")
+	}
+}
+
+// TestSignHost_KeyIsEncryptionKey pins the host key format nebula itself
+// requires: pki.key is loaded with cert.UnmarshalPrivateKeyFromPEM, which
+// accepts only X25519/P256 encryption keys — not the Ed25519/ECDSA signing
+// keys a CA uses. Regression test for host keys being issued with the
+// "NEBULA ED25519 PRIVATE KEY" banner, which nebula rejects with "bytes
+// did not contain a proper private key banner".
+func TestSignHost_KeyIsEncryptionKey(t *testing.T) {
+	cases := []struct {
+		name   string
+		caSrc  string
+		curve  cert.Curve
+		banner string
+		ecdhC  ecdh.Curve
+	}{
+		{
+			name:   "25519",
+			caSrc:  `ca "mesh" { name = "mesh" }`,
+			curve:  cert.Curve_CURVE25519,
+			banner: "NEBULA X25519 PRIVATE KEY",
+			ecdhC:  ecdh.X25519(),
+		},
+		{
+			name: "P256",
+			caSrc: `ca "mesh" {
+  name  = "mesh"
+  curve = "P256"
+}`,
+			curve:  cert.Curve_P256,
+			banner: "NEBULA P256 PRIVATE KEY",
+			ecdhC:  ecdh.P256(),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ca, hr := mustSignHost(t, tc.caSrc,
+				`ca "mesh" { name = "mesh" }
+host "h" { networks = ["10.0.0.1/16"] }`)
+
+			raw, _, kcurve, err := cert.UnmarshalPrivateKeyFromPEM(hr.KeyPEM)
+			if err != nil {
+				t.Fatalf("UnmarshalPrivateKeyFromPEM (nebula's pki.key loader): %v", err)
+			}
+			if kcurve != tc.curve {
+				t.Errorf("key curve = %v, want %v", kcurve, tc.curve)
+			}
+			if len(raw) != 32 {
+				t.Errorf("raw key length = %d, want 32", len(raw))
+			}
+			if !bytes.Contains(hr.KeyPEM, []byte(tc.banner)) {
+				t.Errorf("KeyPEM missing banner %q:\n%s", tc.banner, hr.KeyPEM)
+			}
+
+			// The cert must embed the ECDH public key derived from the
+			// private key, or the Noise handshake DH would fail.
+			priv, err := tc.ecdhC.NewPrivateKey(raw)
+			if err != nil {
+				t.Fatalf("ecdh.NewPrivateKey: %v", err)
+			}
+			c := parseCert(t, hr.CertPEM)
+			if !bytes.Equal(c.PublicKey(), priv.PublicKey().Bytes()) {
+				t.Error("cert public key does not match the public key derived from KeyPEM")
+			}
+
+			if !c.CheckSignature(parseCert(t, ca.CertPEM).PublicKey()) {
+				t.Error("host cert signature does not verify against the CA")
+			}
+		})
+	}
+}
+
+// TestGenerateCA_KeyIsSigningKeyNotEncryptionKey guards the CA path
+// against the inverse regression: CA keys must keep the signing-key
+// banners and must not be loadable as host encryption keys.
+func TestGenerateCA_KeyIsSigningKeyNotEncryptionKey(t *testing.T) {
+	cases := []struct {
+		name  string
+		caSrc string
+	}{
+		{"25519", `ca "mesh" { name = "mesh" }`},
+		{"P256", `ca "mesh" {
+  name  = "mesh"
+  curve = "P256"
+}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mustParseCA(t, tc.caSrc)
+			ca, err := GenerateCA(cfg.CAs[0], fixedTime)
+			if err != nil {
+				t.Fatalf("GenerateCA: %v", err)
+			}
+			if _, _, _, err := cert.UnmarshalSigningPrivateKeyFromPEM(ca.KeyPEM); err != nil {
+				t.Errorf("CA key no longer parses as a signing key: %v", err)
+			}
+			if _, _, _, err := cert.UnmarshalPrivateKeyFromPEM(ca.KeyPEM); err == nil {
+				t.Error("CA key parses as a host encryption key; it must keep the signing banner")
+			}
+		})
 	}
 }
 

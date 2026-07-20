@@ -243,9 +243,10 @@ func publicFromSigningKey(curve cert.Curve, rawPriv []byte) ([]byte, error) {
 }
 
 // generateKeypair returns the public key and the raw signing private key
-// for the given curve, in the byte layouts the cert library's Sign and
+// for a CA, in the byte layouts the cert library's Sign and
 // MarshalSigningPrivateKeyToPEM expect (64-byte Ed25519 private key, or
-// the 32-byte P256 scalar via the ECDH encoding).
+// the 32-byte P256 scalar via the ECDH encoding). Hosts use
+// generateHostKeypair instead: host keys are ECDH keys, not signing keys.
 func generateKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 	switch curve {
 	case cert.Curve_CURVE25519:
@@ -273,6 +274,32 @@ func generateKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 	}
 }
 
+// generateHostKeypair returns the public key and raw private key for a
+// host (encryption) certificate, in the byte layouts nebula's
+// cert.UnmarshalPrivateKeyFromPEM and the Noise handshake expect: a
+// 32-byte X25519 scalar for CURVE25519, or the 32-byte P256 scalar via
+// the ECDH encoding. CAs use generateKeypair (signing keys) instead.
+func generateHostKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
+	switch curve {
+	case cert.Curve_CURVE25519:
+		key, err := ecdh.X25519().GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, nil, fmt.Errorf("generate x25519 key: %w", err)
+		}
+		return key.PublicKey().Bytes(), key.Bytes(), nil
+
+	case cert.Curve_P256:
+		key, err := ecdh.P256().GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, nil, fmt.Errorf("generate ecdh P256 key: %w", err)
+		}
+		return key.PublicKey().Bytes(), key.Bytes(), nil
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported curve: %s", curve)
+	}
+}
+
 // HostResult is the output of SignHost: the signed certificate and its
 // freshly generated private key, plus the metadata the manifest records.
 // Curve and Version are returned in their HCL spellings ("25519"/"P256",
@@ -291,9 +318,12 @@ type HostResult struct {
 }
 
 // SignHost signs a host certificate under the given CA, returning the cert
-// PEM and a freshly generated private key PEM. It is pure on the input
-// side (no filesystem access) and inherits the curve and certificate
-// version from the signing CA so callers do not need to specify them.
+// PEM and a freshly generated private key PEM. The private key is an
+// X25519 (or P256 ECDH) encryption key in the format nebula's pki.key
+// loader expects, mirroring nebula-cert sign — not a signing key like the
+// CA's. It is pure on the input side (no filesystem access) and inherits
+// the curve and certificate version from the signing CA so callers do not
+// need to specify them.
 //
 // If h.HasDuration is true, the host cert expires at
 // min(now+h.Duration, CA.NotAfter): the host cert is silently capped to
@@ -322,7 +352,7 @@ func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostRe
 		}
 	}
 
-	pub, rawPriv, err := generateKeypair(curve)
+	pub, rawPriv, err := generateHostKeypair(curve)
 	if err != nil {
 		return nil, fmt.Errorf("generate host keypair: %w", err)
 	}
@@ -349,7 +379,7 @@ func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostRe
 	if err != nil {
 		return nil, fmt.Errorf("marshal host certificate %q: %w", h.Name, err)
 	}
-	keyPEM := cert.MarshalSigningPrivateKeyToPEM(curve, rawPriv)
+	keyPEM := cert.MarshalPrivateKeyToPEM(curve, rawPriv)
 	if keyPEM == nil {
 		return nil, fmt.Errorf("marshal host private key %q: unsupported curve %s", h.Name, curve)
 	}

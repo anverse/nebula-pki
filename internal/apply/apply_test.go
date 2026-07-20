@@ -2,6 +2,7 @@ package apply
 
 import (
 	"bytes"
+	"crypto/ecdh"
 	"errors"
 	"io/fs"
 	"os"
@@ -396,6 +397,56 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 	if m.Hosts["alpha"].CAFingerprint != meshCA.Fingerprint {
 		t.Errorf("host alpha ca_fingerprint %q != ca fingerprint %q",
 			m.Hosts["alpha"].CAFingerprint, meshCA.Fingerprint)
+	}
+}
+
+// TestReconcile_HostKeyFileLoadableByNebula verifies the host key written
+// to disk is an X25519 encryption key in the format nebula's pki.key
+// loader (cert.UnmarshalPrivateKeyFromPEM) accepts, and that the host
+// cert embeds the matching public key. The CA key must keep its signing
+// banner. Regression test for host keys being written as Ed25519 signing
+// keys, which nebula rejects.
+func TestReconcile_HostKeyFileLoadableByNebula(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" { name = "mesh" }
+host "alpha" { networks = ["10.0.0.1/16"] }
+`)
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.SignedHosts) != 1 || len(rep.SignedHosts[0].Artifacts) != 1 {
+		t.Fatalf("SignedHosts = %+v, want one host with one artifact", rep.SignedHosts)
+	}
+	art := rep.SignedHosts[0].Artifacts[0]
+
+	keyPEM := mustRead(t, cfg.Resolve(art.KeyPath))
+	raw, _, kcurve, err := cert.UnmarshalPrivateKeyFromPEM(keyPEM)
+	if err != nil {
+		t.Fatalf("UnmarshalPrivateKeyFromPEM (nebula's pki.key loader): %v", err)
+	}
+	if kcurve != cert.Curve_CURVE25519 {
+		t.Errorf("key curve = %v, want CURVE25519", kcurve)
+	}
+	if len(raw) != 32 {
+		t.Errorf("raw key length = %d, want 32", len(raw))
+	}
+
+	priv, err := ecdh.X25519().NewPrivateKey(raw)
+	if err != nil {
+		t.Fatalf("ecdh.NewPrivateKey: %v", err)
+	}
+	hostCert, _, err := cert.UnmarshalCertificateFromPEM(mustRead(t, cfg.Resolve(art.CertPath)))
+	if err != nil {
+		t.Fatalf("unmarshal host cert: %v", err)
+	}
+	if !bytes.Equal(hostCert.PublicKey(), priv.PublicKey().Bytes()) {
+		t.Error("host cert public key does not match the public key derived from the key file")
+	}
+
+	caKeyPEM := mustRead(t, cfg.Resolve(cfg.CAKeyPathForCA(cfg.CAs[0])))
+	if _, _, _, err := cert.UnmarshalSigningPrivateKeyFromPEM(caKeyPEM); err != nil {
+		t.Errorf("CA key no longer parses as a signing key: %v", err)
 	}
 }
 
@@ -1301,7 +1352,7 @@ func mustSeed(t *testing.T, path string) {
 // verify the cert embeds the same public key.
 func writeInPubFixture(t *testing.T, dir, filename string) []byte {
 	t.Helper()
-	// Generate an Ed25519 keypair (Nebula's CURVE25519 host keypair).
+	// Generate an X25519 keypair (Nebula's CURVE25519 host keypair).
 	pub, _, err := generateKeypairForTest()
 	if err != nil {
 		t.Fatalf("generate keypair: %v", err)
@@ -1586,7 +1637,7 @@ host "phone" {
 // generateKeypairForTest generates a Curve25519 keypair and returns the
 // public key as a PEM-encoded byte slice (as nebula-cert keygen would output).
 func generateKeypairForTest() (pubPEM []byte, privRaw []byte, err error) {
-	pub, priv, err := generateEd25519()
+	pub, priv, err := generateX25519()
 	if err != nil {
 		return nil, nil, err
 	}

@@ -52,7 +52,7 @@ cmp out/hosts/alpha.key.enc alpha.key.enc.snap
 # beta.key.enc is decryptable with key B: it was encrypted with the new recipients.
 env SOPS_AGE_KEY=AGE-SECRET-KEY-1MPLKGZ02WPSJ5GEX32MP23XE6RMCDZ6R649TSWPVZQRE2PTKK0YQAN7MRW
 exec sops --decrypt --input-type binary --output-type binary out/hosts/beta.key.enc
-stdout 'NEBULA ED25519 PRIVATE KEY'
+stdout 'NEBULA X25519 PRIVATE KEY'
 
 # beta.key.enc is NOT decryptable with key A: the old key has no access.
 env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
@@ -60,7 +60,7 @@ env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQC
 
 # alpha.key.enc is still decryptable with key A: the existing artifact was not rewritten.
 exec sops --decrypt --input-type binary --output-type binary out/hosts/alpha.key.enc
-stdout 'NEBULA ED25519 PRIVATE KEY'
+stdout 'NEBULA X25519 PRIVATE KEY'
 
 -- nebula.hcl --
 ca "test-ca" {

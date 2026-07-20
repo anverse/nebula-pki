@@ -15,9 +15,9 @@ import (
 // embedded public key.
 func makeHostPubPEM(t *testing.T, curve cert.Curve) (pubPEM, pubRaw []byte) {
 	t.Helper()
-	pub, _, err := generateKeypair(curve)
+	pub, _, err := generateHostKeypair(curve)
 	if err != nil {
-		t.Fatalf("generateKeypair: %v", err)
+		t.Fatalf("generateHostKeypair: %v", err)
 	}
 	pem := cert.MarshalPublicKeyToPEM(curve, pub)
 	if pem == nil {

@@ -6,20 +6,23 @@ package apply
 
 import (
 	"crypto/ecdh"
-	"crypto/ed25519"
 	"crypto/rand"
 
 	"github.com/slackhq/nebula/cert"
 )
 
-// generateEd25519 generates an Ed25519 keypair and returns the raw public and
-// private key bytes. Nebula uses Ed25519 for CURVE25519 host certificates.
-func generateEd25519() (pub, priv []byte, err error) {
-	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
-	return pubKey, privKey, err
+// generateX25519 generates an X25519 keypair (what nebula-cert keygen
+// produces for CURVE25519 hosts) and returns the raw public and private
+// key bytes.
+func generateX25519() (pub, priv []byte, err error) {
+	key, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	return key.PublicKey().Bytes(), key.Bytes(), nil
 }
 
-// marshalPubPEM encodes a raw Curve25519 (Ed25519) public key to the PEM
+// marshalPubPEM encodes a raw Curve25519 (X25519) public key to the PEM
 // format that nebula-cert keygen writes.
 func marshalPubPEM(pub []byte) []byte {
 	return cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pub)

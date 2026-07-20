@@ -27,7 +27,7 @@ exists out/nebula-pki.json
 grep 'NEBULA CERTIFICATE' out/ca/test-ca.crt
 grep 'NEBULA CERTIFICATE' out/hosts/alpha.crt
 ! grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key.enc
-! grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key.enc
+! grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key.enc
 
 # Manifest records the encrypted key paths and backend.
 grep '"key_path": "out/ca/test-ca\.key\.enc"' out/nebula-pki.json

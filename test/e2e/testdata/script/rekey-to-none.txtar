@@ -41,7 +41,7 @@ exists out/hosts/alpha.key
 
 # Key files contain the plaintext PEM header.
 grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key
-grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key
+grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key
 
 # Manifest records the plain key paths with no encryption record.
 grep '"key_path": "out/ca/test-ca\.key"' out/nebula-pki.json

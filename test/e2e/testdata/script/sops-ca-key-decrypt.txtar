@@ -42,7 +42,7 @@ exists out/hosts/alpha.key.enc
 # Beta was signed and encrypted.
 exists out/hosts/beta.crt
 exists out/hosts/beta.key.enc
-! grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/beta.key.enc
+! grep 'NEBULA X25519 PRIVATE KEY' out/hosts/beta.key.enc
 
 -- nebula.hcl --
 ca "test-ca" {

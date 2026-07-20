@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"crypto/ecdh"
-	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -50,9 +49,9 @@ func genHostPub(ts *testscript.TestScript, neg bool, args []string) {
 	var pubRaw []byte
 	switch curve {
 	case cert.Curve_CURVE25519:
-		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		key, err := ecdh.X25519().GenerateKey(rand.Reader)
 		ts.Check(err)
-		pubRaw = pub
+		pubRaw = key.PublicKey().Bytes()
 	case cert.Curve_P256:
 		key, err := ecdh.P256().GenerateKey(rand.Reader)
 		ts.Check(err)

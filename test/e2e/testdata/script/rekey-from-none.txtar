@@ -19,7 +19,7 @@ exists out/hosts/alpha.key
 
 # Plaintext PEM header present in key files.
 grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key
-grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key
+grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key
 
 # Enable sops encryption.
 cp nebula.sops.hcl nebula.hcl
@@ -43,7 +43,7 @@ exists out/hosts/alpha.key.enc
 
 # Encrypted files do not expose plaintext PEM headers.
 ! grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key.enc
-! grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key.enc
+! grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key.enc
 
 # Manifest records the encrypted key paths and sops backend.
 grep '"key_path": "out/ca/test-ca\.key\.enc"' out/nebula-pki.json

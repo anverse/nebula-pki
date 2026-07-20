@@ -244,7 +244,7 @@ func mintHostCert(t *testing.T) (certPEM, keyPEM []byte) {
 		t.Fatalf("unmarshal issuer key: %v", err)
 	}
 
-	hostPub, _, err := generateKeypair(caCurve)
+	hostPub, _, err := generateHostKeypair(caCurve)
 	if err != nil {
 		t.Fatalf("generate host keypair: %v", err)
 	}

@@ -23,7 +23,7 @@ exists out/nebula-pki.json
 grep 'NEBULA CERTIFICATE' out/ca/test-mesh.crt
 grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-mesh.key
 grep 'NEBULA CERTIFICATE' out/hosts/alpha.crt
-grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/alpha.key
+grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key
 
 # Manifest shape: schema, generator, CA record, host record, relative config path.
 grep '"schema_version": 1' out/nebula-pki.json

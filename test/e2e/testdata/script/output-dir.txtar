@@ -14,7 +14,7 @@ exists dir-a/node.key
 
 # PEM material is present.
 grep 'NEBULA CERTIFICATE' dir-a/node.crt
-grep 'NEBULA ED25519 PRIVATE KEY' dir-a/node.key
+grep 'NEBULA X25519 PRIVATE KEY' dir-a/node.key
 
 # Manifest records the artifact with dir set.
 grep '"dir-a"' out/nebula-pki.json
