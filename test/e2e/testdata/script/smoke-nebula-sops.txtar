@@ -1,0 +1,59 @@
+# Real-binary smoke test for sops-encrypted storage: the encrypted host key
+# must decrypt back to exactly the material nebula accepts, proving the
+# encrypt/decrypt round-trip does not corrupt or reformat the key.
+
+[!exec:nebula] skip 'nebula not in PATH'
+[!exec:nebula-cert] skip 'nebula-cert not in PATH'
+[!exec:sops] skip 'sops not in PATH'
+
+env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
+
+exec nebula-pki
+stderr '^wrote manifest'
+
+exists out/hosts/alpha.key.enc
+! exists out/hosts/alpha.key
+
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/alpha.crt
+
+# Decrypt the host key the way an operator would, then hand it to nebula.
+exec sops --decrypt --input-type binary --output-type binary --output alpha.key out/hosts/alpha.key.enc
+grep 'NEBULA X25519 PRIVATE KEY' alpha.key
+exec nebula -test -config alpha.yml
+
+-- nebula.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+storage {
+  encryption "sops" {
+    age = ["age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"]
+  }
+}
+
+host "alpha" {
+  networks = ["10.10.0.5/24"]
+}
+
+-- alpha.yml --
+pki:
+  ca: out/ca/bundle.crt
+  cert: out/hosts/alpha.crt
+  key: alpha.key
+listen:
+  host: 127.0.0.1
+  port: 0
+lighthouse:
+  am_lighthouse: false
+tun:
+  disabled: true
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: any
+      host: any

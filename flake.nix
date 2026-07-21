@@ -55,6 +55,11 @@
               go
               go-task
               goreleaser
+              # Real nebula + nebula-cert binaries for the e2e smoke tests
+              # (smoke-nebula-*.txtar, TestSmoke_LighthouseHandshake).
+              nebula
+              # sops for the encrypted-storage smoke tests
+              sops
             ];
           };
         }

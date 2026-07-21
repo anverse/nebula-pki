@@ -1,0 +1,56 @@
+# Real-binary smoke test for CA rotation: while old and new CA coexist, a
+# host signed by the new CA must be accepted by a node that trusts the
+# rotation-stage bundle (both CAs), and must NOT verify against the old CA
+# alone — exactly what deployed nodes experience mid-rotation.
+
+[!exec:nebula] skip 'nebula not in PATH'
+[!exec:nebula-cert] skip 'nebula-cert not in PATH'
+
+exec nebula-pki
+stderr '^wrote trust bundle'
+stderr '^wrote manifest'
+
+# Host signed by the new CA verifies against the bundle, not the old CA.
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/node.crt
+exec nebula-cert verify -ca out/ca/new.crt -crt out/hosts/node.crt
+! exec nebula-cert verify -ca out/ca/old.crt -crt out/hosts/node.crt
+
+# A node trusting the rotation bundle loads the new-CA host cert/key.
+exec nebula -test -config node.yml
+
+-- nebula.hcl --
+ca "old" {
+  name = "mesh-old"
+}
+
+ca "new" {
+  name    = "mesh-new"
+  default = true
+}
+
+host "node" {
+  networks = ["10.10.0.4/24"]
+  ca       = "new"
+}
+
+-- node.yml --
+pki:
+  ca: out/ca/bundle.crt
+  cert: out/hosts/node.crt
+  key: out/hosts/node.key
+listen:
+  host: 127.0.0.1
+  port: 0
+lighthouse:
+  am_lighthouse: false
+tun:
+  disabled: true
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: any
+      host: any

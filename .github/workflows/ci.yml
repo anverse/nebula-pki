@@ -19,6 +19,14 @@ jobs:
           go-version: "1.26.2"
           cache: true
       - uses: arduino/setup-task@v2
+      - name: install nebula binaries for smoke tests (pinned to go.mod version)
+        run: |
+          v=$(go list -m -f '{{.Version}}' github.com/slackhq/nebula)
+          go install "github.com/slackhq/nebula/cmd/nebula@${v}"
+          go install "github.com/slackhq/nebula/cmd/nebula-cert@${v}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: install sops for the sops smoke test
+        run: go install github.com/getsops/sops/v3/cmd/sops@v3.13.1
       - name: lint
         run: task lint
       - name: unit tests

@@ -35,6 +35,16 @@ task nix:run        # nix-built binary, prints --version
 task goreleaser:snapshot  # dry-run the goreleaser pipeline locally (no publish)
 ```
 
+The e2e suite includes real-binary smoke tests (`smoke-nebula-*.txtar` and
+the lighthouse handshake test) that validate generated artifacts with the
+actual `nebula` and `nebula-cert` binaries — including `nebula -test` PKI
+loading and a completed handshake between two unprivileged nodes. The
+`nebula`/`nebula-cert` toolchain (plus `sops` for the encrypted-storage
+smoke test) is a hard requirement: the tests fail rather than skip when it
+is missing, so smoke coverage cannot silently disappear. The nix dev shell
+provides the binaries, and CI installs them — nebula pinned to the go.mod
+version, sops to a fixed release.
+
 For a real release, see [Releasing](#releasing) below.
 
 To verify the latest published release installs correctly:

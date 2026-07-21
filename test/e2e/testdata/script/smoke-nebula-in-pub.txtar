@@ -1,0 +1,57 @@
+# Real-binary smoke test for the in_pub (air-gapped) flow: a device keypair
+# is generated locally, only the public key is given to nebula-pki, and the
+# signed certificate must work with the device's own private key in a real
+# nebula config. gen-host-pub -key is test infrastructure that stands in for
+# `nebula-cert keygen` on the device.
+
+[!exec:nebula] skip 'nebula not in PATH'
+[!exec:nebula-cert] skip 'nebula-cert not in PATH'
+
+gen-host-pub -key device/alice.key inbox/alice.pub
+
+exec nebula-pki
+stderr '^signed host "alice"$'
+stderr '^wrote manifest'
+
+# nebula-pki never sees or writes the device private key.
+! exists out/hosts/alice.key
+
+# The signed cert chains to the CA under the real nebula-cert.
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/alice.crt
+
+# nebula accepts the signed cert together with the device-held private key,
+# including the private-key/certificate pairing check.
+exec nebula -test -config alice.yml
+
+-- nebula.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+host "alice" {
+  networks = ["10.10.0.3/24"]
+  groups   = ["mobile"]
+  in_pub   = "inbox/alice.pub"
+}
+
+-- alice.yml --
+pki:
+  ca: out/ca/bundle.crt
+  cert: out/hosts/alice.crt
+  key: device/alice.key
+listen:
+  host: 127.0.0.1
+  port: 0
+lighthouse:
+  am_lighthouse: false
+tun:
+  disabled: true
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: any
+      host: any

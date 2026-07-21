@@ -32,12 +32,21 @@ func nebulaPkiMain() int {
 //
 // Usage in txtar scripts:
 //
-//	gen-host-pub <output-path> [curve]
+//	gen-host-pub [-key <key-path>] <output-path> [curve]
 //
-// curve is "25519" (default) or "P256".
+// curve is "25519" (default) or "P256". With -key, the device private key
+// PEM is also written, so smoke tests can assemble a full nebula config
+// for an in_pub-signed certificate.
 func genHostPub(ts *testscript.TestScript, neg bool, args []string) {
+	const usage = "gen-host-pub: usage: gen-host-pub [-key <key-path>] <output-path> [25519|P256]"
+
+	keyPath := ""
+	if len(args) >= 2 && args[0] == "-key" {
+		keyPath = ts.MkAbs(args[1])
+		args = args[2:]
+	}
 	if len(args) < 1 {
-		ts.Fatalf("gen-host-pub: usage: gen-host-pub <output-path> [25519|P256]")
+		ts.Fatalf(usage)
 	}
 	outPath := ts.MkAbs(args[0])
 
@@ -46,16 +55,18 @@ func genHostPub(ts *testscript.TestScript, neg bool, args []string) {
 		curve = cert.Curve_P256
 	}
 
-	var pubRaw []byte
+	var pubRaw, privRaw []byte
 	switch curve {
 	case cert.Curve_CURVE25519:
 		key, err := ecdh.X25519().GenerateKey(rand.Reader)
 		ts.Check(err)
 		pubRaw = key.PublicKey().Bytes()
+		privRaw = key.Bytes()
 	case cert.Curve_P256:
 		key, err := ecdh.P256().GenerateKey(rand.Reader)
 		ts.Check(err)
 		pubRaw = key.PublicKey().Bytes()
+		privRaw = key.Bytes()
 	}
 
 	pubPEM := cert.MarshalPublicKeyToPEM(curve, pubRaw)
@@ -67,4 +78,15 @@ func genHostPub(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Fatalf("gen-host-pub: mkdir: %v", err)
 	}
 	ts.Check(os.WriteFile(outPath, pubPEM, 0o600))
+
+	if keyPath != "" {
+		keyPEM := cert.MarshalPrivateKeyToPEM(curve, privRaw)
+		if keyPEM == nil {
+			ts.Fatalf("gen-host-pub: MarshalPrivateKeyToPEM returned nil")
+		}
+		if err := os.MkdirAll(filepath.Dir(keyPath), 0o755); err != nil {
+			ts.Fatalf("gen-host-pub: mkdir: %v", err)
+		}
+		ts.Check(os.WriteFile(keyPath, keyPEM, 0o600))
+	}
 }

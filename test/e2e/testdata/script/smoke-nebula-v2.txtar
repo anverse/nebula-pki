@@ -1,0 +1,94 @@
+# Real-binary smoke test: version 2 certificates across both curves must be
+# accepted by the actual nebula toolchain. `nebula-cert verify` validates the
+# chain; `nebula -test` loads the full PKI the way a node does at startup,
+# including the private-key/certificate pairing check. Regression guard for
+# host keys being issued in a format nebula rejects.
+
+[!exec:nebula] skip 'nebula not in PATH'
+[!exec:nebula-cert] skip 'nebula-cert not in PATH'
+
+exec nebula-pki
+stderr '^wrote manifest'
+
+# Chain validation with the real nebula-cert: each host against its own CA
+# and against the mixed-curve trust bundle.
+exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/hosts/alpha.crt
+exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/hosts/beta.crt
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/alpha.crt
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/beta.crt
+
+# Negative control: a host must not verify against the other CA alone.
+! exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/hosts/alpha.crt
+! exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/hosts/beta.crt
+
+# nebula's config-test mode loads ca/cert/key and verifies the private key
+# pairs with the certificate public key.
+exec nebula -test -config alpha.yml
+exec nebula -test -config beta.yml
+
+-- nebula.hcl --
+ca "mesh25519" {
+  name    = "mesh25519"
+  curve   = "25519"
+  version = 2
+  default = true
+}
+
+ca "meshp256" {
+  name    = "meshp256"
+  curve   = "P256"
+  version = 2
+}
+
+host "alpha" {
+  networks = ["10.10.0.1/24"]
+}
+
+host "beta" {
+  networks = ["10.10.0.2/24"]
+  ca       = "meshp256"
+}
+
+-- alpha.yml --
+pki:
+  ca: out/ca/bundle.crt
+  cert: out/hosts/alpha.crt
+  key: out/hosts/alpha.key
+listen:
+  host: 127.0.0.1
+  port: 0
+lighthouse:
+  am_lighthouse: false
+tun:
+  disabled: true
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: any
+      host: any
+
+-- beta.yml --
+pki:
+  ca: out/ca/bundle.crt
+  cert: out/hosts/beta.crt
+  key: out/hosts/beta.key
+listen:
+  host: 127.0.0.1
+  port: 0
+lighthouse:
+  am_lighthouse: false
+tun:
+  disabled: true
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: any
+      host: any
