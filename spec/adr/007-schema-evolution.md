@@ -28,6 +28,8 @@ The HCL configuration carries **no** top-level `version` or `nebula_pki` block i
 - Renamed fields: support both names for at least one release with a deprecation warning, then remove.
 - Removed fields / changed semantics: this is the trigger to introduce schema versioning.
 
+> **Amendment (2026-07-19).** The trigger above applies **post-1.0**. While the tool is pre-1.0 with a single operator, removals may ship directly in a `v0.1.x` release without the schema block, provided the parse error for the removed form names the exact rewrite. First applied by [ADR-024](./024-rename-host-to-cert.md) (`host` block keyword), [ADR-025](./025-ca-references.md) (string `cert.ca`), and [ADR-026](./026-trust-bundle-block.md) (`archived`, `storage.trust_bundle_file`).
+
 ### When a breaking change becomes necessary
 
 Introduce a top-level optional block:

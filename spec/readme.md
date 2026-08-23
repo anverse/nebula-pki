@@ -16,7 +16,7 @@ The tool:
 - Generates one or more Nebula CAs, or uses existing CAs referenced by file path. Multiple labelled CAs in one file enable CA rotation; see [ADR-015](./adr/015-multiple-cas-per-config.md).
 - Signs per-host certificates using the upstream `slackhq/nebula/cert` Go library — same primitives as `nebula-cert`. Each host selects its signing CA via `host.ca`, or the CA marked `default = true`.
 - Signs device-supplied public keys (`host.in_pub`) for the "private key never leaves the device" pattern — mobile, HSM, separation of duties; see [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
-- Emits a concatenated-PEM **trust bundle** for downstream `pki.ca`, and supports declarative CA rotation across an overlap window; see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md).
+- Emits a concatenated-PEM **trust bundle** for downstream `pki.ca`, and supports declarative CA rotation across an overlap window; see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). Bundle membership is explicit via a `trust_bundle` block (with `link_crt` fan-out of the bundle itself); see [ADR-026](./adr/026-trust-bundle-block.md).
 - Re-signs host certificates before expiry when a `renew_before` threshold is set, and after each run prints the earliest upcoming renewal/expiry deadline so the operator knows when to run again; see [ADR-017](./adr/017-host-renewal-threshold.md).
 - Writes artifacts to configurable paths. Each host's cert and key land in a per-host directory configured via `host.output_dir` (defaults to `<storage.out_dir>/hosts`); `out_crt` / `out_key` override the path component within that directory.
 - Optionally encrypts private key material at rest via pluggable **storage encryption backends** (built-in: `none`, `sops`; extensible via `external` command).
@@ -70,6 +70,12 @@ The tool:
 - [`adr/018-in-pub-air-gapped-signing.md`](./adr/018-in-pub-air-gapped-signing.md) — signing a device-supplied public key, config-only, no `keygen` subcommand.
 - [`adr/019-manifest-compactness.md`](./adr/019-manifest-compactness.md) — omit optional fields when empty; policy for which manifest fields carry `omitempty`.
 - [`adr/020-output-dir-per-host.md`](./adr/020-output-dir-per-host.md) — single `output_dir` per host replacing the `output_dirs` list; composable `out_crt` / `out_key` path components. Supersedes ADR-011.
+- [`adr/021-ca-cert-links.md`](./adr/021-ca-cert-links.md) — `link_crt` symlink fan-out of CA certificates into host output directories.
+- [`adr/022-taskfile-as-ci-entrypoint.md`](./adr/022-taskfile-as-ci-entrypoint.md) — Taskfile as the single entrypoint for CI and local automation.
+- [`adr/023-external-backend-protocol.md`](./adr/023-external-backend-protocol.md) — `encryption "external"` command protocol.
+- [`adr/024-rename-host-to-cert.md`](./adr/024-rename-host-to-cert.md) — rename the `host` block to `cert` (pre-1.0 hard switch, shipped first); carries the two-dialects naming rationale.
+- [`adr/025-ca-references.md`](./adr/025-ca-references.md) — terraform-style `ca.<label>` references replacing string labels; hard switch for `cert.ca`; the reserved-root convention.
+- [`adr/026-trust-bundle-block.md`](./adr/026-trust-bundle-block.md) — explicit `trust_bundle` block: declared trust membership via `ca_refs`, bundle `link_crt`, removal of `archived`; carries the `trust_bundle`/`ca_refs` naming rationale. Amends ADR-016.
 
 ## Operating model
 

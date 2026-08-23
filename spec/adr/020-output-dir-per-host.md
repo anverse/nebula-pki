@@ -4,6 +4,8 @@
 
 accepted; supersedes [ADR-011](./011-output-blocks-are-directories.md)
 
+> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`; read `host.output_dir`/`host.*` below as `cert.output_dir`/`cert.*`. Only the keyword changes — this ADR's decision stands. Body sweep pending in v0.1.7.
+
 ## Context
 
 ADR-011 established `host.output_dirs` as a `list(string)` to write identical cert/key copies to multiple destination directories — a "fan-out" pattern. The motivating use case was: one host cert deployed to several provider directories in a single run.

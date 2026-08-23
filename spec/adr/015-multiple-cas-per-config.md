@@ -6,6 +6,8 @@ accepted — supersedes [ADR-010](./010-single-ca-per-config.md)
 
 Amended in v0.0.8: the unlabelled `ca {}` form has been removed; all CAs must be labelled. See **Amendment: labels are always required** below.
 
+> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`; read `host.ca`/`host.*` below as `cert.ca`/`cert.*`. The `ca` block and its `default` flag are unchanged. Body sweep pending in v0.1.7. (The `cert.ca` field also changes from a string label to a `ca.<label>` reference — see [ADR-025](./025-ca-references.md).)
+
 ## Context
 
 [ADR-010](./010-single-ca-per-config.md) restricted a configuration file to exactly one `ca` block and deferred multi-CA support as YAGNI. That call was correct for the early milestones: it kept the manifest single-rooted, removed a class of validation rules, and the "one HCL file per CA" workaround covered the only motivating case at the time (isolated `dev`/`staging`/`prod` environments).

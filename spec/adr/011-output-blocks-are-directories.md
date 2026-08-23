@@ -6,6 +6,8 @@ superseded by [ADR-020](./020-output-dir-per-host.md)
 
 `output_dirs` (the list field) has been replaced by a single `output_dir` string and composable `out_crt` / `out_key` path components. Multi-directory fan-out is deferred; the conditions under which it would be reintroduced are documented in ADR-020. The core conclusion of this ADR — no named `output` block — remains valid and is carried forward in ADR-020.
 
+> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`; read `host.output_dirs`/`host.*` below as `cert.*`. Only the keyword changes. Body sweep pending in v0.1.7.
+
 ## Context
 
 The core fan-out feature lets the same host certificate land in multiple destination directories (one per downstream consumer — provider, project, environment). Earlier drafts of the schema had two distinct shapes for this:

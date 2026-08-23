@@ -4,6 +4,8 @@
 
 accepted
 
+> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`; read `host.in_pub`/`host.*` below as `cert.in_pub`/`cert.*`. Only the keyword changes — this ADR's decision stands. Body sweep pending in v0.1.7.
+
 ## Context
 
 The most security-sensitive Nebula pattern is **"the private key never leaves the device."** The device generates its own keypair, keeps the private key sealed locally, and exports only the **public** key. The CA operator signs that public key and hands back a certificate. The operator never possesses — and therefore can never leak — the host's private key.

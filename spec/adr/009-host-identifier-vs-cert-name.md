@@ -4,6 +4,8 @@
 
 accepted
 
+> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`. This ADR's decision is unchanged — a block *label* (HCL identifier) distinct from the certificate *name* (CN) — but reframed it reads "cert label vs cert CN". Read `host`/`host.*` below as `cert`/`cert.*`. The body sweep is a pending v0.1.7 task.
+
 ## Context
 
 Each `host` block must answer two related but distinct questions:

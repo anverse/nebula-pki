@@ -4,6 +4,10 @@
 
 accepted
 
+> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`; read `host.ca`/`host.*` in this ADR's prose as `cert.ca`/`cert.*`. The manifest per-cert key (the block label) is unchanged. Body sweep pending in v0.1.7.
+>
+> **Trust bundle (amended by [ADR-026](./026-trust-bundle-block.md)).** `bundle.crt` is **not** always written — it is emitted only when a `trust_bundle` block is declared, and the CA record's `archived` field is removed. Read the "always written" / "non-archived" prose below accordingly. Body sweep pending in v0.1.9.
+
 ## Context
 
 The CLI must produce certificates and a small amount of bookkeeping data. Downstream Terraform projects read these files directly. We need a layout that is stable, predictable, and safe to commit to git. We also need a manifest format that captures enough metadata to support idempotency, per-host output placement, and consumption by other tooling.
@@ -20,7 +24,7 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
   ca/
     <label>.crt
     <label>.key[.enc]
-    bundle.crt        # concatenated PEM of active CA certs; renameable via storage.trust_bundle_file
+    bundle.crt        # only when a trust_bundle block is declared; path via trust_bundle.path (ADR-026)
   hosts/
     <name>.crt
     <name>.key[.enc]
