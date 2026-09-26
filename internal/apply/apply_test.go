@@ -335,8 +335,8 @@ func TestReconcile_SignsHostsAfterCA(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
 
-host "alpha" { networks = ["10.0.0.1/16"] }
-host "beta"  { networks = ["10.0.0.2/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
+cert "beta"  { networks = ["10.0.0.2/16"] }
 `)
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
@@ -409,7 +409,7 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 func TestReconcile_HostKeyFileLoadableByNebula(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
@@ -454,7 +454,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 func TestReconcile_HostIdempotency(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("first Reconcile: %v", err)
@@ -464,8 +464,8 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	certReal := cfg.Resolve(cfg.CACertPathForCA(ca0))
 	keyReal := cfg.Resolve(cfg.CAKeyPathForCA(ca0))
 	manReal := cfg.Resolve(cfg.ManifestPath())
-	hostCertReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath)
-	hostKeyReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath)
+	hostCertReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath)
+	hostKeyReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).KeyPath)
 
 	snapshots := map[string][]byte{
 		certReal:     mustRead(t, certReal),
@@ -526,7 +526,7 @@ func TestReconcile_AbsoluteConfigPathStillRecordsRelativeManifest(t *testing.T) 
 func TestReconcile_OutputDir(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
 }
@@ -610,7 +610,7 @@ func TestReconcile_StaleArtifacts(t *testing.T) {
 
 	cfg1 := loadHCL(`
 ca "mesh" { name = "mesh" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
 }
@@ -627,7 +627,7 @@ host "node" {
 
 	cfg2 := loadHCL(`
 ca "mesh" { name = "mesh" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-b"
 }
@@ -689,7 +689,7 @@ func TestReconcile_OutputDirChange(t *testing.T) {
 
 	cfg1 := loadHCL(`
 ca "mesh" { name = "mesh" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
 }
@@ -704,7 +704,7 @@ host "node" {
 
 	cfg2 := loadHCL(`
 ca "mesh" { name = "mesh" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-b"
 }
@@ -757,7 +757,7 @@ host "node" {
 func TestReconcile_OutputDirWithOutCrt(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "deploy"
   out_crt    = "nebula.crt"
@@ -805,8 +805,8 @@ host "node" {
 func TestReconcile_DryRunWritesNothing(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
-host "beta"  { networks = ["10.0.0.2/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
+cert "beta"  { networks = ["10.0.0.2/16"] }
 `)
 	ca0 := cfg.CAs[0]
 	var out bytes.Buffer
@@ -827,10 +827,10 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 		cfg.Resolve(cfg.CACertPathForCA(ca0)),
 		cfg.Resolve(cfg.CAKeyPathForCA(ca0)),
 		cfg.Resolve(cfg.ManifestPath()),
-		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath),
-		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath),
-		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[1]).CertPath),
-		cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[1]).KeyPath),
+		cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath),
+		cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).KeyPath),
+		cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[1]).CertPath),
+		cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[1]).KeyPath),
 	} {
 		if _, err := os.Stat(path); err == nil {
 			t.Errorf("%s was written during dry run", path)
@@ -841,10 +841,10 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 	for _, want := range []string{
 		"+ write " + cfg.CACertPathForCA(ca0),
 		"+ write " + cfg.CAKeyPathForCA(ca0),
-		"+ write " + cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		"+ write " + cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
-		"+ write " + cfg.HostArtifactPath(cfg.Hosts[1]).CertPath,
-		"+ write " + cfg.HostArtifactPath(cfg.Hosts[1]).KeyPath,
+		"+ write " + cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		"+ write " + cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
+		"+ write " + cfg.CertArtifactPath(cfg.Certs[1]).CertPath,
+		"+ write " + cfg.CertArtifactPath(cfg.Certs[1]).KeyPath,
 		"+ write " + cfg.ManifestPath(),
 	} {
 		if !strings.Contains(preview, want) {
@@ -858,7 +858,7 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 func TestReconcile_DryRunOnUpToDateTree(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("first Reconcile: %v", err)
@@ -928,8 +928,8 @@ ca "primary" {
 }
 ca "secondary" { name = "secondary-mesh" }
 
-host "h1" { networks = ["10.0.0.1/16"] }
-host "h2" {
+cert "h1" { networks = ["10.0.0.1/16"] }
+cert "h2" {
   networks = ["10.0.0.2/16"]
   ca       = "secondary"
 }
@@ -1005,8 +1005,8 @@ host "h2" {
 		p := cfg.Resolve(cfg.CACertPathForCA(ca))
 		snapshots[p] = mustRead(t, p)
 	}
-	for _, h := range cfg.Hosts {
-		a := cfg.HostArtifactPath(h)
+	for _, h := range cfg.Certs {
+		a := cfg.CertArtifactPath(h)
 		snapshots[cfg.Resolve(a.CertPath)] = mustRead(t, cfg.Resolve(a.CertPath))
 		snapshots[cfg.Resolve(a.KeyPath)] = mustRead(t, cfg.Resolve(a.KeyPath))
 	}
@@ -1051,8 +1051,8 @@ ca "primary" {
   default = true
 }
 ca "secondary" { name = "secondary-mesh" }
-host "h1" { networks = ["10.0.0.1/16"] }
-host "h2" {
+cert "h1" { networks = ["10.0.0.1/16"] }
+cert "h2" {
   networks = ["10.0.0.2/16"]
   ca       = "secondary"
 }
@@ -1071,11 +1071,11 @@ ca "primary" {
   default = true
 }
 ca "secondary" { name = "secondary-mesh" }
-host "h1" {
+cert "h1" {
   networks = ["10.0.0.1/16"]
   ca       = "secondary"
 }
-host "h2" {
+cert "h2" {
   networks = ["10.0.0.2/16"]
   ca       = "secondary"
 }
@@ -1257,8 +1257,8 @@ ca "primary" {
 ca "secondary" {
   name = "secondary-mesh"
 }
-host "h1" { networks = ["10.0.0.1/16"] }
-host "h2" {
+cert "h1" { networks = ["10.0.0.1/16"] }
+cert "h2" {
   networks = ["10.0.0.2/16"]
   ca       = "secondary"
 }
@@ -1370,7 +1370,7 @@ func writeInPubFixture(t *testing.T, dir, filename string) []byte {
 func TestReconcile_InPub_CertOnly(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
@@ -1386,7 +1386,7 @@ host "phone" {
 	}
 
 	// Only the cert must exist; the key must not be written.
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 	certReal := cfg.Resolve(art.CertPath)
 	keyReal := cfg.Resolve(art.KeyPath)
 	if _, err := os.Stat(certReal); err != nil {
@@ -1419,7 +1419,7 @@ host "phone" {
 func TestReconcile_InPub_Idempotent(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
@@ -1446,7 +1446,7 @@ host "phone" {
 func TestReconcile_InPub_MissingPubFile(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/no-such-file.pub"
 }
@@ -1465,7 +1465,7 @@ func TestReconcile_InPub_CurveMismatch(t *testing.T) {
 ca "mesh" {
   name = "mesh"
 }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
@@ -1498,7 +1498,7 @@ ca "mesh" {
   name         = "mesh"
   renew_before = "720h"
 }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
@@ -1524,7 +1524,7 @@ host "phone" {
 	}
 
 	// The renewed cert must embed the same public key.
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 	certPEM := mustRead(t, cfg.Resolve(art.CertPath))
 	pubRaw, _, err := parsePubPEM(pubPEM)
 	if err != nil {
@@ -1545,7 +1545,7 @@ host "phone" {
 func TestReconcile_InPub_DryRun_NoCertOrKeyWritten(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
@@ -1559,7 +1559,7 @@ host "phone" {
 	}
 
 	preview := out.String()
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 
 	if !strings.Contains(preview, art.CertPath) {
 		t.Errorf("dry-run output %q does not list cert path %s", preview, art.CertPath)
@@ -1579,7 +1579,7 @@ func TestReconcile_InPub_StaleKeyFlaggedOnRegularToInPubTransition(t *testing.T)
 	// First run: regular host (generates cert + key).
 	regularSrc := `
 ca "mesh" { name = "mesh" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
 }
 `
@@ -1590,7 +1590,7 @@ host "phone" {
 	}
 
 	// Confirm key exists.
-	art0 := cfg.HostArtifactPath(cfg.Hosts[0])
+	art0 := cfg.CertArtifactPath(cfg.Certs[0])
 	keyReal := cfg.Resolve(art0.KeyPath)
 	if _, err := os.Stat(keyReal); err != nil {
 		t.Fatalf("key file missing after regular sign: %v", err)
@@ -1599,7 +1599,7 @@ host "phone" {
 	// Second run: switch to in_pub (same config dir, rewritten nebula.hcl).
 	inPubSrc := `
 ca "mesh" { name = "mesh" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }

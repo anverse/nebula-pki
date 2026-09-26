@@ -173,8 +173,8 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		actions = append(actions, a)
 	}
 
-	for i := range cfg.Hosts {
-		ha := planHost(cfg, m, &cfg.Hosts[i], now, exists, opts.NoRenewal)
+	for i := range cfg.Certs {
+		ha := planHost(cfg, m, &cfg.Certs[i], now, exists, opts.NoRenewal)
 		actions = append(actions, ha)
 	}
 
@@ -218,8 +218,8 @@ func hostInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) boo
 // does NOT detect it; only cert presence and provenance are compared. For
 // hardware-bound keys this is correct (key never changes). For other cases
 // the operator must delete the cert file to force a re-sign.
-func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Host, now time.Time, exists func(string) bool, noRenewal bool) Action {
-	artifact := cfg.HostArtifactPath(*h)
+func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time.Time, exists func(string) bool, noRenewal bool) Action {
+	artifact := cfg.CertArtifactPath(*h)
 	signingCA := cfg.SigningCA(*h)
 
 	isInPub := h.InPub != ""

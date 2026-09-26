@@ -37,12 +37,12 @@ storage {
 # Hosts are signed under the referenced CA exactly as they would be under a
 # generated one. Uncomment the blocks below to add hosts.
 #
-# host "gateway" {
+# cert "gateway" {
 #   networks = ["10.50.0.1/16"]
 #   groups   = ["edge"]
 # }
 #
-# host "worker_1" {
+# cert "worker_1" {
 #   networks    = ["10.50.10.1/16"]
 #   groups      = ["worker"]
 #   output_dir = "out/site-a"

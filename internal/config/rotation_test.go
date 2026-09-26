@@ -71,7 +71,7 @@ ca "mesh" {
   name     = "m"
   archived = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
@@ -92,7 +92,7 @@ ca "next" {
   name    = "new"
   default = true
 }
-host "alpha" {
+cert "alpha" {
   ca       = "current"
   networks = ["10.0.0.1/16"]
 }
@@ -116,13 +116,13 @@ ca "next" {
   name    = "new"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	cfg, err := Parse("t.hcl", []byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	h := cfg.Hosts[0]
+	h := cfg.Certs[0]
 	ca := cfg.SigningCA(h)
 	if ca == nil || ca.Label != "next" {
 		t.Errorf("SigningCA = %v, want 'next'", ca)
@@ -244,7 +244,7 @@ ca "mesh" {
 func TestHost_RenewBefore_Parsed(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "48h"
 }
@@ -253,7 +253,7 @@ host "alpha" {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	h := cfg.Hosts[0]
+	h := cfg.Certs[0]
 	if !h.HasRenewBefore {
 		t.Fatal("HasRenewBefore = false, want true")
 	}
@@ -265,7 +265,7 @@ host "alpha" {
 func TestHost_RenewBefore_InvalidDurationErrors(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "bad"
 }
@@ -282,7 +282,7 @@ host "alpha" {
 func TestHost_RenewBefore_GeqDuration_Errors(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   duration     = "200h"
   renew_before = "200h"
@@ -300,7 +300,7 @@ host "alpha" {
 func TestHost_RenewBefore_LessThanDuration_OK(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   duration     = "200h"
   renew_before = "50h"
@@ -318,7 +318,7 @@ ca "mesh" {
   name     = "m"
   duration = "300h"
 }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "300h"
 }
@@ -340,7 +340,7 @@ ca "mesh" {
   name         = "m"
   renew_before = "100h"
 }
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
   duration = "50h"
 }
@@ -360,7 +360,7 @@ ca "mesh" {
   name         = "m"
   renew_before = "24h"
 }
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
   duration = "200h"
 }
@@ -380,7 +380,7 @@ ca "mesh" {
   name         = "m"
   renew_before = "720h"
 }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "48h"
 }
@@ -389,7 +389,7 @@ host "alpha" {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if got := cfg.ResolvedRenewBefore(cfg.Hosts[0]); got != 48*time.Hour {
+	if got := cfg.ResolvedRenewBefore(cfg.Certs[0]); got != 48*time.Hour {
 		t.Errorf("ResolvedRenewBefore = %v, want 48h (host override)", got)
 	}
 }
@@ -400,13 +400,13 @@ ca "mesh" {
   name         = "m"
   renew_before = "720h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	cfg, err := Parse("t.hcl", []byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if got := cfg.ResolvedRenewBefore(cfg.Hosts[0]); got != 720*time.Hour {
+	if got := cfg.ResolvedRenewBefore(cfg.Certs[0]); got != 720*time.Hour {
 		t.Errorf("ResolvedRenewBefore = %v, want 720h (inherited from CA)", got)
 	}
 }
@@ -414,13 +414,13 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 func TestConfig_ResolvedRenewBefore_ZeroWhenUnset(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	cfg, err := Parse("t.hcl", []byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if got := cfg.ResolvedRenewBefore(cfg.Hosts[0]); got != 0 {
+	if got := cfg.ResolvedRenewBefore(cfg.Certs[0]); got != 0 {
 		t.Errorf("ResolvedRenewBefore = %v, want 0 (no threshold)", got)
 	}
 }

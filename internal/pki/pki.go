@@ -330,7 +330,7 @@ type HostResult struct {
 // the CA's expiry so it never outlives its signing CA. Otherwise it
 // co-expires with the CA (mirrors nebula-cert sign's default behaviour
 // when no -duration flag is given).
-func SignHost(caCertPEM, caKeyPEM []byte, h config.Host, now time.Time) (*HostResult, error) {
+func SignHost(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*HostResult, error) {
 	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
 	if err != nil {
 		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)
@@ -438,7 +438,7 @@ func ParseHostPublicKeyPEM(pubKeyPEM []byte) (rawPub []byte, curveStr string, er
 // fresh keypair, and it returns a HostResult with a nil KeyPEM because no
 // private key exists on the CA host. The curve of the supplied public key must
 // match the signing CA's curve; a mismatch is returned as an error.
-func SignHostFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Host, now time.Time) (*HostResult, error) {
+func SignHostFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Cert, now time.Time) (*HostResult, error) {
 	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
 	if err != nil {
 		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)

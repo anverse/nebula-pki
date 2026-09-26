@@ -41,7 +41,7 @@ ca "mesh" {
   name = "mesh"
 }
 
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
 }

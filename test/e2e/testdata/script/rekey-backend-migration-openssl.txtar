@@ -55,7 +55,7 @@ ca "test-ca" {
   name = "test-ca"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
@@ -70,7 +70,7 @@ ca "test-ca" {
   name = "test-ca"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 

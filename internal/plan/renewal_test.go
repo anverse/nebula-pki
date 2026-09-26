@@ -66,7 +66,7 @@ func TestHostInRenewalWindow_AfterExpiry(t *testing.T) {
 
 const renewHCL = `
 ca "mesh" { name = "m" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "720h"
 }
@@ -82,8 +82,8 @@ func TestBuild_HostNoopOutsideRenewalWindow(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
@@ -109,8 +109,8 @@ func TestBuild_HostSignInsideRenewalWindow(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
@@ -130,7 +130,7 @@ func TestBuild_HostNoRenewBefore_AlwaysNoop(t *testing.T) {
 	// No renew_before on host or CA: time-based renewal is disabled.
 	cfg := parseCfg(t, `
 ca "mesh" { name = "m" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	// now is 1 second before notAfter, would renew with any threshold, but
@@ -141,8 +141,8 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
@@ -160,7 +160,7 @@ ca "mesh" {
   name         = "m"
   renew_before = "720h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	// now is 15 days before notAfter, inside the 30-day window
@@ -170,8 +170,8 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, now, exists, Options{})
 	if err != nil {
@@ -199,7 +199,7 @@ ca "next" {
   name    = "new-mesh"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	m := manifest.New()
 	m.CAs["current"] = &manifest.CA{Mode: "generate", Name: "old-mesh"}
@@ -212,8 +212,8 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	exists := existsSet(
 		cfg.CACertPathForCA(ca0), cfg.CAKeyPathForCA(ca0),
 		cfg.CACertPathForCA(ca1), cfg.CAKeyPathForCA(ca1),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
@@ -242,8 +242,8 @@ func TestBuild_NoRenewal_InsideWindow_Noop(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, now, exists, Options{NoRenewal: true})
 	if err != nil {
@@ -291,8 +291,8 @@ func TestBuild_NoRenewal_CAMismatch_StillSigns(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, testNow, exists, Options{NoRenewal: true})
 	if err != nil {
@@ -309,7 +309,7 @@ func TestBuild_NoRenewal_ZeroRenewBefore_StillNoop(t *testing.T) {
 	// No renew_before on host or CA; NoRenewal=true must not change the outcome.
 	cfg := parseCfg(t, `
 ca "mesh" { name = "m" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	now := notAfter.Add(-time.Second) // one second before expiry
@@ -318,8 +318,8 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, now, exists, Options{NoRenewal: true})
 	if err != nil {

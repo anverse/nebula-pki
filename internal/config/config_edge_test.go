@@ -226,7 +226,7 @@ ca "m" {
 		{
 			name: "host_duration",
 			src: minimalGenerate + `
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
   duration = "??"
 }`,
@@ -310,7 +310,7 @@ ca "ref" {
 
 func TestParse_HostWithoutNetworks(t *testing.T) {
 	src := minimalGenerate + `
-host "a" {}
+cert "a" {}
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
@@ -323,7 +323,7 @@ host "a" {}
 
 func TestParse_HostWithEmptyNetworks(t *testing.T) {
 	src := minimalGenerate + `
-host "a" { networks = [] }
+cert "a" { networks = [] }
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
@@ -342,7 +342,7 @@ ca "m" {
   name     = "m"
   networks = ["fd42::/16"]
 }
-host "a" {
+cert "a" {
   networks = ["fd42::1/64"]
 }`
 	if _, err := Parse("t.hcl", []byte(src)); err != nil {
@@ -356,7 +356,7 @@ ca "m" {
   name     = "m"
   networks = ["10.0.0.0/8"]
 }
-host "a" {
+cert "a" {
   networks = ["fd00::1/64"]
 }`
 	_, err := Parse("t.hcl", []byte(src))
@@ -400,7 +400,7 @@ ca "strict" {
   name   = "strict"
   groups = ["only-this"]
 }
-host "h" {
+cert "h" {
   networks = ["10.0.0.1/16"]
   groups   = ["any"]
   ca       = "permissive"
@@ -418,7 +418,7 @@ host "h" {
 func TestValidate_InPub_PlusOutKey_Rejected(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "phone.pub"
   out_key  = "phone.key"
@@ -436,7 +436,7 @@ host "phone" {
 func TestValidate_InPub_WithoutOutKey_Accepted(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "phone.pub"
 }
@@ -445,8 +445,8 @@ host "phone" {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.Hosts[0].InPub != "phone.pub" {
-		t.Errorf("InPub = %q, want phone.pub", cfg.Hosts[0].InPub)
+	if cfg.Certs[0].InPub != "phone.pub" {
+		t.Errorf("InPub = %q, want phone.pub", cfg.Certs[0].InPub)
 	}
 }
 
@@ -454,7 +454,7 @@ func TestValidate_InPub_WithOutCRT_Accepted(t *testing.T) {
 	// out_crt is fine together with in_pub; it just changes the cert filename.
 	src := `
 ca "mesh" { name = "m" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "phone.pub"
   out_crt  = "phone.crt"

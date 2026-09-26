@@ -23,13 +23,13 @@ stderr 'generate-only fields'
 
 -- dup-label.hcl --
 ca "m" { name = "m" }
-host "a" { networks = ["10.0.0.1/16"] }
-host "a" { networks = ["10.0.0.2/16"] }
+cert "a" { networks = ["10.0.0.1/16"] }
+cert "a" { networks = ["10.0.0.2/16"] }
 
 -- dup-overlay.hcl --
 ca "m" { name = "m" }
-host "a" { networks = ["10.0.0.1/16"] }
-host "b" { networks = ["10.0.0.1/24"] }
+cert "a" { networks = ["10.0.0.1/16"] }
+cert "b" { networks = ["10.0.0.1/24"] }
 
 -- bad-encryption.hcl --
 ca "m" { name = "m" }
@@ -38,7 +38,7 @@ storage {
 }
 
 -- no-ca.hcl --
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
 }
 

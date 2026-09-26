@@ -56,7 +56,7 @@ func TestCheckSubcommand_HappyPath(t *testing.T) {
 ca "m" {
   name = "m"
 }
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
 }
 `), 0o600); err != nil {
@@ -91,8 +91,8 @@ func TestCheckSubcommand_ValidationError(t *testing.T) {
 	path := filepath.Join(dir, "bad.hcl")
 	if err := os.WriteFile(path, []byte(`
 ca "m" { name = "m" }
-host "a" { networks = ["10.0.0.1/16"] }
-host "b" { networks = ["10.0.0.1/24"] }
+cert "a" { networks = ["10.0.0.1/16"] }
+cert "b" { networks = ["10.0.0.1/24"] }
 `), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestDryRunFlag_FreshDir(t *testing.T) {
 	cfgPath := filepath.Join(dir, "nebula.hcl")
 	if err := os.WriteFile(cfgPath, []byte(`
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestDryRunFlag_UpToDate(t *testing.T) {
 	cfgPath := filepath.Join(dir, "nebula.hcl")
 	if err := os.WriteFile(cfgPath, []byte(`
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestReconcileProgressOnStderr(t *testing.T) {
 	cfgPath := filepath.Join(dir, "nebula.hcl")
 	if err := os.WriteFile(cfgPath, []byte(`
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -613,7 +613,7 @@ ca "mesh" {
   name         = "mesh"
   renew_before = "720h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -629,8 +629,8 @@ ca "mesh" {
   name         = "mesh"
   renew_before = "720h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
-host "beta"  { networks = ["10.0.0.2/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
+cert "beta"  { networks = ["10.0.0.2/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write updated config: %v", err)
 	}
@@ -656,7 +656,7 @@ host "beta"  { networks = ["10.0.0.2/16"] }
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	betaCert := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[1]).CertPath)
+	betaCert := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[1]).CertPath)
 	if _, err := os.Stat(betaCert); err != nil {
 		t.Errorf("beta cert not written: %v", err)
 	}
@@ -672,7 +672,7 @@ ca "mesh" {
   name         = "mesh"
   renew_before = "720h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -692,7 +692,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	// Place alpha's not_after 15 days from now, inside the 30-day window.
 	patchManifestNotAfter(t, manReal, "alpha", time.Now().UTC().Add(15*24*time.Hour))
 
-	hostCertReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath)
+	hostCertReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath)
 	certBefore, err := os.ReadFile(hostCertReal)
 	if err != nil {
 		t.Fatalf("read cert before: %v", err)
@@ -730,7 +730,7 @@ ca "mesh" {
   name         = "mesh"
   renew_before = "720h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -775,7 +775,7 @@ ca "mesh" {
   name         = "mesh"
   renew_before = "720h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -823,7 +823,7 @@ func TestNoRenewalFlag_NoRenewBeforeConfig_StillNoop(t *testing.T) {
 	cfgPath := filepath.Join(dir, "nebula.hcl")
 	if err := os.WriteFile(cfgPath, []byte(`
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -839,7 +839,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	hostCertReal := cfg.Resolve(cfg.HostArtifactPath(cfg.Hosts[0]).CertPath)
+	hostCertReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath)
 	certBefore, err := os.ReadFile(hostCertReal)
 	if err != nil {
 		t.Fatalf("read cert: %v", err)

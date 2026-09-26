@@ -516,9 +516,9 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 	var signed []SignedHost
 	var stale []string
 
-	hostByLabel := make(map[string]*config.Host, len(cfg.Hosts))
-	for i := range cfg.Hosts {
-		hostByLabel[cfg.Hosts[i].Label] = &cfg.Hosts[i]
+	hostByLabel := make(map[string]*config.Cert, len(cfg.Certs))
+	for i := range cfg.Certs {
+		hostByLabel[cfg.Certs[i].Label] = &cfg.Certs[i]
 	}
 
 	for _, ha := range hostActions {
@@ -535,7 +535,7 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 		}
 
 		// OpSign: check for stale artifact paths before re-signing.
-		newArt := cfg.HostArtifactPath(*h)
+		newArt := cfg.CertArtifactPath(*h)
 		if prev, ok := current.Hosts[h.Label]; ok {
 			for _, oldArt := range prev.Artifacts {
 				if oldArt.CertPath != "" && oldArt.CertPath != newArt.CertPath {
@@ -898,14 +898,14 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 		}
 	}
 
-	hostByLabel := make(map[string]*config.Host, len(cfg.Hosts))
-	for i := range cfg.Hosts {
-		hostByLabel[cfg.Hosts[i].Label] = &cfg.Hosts[i]
+	hostByLabel := make(map[string]*config.Cert, len(cfg.Certs))
+	for i := range cfg.Certs {
+		hostByLabel[cfg.Certs[i].Label] = &cfg.Certs[i]
 	}
 	for _, ha := range p.HostActions() {
 		if ha.Op == plan.OpSign {
 			if h, ok := hostByLabel[ha.Label]; ok {
-				art := cfg.HostArtifactPath(*h)
+				art := cfg.CertArtifactPath(*h)
 				writes = append(writes, art.CertPath)
 				// in_pub hosts write only a certificate, no key file.
 				if h.InPub == "" {
@@ -985,8 +985,8 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 	}
 
 	// Hosts — iterate in config order for deterministic output.
-	for i := range cfg.Hosts {
-		h := &cfg.Hosts[i]
+	for i := range cfg.Certs {
+		h := &cfg.Certs[i]
 		mh, ok := m.Hosts[h.Label]
 		if !ok || mh.NotAfter.IsZero() {
 			continue

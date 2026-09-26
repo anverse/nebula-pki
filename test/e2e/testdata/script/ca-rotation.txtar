@@ -179,11 +179,11 @@ ca "current" {
   default = true
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.0.0.2/16"]
 }
 
@@ -197,11 +197,11 @@ ca "next" {
   name = "test-mesh-v2"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.0.0.2/16"]
 }
 
@@ -215,11 +215,11 @@ ca "next" {
   default = true
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.0.0.2/16"]
 }
 
@@ -234,11 +234,11 @@ ca "next" {
   default = true
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.0.0.2/16"]
 }
 
@@ -248,10 +248,10 @@ ca "next" {
   default = true
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.0.0.2/16"]
 }

@@ -18,11 +18,11 @@ const caSubdir = "ca"
 // bundleFile is the default trust bundle filename under the CA sub-directory.
 const bundleFile = "bundle.crt"
 
-// Host artifact defaults.
+// Cert artifact defaults.
 const (
-	hostsSubdir        = "hosts"
-	defaultHostCertExt = ".crt"
-	defaultHostKeyExt  = ".key"
+	hostsSubdir    = "hosts"
+	defaultCertExt = ".crt"
+	defaultKeyExt  = ".key"
 )
 
 // baseDir is the directory the configuration was loaded from. Relative
@@ -87,8 +87,8 @@ func (c *Config) TrustBundlePath() string {
 	return filepath.Join(c.Storage.OutDir, caSubdir, bundleFile)
 }
 
-// ArtifactPath is the single (cert, key) destination for a host.
-// Dir is populated when host.output_dir is explicitly set; it is empty
+// ArtifactPath is the single (cert, key) destination for a cert block.
+// Dir is populated when cert.output_dir is explicitly set; it is empty
 // when the default placement or out_crt/out_key-only paths are used.
 type ArtifactPath struct {
 	Dir      string
@@ -106,7 +106,7 @@ func (c *Config) CACertFilename(ca CA) string {
 	return ca.Label + ".crt"
 }
 
-// HostArtifactPath returns the single destination a host's cert and key
+// CertArtifactPath returns the single destination a cert and its key
 // should be written to. This is the single source of truth used by both
 // plan and apply.
 //
@@ -117,7 +117,7 @@ func (c *Config) CACertFilename(ca CA) string {
 //	     = filepath.Join(base, <name>.crt) otherwise
 //	key  = filepath.Join(base, out_key)  when out_key is set
 //	     = filepath.Join(base, <name>.key) otherwise
-func (c *Config) HostArtifactPath(h Host) ArtifactPath {
+func (c *Config) CertArtifactPath(h Cert) ArtifactPath {
 	var base, dir string
 	if h.OutputDir != "" {
 		base = h.OutputDir
@@ -126,11 +126,11 @@ func (c *Config) HostArtifactPath(h Host) ArtifactPath {
 		base = filepath.Join(c.Storage.OutDir, hostsSubdir)
 	}
 
-	certCmp := h.Name + defaultHostCertExt
+	certCmp := h.Name + defaultCertExt
 	if h.OutCRT != "" {
 		certCmp = h.OutCRT
 	}
-	keyCmp := h.Name + defaultHostKeyExt
+	keyCmp := h.Name + defaultKeyExt
 	if h.OutKey != "" {
 		keyCmp = h.OutKey
 	}

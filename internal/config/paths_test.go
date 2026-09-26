@@ -92,10 +92,10 @@ storage { out_dir = "artifacts" }
 func TestHostArtifactPath_Default(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
-host "node" { networks = ["10.0.0.1/16"] }
+cert "node" { networks = ["10.0.0.1/16"] }
 `)
-	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPath(h)
+	h := cfg.Certs[0]
+	got := cfg.CertArtifactPath(h)
 
 	if got.Dir != "" {
 		t.Errorf("Dir = %q, want empty for default path", got.Dir)
@@ -111,14 +111,14 @@ host "node" { networks = ["10.0.0.1/16"] }
 func TestHostArtifactPath_ExplicitPaths(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
-host "node" {
+cert "node" {
   networks = ["10.0.0.1/16"]
   out_crt  = "custom/node.crt"
   out_key  = "custom/node.key"
 }
 `)
-	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPath(h)
+	h := cfg.Certs[0]
+	got := cfg.CertArtifactPath(h)
 
 	if got.Dir != "" {
 		t.Errorf("Dir = %q, want empty for out_crt/out_key-only paths", got.Dir)
@@ -134,13 +134,13 @@ host "node" {
 func TestHostArtifactPath_OutputDir(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
 }
 `)
-	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPath(h)
+	h := cfg.Certs[0]
+	got := cfg.CertArtifactPath(h)
 
 	if got.Dir != "dir-a" {
 		t.Errorf("Dir = %q, want dir-a", got.Dir)
@@ -156,14 +156,14 @@ host "node" {
 func TestHostArtifactPath_OutputDirAndOutCrt(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
   out_crt    = "renamed.crt"
 }
 `)
-	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPath(h)
+	h := cfg.Certs[0]
+	got := cfg.CertArtifactPath(h)
 
 	if got.Dir != "dir-a" {
 		t.Errorf("Dir = %q, want dir-a", got.Dir)
@@ -179,14 +179,14 @@ host "node" {
 func TestHostArtifactPath_OutputDirAndOutKey(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
   out_key    = "renamed.key"
 }
 `)
-	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPath(h)
+	h := cfg.Certs[0]
+	got := cfg.CertArtifactPath(h)
 
 	if got.Dir != "dir-a" {
 		t.Errorf("Dir = %q, want dir-a", got.Dir)
@@ -202,15 +202,15 @@ host "node" {
 func TestHostArtifactPath_OutputDirAndBoth(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
   out_crt    = "node.crt"
   out_key    = "node.key"
 }
 `)
-	h := cfg.Hosts[0]
-	got := cfg.HostArtifactPath(h)
+	h := cfg.Certs[0]
+	got := cfg.CertArtifactPath(h)
 
 	if got.Dir != "dir-a" {
 		t.Errorf("Dir = %q, want dir-a", got.Dir)

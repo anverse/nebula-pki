@@ -98,11 +98,11 @@ ca "secondary" {
   name = "secondary-mesh"
 }
 
-host "h1" {
+cert "h1" {
   networks = ["10.0.0.1/16"]
 }
 
-host "h2" {
+cert "h2" {
   networks = ["10.0.0.2/16"]
   ca       = "secondary"
 }

@@ -216,7 +216,7 @@ func mustSignHost(t *testing.T, caSrc, hostSrc string) (*CAResult, *HostResult) 
 	if err != nil {
 		t.Fatalf("config.Parse host: %v", err)
 	}
-	hr, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Hosts[0], fixedTime)
+	hr, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHost: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestSignHost_CNAndNotACA(t *testing.T) {
 	_, hr := mustSignHost(t,
 		`ca "mesh" { name = "mesh" }`,
 		`ca "mesh" { name = "mesh" }
-host "h" {
+cert "h" {
   name     = "my-host"
   networks = ["10.0.0.1/16"]
 }`)
@@ -253,7 +253,7 @@ func TestSignHost_CurveAndVersionInheritedFromCA(t *testing.T) {
   version = 2
 }`,
 		`ca "mesh" { name = "mesh" }
-host "h" { networks = ["10.0.0.1/16"] }`)
+cert "h" { networks = ["10.0.0.1/16"] }`)
 
 	if hr.Curve != "25519" {
 		t.Errorf("Curve = %q, want 25519", hr.Curve)
@@ -272,7 +272,7 @@ func TestSignHost_NetworksGroupsUnsafeNetworksRoundTrip(t *testing.T) {
   unsafe_networks = ["192.168.1.0/24"]
 }`,
 		`ca "mesh" { name = "mesh" }
-host "h" {
+cert "h" {
   networks        = ["10.0.0.1/16"]
   groups          = ["edge"]
   unsafe_networks = ["192.168.1.0/24"]
@@ -298,7 +298,7 @@ func TestSignHost_DefaultDurationMatchesCAExpiry(t *testing.T) {
 	ca, hr := mustSignHost(t,
 		`ca "mesh" { name = "mesh" }`,
 		`ca "mesh" { name = "mesh" }
-host "h" { networks = ["10.0.0.1/16"] }`)
+cert "h" { networks = ["10.0.0.1/16"] }`)
 
 	wantNotAfter := fixedTime.Add(defaultCADuration)
 	if !hr.NotAfter.Equal(wantNotAfter) {
@@ -316,7 +316,7 @@ func TestSignHost_ExplicitDuration(t *testing.T) {
   duration = "8760h"
 }`,
 		`ca "mesh" { name = "mesh" }
-host "h" {
+cert "h" {
   networks = ["10.0.0.1/16"]
   duration = "1h"
 }`)
@@ -331,7 +331,7 @@ func TestSignHost_CAFingerprintMatches(t *testing.T) {
 	ca, hr := mustSignHost(t,
 		`ca "mesh" { name = "mesh" }`,
 		`ca "mesh" { name = "mesh" }
-host "h" { networks = ["10.0.0.1/16"] }`)
+cert "h" { networks = ["10.0.0.1/16"] }`)
 
 	if hr.CAFingerprint == "" {
 		t.Fatal("CAFingerprint is empty")
@@ -348,7 +348,7 @@ func TestSignHost_DurationCappedToCACertExpiry(t *testing.T) {
   duration = "1h"
 }`,
 		`ca "mesh" { name = "mesh" }
-host "h" {
+cert "h" {
   networks = ["10.0.0.1/16"]
   duration = "100h"
 }`)
@@ -370,7 +370,7 @@ func TestSignHost_DurationShorterThanCAIsHonoured(t *testing.T) {
   duration = "100h"
 }`,
 		`ca "mesh" { name = "mesh" }
-host "h" {
+cert "h" {
   networks = ["10.0.0.1/16"]
   duration = "1h"
 }`)
@@ -392,14 +392,14 @@ func TestSignHost_Distinct(t *testing.T) {
 	}
 	hCfg, _ := config.Parse("n.hcl", []byte(`
 ca "m" { name = "m" }
-host "h" { networks = ["10.0.0.1/16"] }
+cert "h" { networks = ["10.0.0.1/16"] }
 `))
 
-	a, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Hosts[0], fixedTime)
+	a, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHost a: %v", err)
 	}
-	b, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Hosts[0], fixedTime)
+	b, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHost b: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestSignHost_KeyIsEncryptionKey(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ca, hr := mustSignHost(t, tc.caSrc,
 				`ca "mesh" { name = "mesh" }
-host "h" { networks = ["10.0.0.1/16"] }`)
+cert "h" { networks = ["10.0.0.1/16"] }`)
 
 			raw, _, kcurve, err := cert.UnmarshalPrivateKeyFromPEM(hr.KeyPEM)
 			if err != nil {

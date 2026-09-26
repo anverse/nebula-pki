@@ -28,7 +28,7 @@ ca "new" {
   default = true
 }
 
-host "node" {
+cert "node" {
   networks = ["10.10.0.4/24"]
   ca       = "new"
 }

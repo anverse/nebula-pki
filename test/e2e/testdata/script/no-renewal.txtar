@@ -77,7 +77,7 @@ ca "test-mesh" {
   renew_before = "720h"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
@@ -87,10 +87,10 @@ ca "test-mesh" {
   renew_before = "720h"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.0.0.2/16"]
 }

@@ -37,11 +37,11 @@ ca "meshp256" {
   version = 1
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.10.0.1/24"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.10.0.2/24"]
   ca       = "meshp256"
 }

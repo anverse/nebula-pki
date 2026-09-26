@@ -68,12 +68,12 @@ ca "test-mesh" {
   networks = ["10.0.0.0/16"]
 }
 
-host "lighthouse" {
+cert "lighthouse" {
   networks = ["10.0.0.1/16"]
   groups   = ["lighthouse"]
 }
 
-host "server" {
+cert "server" {
   networks = ["10.0.0.2/16"]
   groups   = ["app"]
 }

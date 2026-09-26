@@ -28,7 +28,7 @@ ca "mesh" {
   name = "mesh"
 }
 
-host "alice" {
+cert "alice" {
   networks = ["10.10.0.3/24"]
   groups   = ["mobile"]
   in_pub   = "inbox/alice.pub"

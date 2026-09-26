@@ -89,7 +89,7 @@ func TestParseHostPublicKeyPEM_WrongType(t *testing.T) {
 
 const inPubHostHCL = `
 ca "mesh" { name = "mesh" }
-host "phone" {
+cert "phone" {
   name     = "alice-phone"
   networks = ["10.0.0.1/16"]
   groups   = ["mobile"]
@@ -97,13 +97,13 @@ host "phone" {
 }
 `
 
-func mustParseInPubHost(t *testing.T) config.Host {
+func mustParseInPubHost(t *testing.T) config.Cert {
 	t.Helper()
 	cfg, err := config.Parse("nebula.hcl", []byte(inPubHostHCL))
 	if err != nil {
 		t.Fatalf("config.Parse: %v", err)
 	}
-	return cfg.Hosts[0]
+	return cfg.Certs[0]
 }
 
 func TestSignHostFromPub_Curve25519(t *testing.T) {
@@ -165,7 +165,7 @@ ca "p256" {
   name  = "p256-mesh"
   curve = "P256"
 }
-host "device" {
+cert "device" {
   networks = ["10.1.0.1/16"]
   in_pub   = "d.pub"
 }
@@ -174,7 +174,7 @@ host "device" {
 		t.Fatalf("config.Parse: %v", err)
 	}
 
-	res, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Hosts[0], fixedTime)
+	res, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHostFromPub: %v", err)
 	}
@@ -219,13 +219,13 @@ ca "p256" {
   name  = "p256-mesh"
   curve = "P256"
 }
-host "device" {
+cert "device" {
   networks = ["10.1.0.1/16"]
   in_pub   = "d.pub"
 }
 `))
 
-	_, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Hosts[0], fixedTime)
+	_, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Certs[0], fixedTime)
 	if err == nil {
 		t.Fatal("expected curve mismatch error, got nil")
 	}
@@ -263,7 +263,7 @@ ca "mesh" {
   name     = "mesh"
   duration = "2h"
 }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "p.pub"
   duration = "1h"
@@ -274,7 +274,7 @@ host "phone" {
 	}
 
 	// Override the duration to 100h to trigger the cap.
-	h := cfg.Hosts[0]
+	h := cfg.Certs[0]
 	h.Duration = 100 * 3600 * 1_000_000_000 // 100h as nanoseconds
 	h.HasDuration = true
 

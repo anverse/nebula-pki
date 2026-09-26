@@ -38,7 +38,7 @@ ca "test-mesh" {
   name = "test-mesh"
 }
 
-host "lh_fra" {
+cert "lh_fra" {
   name       = "lh-fra"
   networks   = ["10.0.0.1/16"]
   output_dir = "out/hetzner"

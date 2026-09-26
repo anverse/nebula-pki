@@ -34,57 +34,57 @@ storage {
 }
 
 # Control-plane nodes. Three live nodes plus spares for replacement.
-host "node_1" {
+cert "node_1" {
   networks    = ["172.16.110.1/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/prod/cluster"
 }
 
-host "node_2" {
+cert "node_2" {
   networks    = ["172.16.110.2/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/prod/cluster"
 }
 
-host "node_3" {
+cert "node_3" {
   networks    = ["172.16.110.3/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/prod/cluster"
 }
 
-host "node_4" {
+cert "node_4" {
   networks    = ["172.16.110.4/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/prod/cluster"
 }
 
-host "node_5" {
+cert "node_5" {
   networks    = ["172.16.110.5/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/prod/cluster"
 }
 
 # Worker nodes (optional). Uncomment as the cluster grows.
-# host "worker_1" {
+# cert "worker_1" {
 #   networks    = ["172.16.120.1/16"]
 #   groups      = ["cluster", "worker"]
 #   output_dir = "out/prod/cluster"
 # }
 
 # Admin laptops.
-host "laptop_1" {
+cert "laptop_1" {
   networks = ["172.16.100.1/16"]
   groups   = ["admin", "remote"]
 }
 
-host "laptop_2" {
+cert "laptop_2" {
   networks = ["172.16.100.2/16"]
   groups   = ["admin", "remote"]
 }
 
 # Mobile devices. See dev.hcl for the workflow. Commented until needed.
 #
-# host "phone_1" {
+# cert "phone_1" {
 #   networks = ["172.16.100.10/16"]
 #   groups   = ["admin", "mobile"]
 #   in_pub   = "./mobile-pubkeys/phone_1.pub"

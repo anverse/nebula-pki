@@ -76,7 +76,7 @@ ca "invalid" {
   renew_before = "8784h"
 }
 
-host "h" {
+cert "h" {
   networks = ["10.0.0.1/16"]
 }
 
@@ -86,11 +86,11 @@ ca "mesh" {
   renew_before = "720h"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
-host "beta" {
+cert "beta" {
   networks = ["10.0.0.2/16"]
 }
 
@@ -100,11 +100,11 @@ ca "mesh2" {
   renew_before = "720h"
 }
 
-host "alpha" {
+cert "alpha" {
   networks    = ["10.0.0.1/16"]
   renew_before = "48h"
 }
 
-host "gamma" {
+cert "gamma" {
   networks = ["10.0.0.3/16"]
 }

@@ -160,7 +160,7 @@ storage {
   manifest_file = "build/manifest.json"
 }
 
-host "edge" {
+cert "edge" {
   name            = "edge.mesh"
   networks        = ["10.42.1.1/16"]
   groups          = ["app"]
@@ -178,10 +178,10 @@ host "edge" {
 	if cfg.CAs[0].Duration != 26280*time.Hour {
 		t.Errorf("CAs[0].Duration = %v", cfg.CAs[0].Duration)
 	}
-	if len(cfg.Hosts) != 1 {
-		t.Fatalf("expected 1 host, got %d", len(cfg.Hosts))
+	if len(cfg.Certs) != 1 {
+		t.Fatalf("expected 1 host, got %d", len(cfg.Certs))
 	}
-	h := cfg.Hosts[0]
+	h := cfg.Certs[0]
 	if h.Label != "edge" || h.Name != "edge.mesh" {
 		t.Errorf("Label=%q Name=%q", h.Label, h.Name)
 	}
@@ -192,7 +192,7 @@ host "edge" {
 
 func TestParse_HostNameDefaultsToLabel(t *testing.T) {
 	src := minimalGenerate + `
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 `
@@ -200,7 +200,7 @@ host "alpha" {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if got, want := cfg.Hosts[0].Name, "alpha"; got != want {
+	if got, want := cfg.Certs[0].Name, "alpha"; got != want {
 		t.Errorf("Name = %q, want %q", got, want)
 	}
 }
@@ -215,25 +215,25 @@ func TestParse_ValidationRules(t *testing.T) {
 	}{
 		{
 			name:    "missing_ca_block",
-			src:     `host "a" { networks = ["10.0.0.1/16"] }`,
+			src:     `cert "a" { networks = ["10.0.0.1/16"] }`,
 			wantErr: "missing required `ca` block",
 		},
 		{
 			name: "duplicate_host_label",
 			src: minimalGenerate + `
-host "a" { networks = ["10.0.0.1/16"] }
-host "a" { networks = ["10.0.0.2/16"] }
+cert "a" { networks = ["10.0.0.1/16"] }
+cert "a" { networks = ["10.0.0.2/16"] }
 `,
 			wantErr: "duplicate label",
 		},
 		{
 			name: "duplicate_host_name",
 			src: minimalGenerate + `
-host "a" {
+cert "a" {
   name = "shared"
   networks = ["10.0.0.1/16"]
 }
-host "b" {
+cert "b" {
   name = "shared"
   networks = ["10.0.0.2/16"]
 }
@@ -243,15 +243,15 @@ host "b" {
 		{
 			name: "duplicate_overlay_address",
 			src: minimalGenerate + `
-host "a" { networks = ["10.0.0.1/16"] }
-host "b" { networks = ["10.0.0.1/24"] }
+cert "a" { networks = ["10.0.0.1/16"] }
+cert "b" { networks = ["10.0.0.1/24"] }
 `,
 			wantErr: "overlay address 10.0.0.1 already used",
 		},
 		{
 			name: "invalid_cidr",
 			src: minimalGenerate + `
-host "a" { networks = ["not-a-cidr"] }
+cert "a" { networks = ["not-a-cidr"] }
 `,
 			wantErr: "invalid CIDR",
 		},
@@ -280,7 +280,7 @@ ca "m" {
   name   = "m"
   groups = ["app"]
 }
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
   groups   = ["app", "rogue"]
 }
@@ -294,7 +294,7 @@ ca "m" {
   name     = "m"
   networks = ["10.0.0.0/8"]
 }
-host "a" {
+cert "a" {
   networks = ["192.168.0.1/16"]
 }
 `,
@@ -307,7 +307,7 @@ ca "m" {
   name            = "m"
   unsafe_networks = ["192.168.0.0/16"]
 }
-host "a" {
+cert "a" {
   networks        = ["10.0.0.1/16"]
   unsafe_networks = ["172.16.0.0/24"]
 }
@@ -317,7 +317,7 @@ host "a" {
 		{
 			name: "group_with_comma",
 			src: minimalGenerate + `
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
   groups   = ["bad,group"]
 }
@@ -327,7 +327,7 @@ host "a" {
 		{
 			name: "group_with_whitespace",
 			src: minimalGenerate + `
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
   groups   = [" trim "]
 }
@@ -337,7 +337,7 @@ host "a" {
 		{
 			name: "group_empty",
 			src: minimalGenerate + `
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
   groups   = [""]
 }
@@ -376,7 +376,7 @@ ca "m" {
   name     = "m"
   duration = "1h"
 }
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
   duration = "2h"
 }
@@ -455,7 +455,7 @@ ca "mesh" { name = "second" }
 			src: `
 ca "alpha" { name = "alpha" }
 ca "beta"  { name = "beta" }
-host "h" { networks = ["10.0.0.1/16"] }
+cert "h" { networks = ["10.0.0.1/16"] }
 `,
 			wantErr: "ambiguous",
 		},
@@ -463,7 +463,7 @@ host "h" { networks = ["10.0.0.1/16"] }
 			name: "unknown_host_ca_ref",
 			src: `
 ca "mesh" { name = "mesh" }
-host "h" {
+cert "h" {
   networks = ["10.0.0.1/16"]
   ca       = "nonexistent"
 }
@@ -500,7 +500,7 @@ ca "primary" {
   default = true
 }
 ca "secondary" { name = "secondary" }
-host "h" { networks = ["10.0.0.1/16"] }
+cert "h" { networks = ["10.0.0.1/16"] }
 `
 	cfg, err := Parse("test.hcl", []byte(src))
 	if err != nil {
@@ -516,7 +516,7 @@ host "h" { networks = ["10.0.0.1/16"] }
 		t.Error("CAs[1].Default = true, want false")
 	}
 	// Host should resolve to the default CA.
-	signing := cfg.SigningCA(cfg.Hosts[0])
+	signing := cfg.SigningCA(cfg.Certs[0])
 	if signing == nil || signing.Label != "primary" {
 		t.Errorf("SigningCA = %v, want primary", signing)
 	}
@@ -548,7 +548,7 @@ func TestParse_HostExplicitCARef(t *testing.T) {
 	src := `
 ca "alpha" { name = "alpha" }
 ca "beta"  { name = "beta" }
-host "h" {
+cert "h" {
   networks = ["10.0.0.1/16"]
   ca       = "beta"
 }
@@ -557,7 +557,7 @@ host "h" {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	signing := cfg.SigningCA(cfg.Hosts[0])
+	signing := cfg.SigningCA(cfg.Certs[0])
 	if signing == nil || signing.Label != "beta" {
 		t.Errorf("SigningCA = %v, want beta", signing)
 	}
@@ -600,15 +600,15 @@ ca "m" {
   groups   = ["app", "lh"]
   networks = ["10.0.0.0/8"]
 }
-host "a" {
+cert "a" {
   networks = ["10.0.0.1/16"]
   groups   = ["app"]
 }
-host "b" {
+cert "b" {
   networks = ["10.0.0.2/16"]
   groups   = ["lh"]
 }
-host "c" {
+cert "c" {
   networks = ["10.0.0.3/16"]
   groups   = ["app", "lh"]
 }
@@ -617,14 +617,14 @@ host "c" {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if got, want := len(cfg.Hosts), 3; got != want {
+	if got, want := len(cfg.Certs), 3; got != want {
 		t.Fatalf("len(Hosts) = %d, want %d", got, want)
 	}
 	for i, label := range []string{"a", "b", "c"} {
-		if got, want := cfg.Hosts[i].Label, label; got != want {
+		if got, want := cfg.Certs[i].Label, label; got != want {
 			t.Errorf("Hosts[%d].Label = %q, want %q", i, got, want)
 		}
-		if got, want := cfg.Hosts[i].Name, label; got != want {
+		if got, want := cfg.Certs[i].Name, label; got != want {
 			t.Errorf("Hosts[%d].Name = %q (default to label), want %q", i, got, want)
 		}
 	}

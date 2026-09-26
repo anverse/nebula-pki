@@ -42,6 +42,6 @@ ca "test-mesh" {
   name = "test-mesh"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }

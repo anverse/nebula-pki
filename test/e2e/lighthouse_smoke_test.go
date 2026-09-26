@@ -137,12 +137,12 @@ ca "mesh" {
   curve = %q
 }
 
-host "lh" {
+cert "lh" {
   networks = ["172.31.0.1/24"]
   groups   = ["lighthouse"]
 }
 
-host "client" {
+cert "client" {
   networks = ["172.31.0.2/24"]
 }
 `, curve)

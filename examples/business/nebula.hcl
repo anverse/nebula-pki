@@ -75,13 +75,13 @@ storage {
 # =============================================================================
 
 # Lighthouses. Two on-prem lighthouses so HQ keeps working if one is down.
-host "lh_hq_1" {
+cert "lh_hq_1" {
   networks    = ["10.10.0.1/16"]
   groups      = ["lighthouse", "hq"]
   output_dir  = "out/sites/hq"
 }
 
-host "lh_hq_2" {
+cert "lh_hq_2" {
   networks    = ["10.10.0.2/16"]
   groups      = ["lighthouse", "hq"]
   output_dir  = "out/sites/hq"
@@ -89,43 +89,43 @@ host "lh_hq_2" {
 
 # Admin workstations (operators). Default placement, no `output_dir`,
 # since admin keys don't ship with the site deploy.
-host "admin_1" {
+cert "admin_1" {
   networks = ["10.10.0.10/16"]
   groups   = ["admin", "hq"]
 }
 
-host "admin_2" {
+cert "admin_2" {
   networks = ["10.10.0.11/16"]
   groups   = ["admin", "hq"]
 }
 
 # App servers.
-host "app_hq_1" {
+cert "app_hq_1" {
   networks    = ["10.10.1.1/16"]
   groups      = ["app", "hq"]
   output_dir  = "out/sites/hq"
 }
 
-host "app_hq_2" {
+cert "app_hq_2" {
   networks    = ["10.10.1.2/16"]
   groups      = ["app", "hq"]
   output_dir  = "out/sites/hq"
 }
 
-host "app_hq_3" {
+cert "app_hq_3" {
   networks    = ["10.10.1.3/16"]
   groups      = ["app", "hq"]
   output_dir  = "out/sites/hq"
 }
 
 # Database (primary + replica).
-host "db_hq_primary" {
+cert "db_hq_primary" {
   networks    = ["10.10.2.1/16"]
   groups      = ["db", "hq"]
   output_dir  = "out/sites/hq"
 }
 
-host "db_hq_replica" {
+cert "db_hq_replica" {
   networks    = ["10.10.2.2/16"]
   groups      = ["db", "hq"]
   output_dir  = "out/sites/hq"
@@ -136,7 +136,7 @@ host "db_hq_replica" {
 # joining the Nebula network directly. `unsafe_networks` advertises the route;
 # Nebula's firewall on each peer decides whether to honour traffic to
 # 192.168.10.0/24.
-host "router_hq" {
+cert "router_hq" {
   networks        = ["10.10.9.1/16"]
   unsafe_networks = ["192.168.10.0/24"]
   groups          = ["router", "hq"]
@@ -147,37 +147,37 @@ host "router_hq" {
 # eu-west — AWS eu-west-1
 # =============================================================================
 
-host "lh_euw_1" {
+cert "lh_euw_1" {
   networks    = ["10.20.0.1/16"]
   groups      = ["lighthouse", "eu_west"]
   output_dir = "out/sites/eu-west"
 }
 
-host "app_euw_1" {
+cert "app_euw_1" {
   networks    = ["10.20.1.1/16"]
   groups      = ["app", "eu_west"]
   output_dir = "out/sites/eu-west"
 }
 
-host "app_euw_2" {
+cert "app_euw_2" {
   networks    = ["10.20.1.2/16"]
   groups      = ["app", "eu_west"]
   output_dir = "out/sites/eu-west"
 }
 
-host "app_euw_3" {
+cert "app_euw_3" {
   networks    = ["10.20.1.3/16"]
   groups      = ["app", "eu_west"]
   output_dir = "out/sites/eu-west"
 }
 
-host "ci_euw_1" {
+cert "ci_euw_1" {
   networks    = ["10.20.2.1/16"]
   groups      = ["ci", "eu_west"]
   output_dir = "out/sites/eu-west"
 }
 
-host "ci_euw_2" {
+cert "ci_euw_2" {
   networks    = ["10.20.2.2/16"]
   groups      = ["ci", "eu_west"]
   output_dir = "out/sites/eu-west"
@@ -187,19 +187,19 @@ host "ci_euw_2" {
 # us-east — AWS us-east-1
 # =============================================================================
 
-host "lh_use_1" {
+cert "lh_use_1" {
   networks    = ["10.30.0.1/16"]
   groups      = ["lighthouse", "us_east"]
   output_dir = "out/sites/us-east"
 }
 
-host "app_use_1" {
+cert "app_use_1" {
   networks    = ["10.30.1.1/16"]
   groups      = ["app", "us_east"]
   output_dir = "out/sites/us-east"
 }
 
-host "app_use_2" {
+cert "app_use_2" {
   networks    = ["10.30.1.2/16"]
   groups      = ["app", "us_east"]
   output_dir = "out/sites/us-east"

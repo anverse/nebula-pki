@@ -414,7 +414,7 @@ ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
 }
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 `

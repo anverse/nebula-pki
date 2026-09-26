@@ -232,7 +232,7 @@ func newCheckCmd(configPath *string) *cobra.Command {
 			// the config itself; failures here surface after this line.
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"config valid: %s (cas=%d, hosts=%d)\n",
-				cfg.Path, len(cfg.CAs), len(cfg.Hosts),
+				cfg.Path, len(cfg.CAs), len(cfg.Certs),
 			)
 
 			// caCurves collects the resolved curve for every CA so in_pub host
@@ -258,9 +258,9 @@ func newCheckCmd(configPath *string) *cobra.Command {
 				}
 			}
 
-			for i := range cfg.Hosts {
-				if cfg.Hosts[i].InPub != "" {
-					if err := checkInPubHost(cmd, cfg, &cfg.Hosts[i], caCurves); err != nil {
+			for i := range cfg.Certs {
+				if cfg.Certs[i].InPub != "" {
+					if err := checkInPubHost(cmd, cfg, &cfg.Certs[i], caCurves); err != nil {
 						return err
 					}
 				}
@@ -307,7 +307,7 @@ func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) (cu
 // its curve matches the signing CA's curve. A mismatch would always cause
 // reconcile to fail with a curve error, so surfacing it here lets the operator
 // know before any output-tree changes are attempted.
-func checkInPubHost(cmd *cobra.Command, cfg *config.Config, h *config.Host, caCurves map[string]string) error {
+func checkInPubHost(cmd *cobra.Command, cfg *config.Config, h *config.Cert, caCurves map[string]string) error {
 	pubReal := cfg.Resolve(h.InPub)
 	pubPEM, err := os.ReadFile(pubReal)
 	if err != nil {

@@ -102,7 +102,7 @@ ca "next" {
 func TestReconcile_RenewBefore_RecordedInManifest(t *testing.T) {
 	src := `
 ca "mesh" { name = "mesh" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "720h"
 }
@@ -127,7 +127,7 @@ ca "mesh" {
   name         = "mesh"
   renew_before = "48h"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	cfg := writeConfig(t, src)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
@@ -146,7 +146,7 @@ host "alpha" { networks = ["10.0.0.1/16"] }
 func TestReconcile_NoRenewBefore_OmittedFromManifest(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -173,7 +173,7 @@ func TestReconcile_RenewalWindow_HostResigned(t *testing.T) {
 
 	src := `
 ca "mesh" { name = "mesh" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   duration     = "100h"
   renew_before = "50h"
@@ -259,7 +259,7 @@ func TestComputeDeadlines_HostWithRenewBefore_WindowEntryIsDeadline(t *testing.T
 
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "720h"
 }
@@ -284,7 +284,7 @@ func TestComputeDeadlines_SoonItems_WithinWindow(t *testing.T) {
 
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{NotAfter: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}
@@ -312,7 +312,7 @@ func TestComputeDeadlines_OverdueItem_PastWindowEntry(t *testing.T) {
 
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-host "alpha" {
+cert "alpha" {
   networks     = ["10.0.0.1/16"]
   renew_before = "720h"
 }
@@ -382,7 +382,7 @@ ca "current" {
   name    = "mesh-2026"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	cfg1 := writeConfig(t, src1)
 	rep1, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion})
@@ -407,7 +407,7 @@ ca "current" {
 ca "next" {
   name = "mesh-2027"
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	// Reload from same dir (same manifest, same artifacts).
 	cfg2 := reloadConfig(t, cfg1, src2)
@@ -441,7 +441,7 @@ ca "next" {
   name    = "mesh-2027"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	cfg3 := reloadConfig(t, cfg2, src3)
 	rep3, err := Reconcile(cfg3, Options{Now: fixedNow, GeneratorVersion: genVersion})
@@ -470,7 +470,7 @@ ca "next" {
   name    = "mesh-2027"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	cfg4 := reloadConfig(t, cfg3, src4)
 	rep4, err := Reconcile(cfg4, Options{Now: fixedNow, GeneratorVersion: genVersion})
@@ -518,7 +518,7 @@ ca "current" {
   name    = "mesh-2026"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("step1 Reconcile: %v", err)
@@ -531,7 +531,7 @@ ca "current" {
   default = true
 }
 ca "next" { name = "mesh-2027" }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("step2 Reconcile: %v", err)
@@ -544,7 +544,7 @@ ca "next" {
   name    = "mesh-2027"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("step3 Reconcile: %v", err)
@@ -561,7 +561,7 @@ ca "next" {
   name    = "mesh-2027"
   default = true
 }
-host "alpha" { networks = ["10.0.0.1/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 
 	current, err := manifest.Load(cfgArchive.Resolve(cfgArchive.ManifestPath()))

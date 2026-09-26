@@ -57,7 +57,7 @@ storage {
   manifest_file = "refs/nebula-pki.json"
 }
 
-host "alpha" {
+cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 

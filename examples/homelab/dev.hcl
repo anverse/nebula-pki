@@ -38,19 +38,19 @@ storage {
 # config.yaml, not a cert property.
 # -----------------------------------------------------------------------------
 
-host "node_1" {
+cert "node_1" {
   networks    = ["172.16.1.1/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/dev/cluster"
 }
 
-host "node_2" {
+cert "node_2" {
   networks    = ["172.16.1.2/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/dev/cluster"
 }
 
-host "node_3" {
+cert "node_3" {
   networks    = ["172.16.1.3/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/dev/cluster"
@@ -59,13 +59,13 @@ host "node_3" {
 # Pre-signed spares for node replacement. Comment out anything you don't
 # expect to provision in the foreseeable future.
 
-host "node_4" {
+cert "node_4" {
   networks    = ["172.16.1.4/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/dev/cluster"
 }
 
-host "node_5" {
+cert "node_5" {
   networks    = ["172.16.1.5/16"]
   groups      = ["cluster", "control_plane", "lighthouse"]
   output_dir  = "out/dev/cluster"
@@ -75,7 +75,7 @@ host "node_5" {
 # Worker nodes (optional). Uncomment as the cluster grows.
 # -----------------------------------------------------------------------------
 
-# host "worker_1" {
+# cert "worker_1" {
 #   networks    = ["172.16.2.1/16"]
 #   groups      = ["cluster", "worker"]
 #   output_dir  = "out/dev/cluster"
@@ -88,12 +88,12 @@ host "node_5" {
 # since admin keys typically don't ship alongside the cluster deploy.
 # -----------------------------------------------------------------------------
 
-host "laptop_1" {
+cert "laptop_1" {
   networks = ["172.16.0.1/16"]
   groups   = ["admin", "remote"]
 }
 
-host "laptop_2" {
+cert "laptop_2" {
   networks = ["172.16.0.2/16"]
   groups   = ["admin", "remote"]
 }
@@ -114,7 +114,7 @@ host "laptop_2" {
 #      No .key file is produced for these hosts; the phone already has it.
 # -----------------------------------------------------------------------------
 
-# host "phone_1" {
+# cert "phone_1" {
 #   networks = ["172.16.0.10/16"]
 #   groups   = ["admin", "mobile"]
 #   in_pub   = "./mobile-pubkeys/phone_1.pub"

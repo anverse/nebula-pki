@@ -252,8 +252,8 @@ func TestBuild_NilManifestTreatedAsUntracked(t *testing.T) {
 
 const hostHCL = `
 ca "mesh" { name = "m" }
-host "alpha" { networks = ["10.0.0.1/16"] }
-host "beta"  { networks = ["10.0.0.2/16"] }
+cert "alpha" { networks = ["10.0.0.1/16"] }
+cert "beta"  { networks = ["10.0.0.2/16"] }
 `
 
 func TestBuild_HostSignWhenUntracked(t *testing.T) {
@@ -293,8 +293,8 @@ func TestBuild_HostNoopWhenTrackedAndPresent(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
-		cfg.HostArtifactPath(cfg.Hosts[1]).CertPath, cfg.HostArtifactPath(cfg.Hosts[1]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath, cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[1]).CertPath, cfg.CertArtifactPath(cfg.Certs[1]).KeyPath,
 	)
 	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
@@ -341,7 +341,7 @@ func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath,
 		// host key absent
 	)
 	p, err := Build(cfg, m, testNow, exists, Options{})
@@ -369,7 +369,7 @@ func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
 		// host cert absent
-		cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
@@ -396,7 +396,7 @@ func TestBuild_MultipleHostsMixedActions(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath, cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 		// beta's files are absent
 	)
 	p, err := Build(cfg, m, testNow, exists, Options{})
@@ -453,7 +453,7 @@ func TestBuild_HostResignsWhenCAChanged(t *testing.T) {
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
-		cfg.HostArtifactPath(cfg.Hosts[0]).CertPath, cfg.HostArtifactPath(cfg.Hosts[0]).KeyPath,
+		cfg.CertArtifactPath(cfg.Certs[0]).CertPath, cfg.CertArtifactPath(cfg.Certs[0]).KeyPath,
 	)
 	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
@@ -474,7 +474,7 @@ func TestBuild_HostResignsWhenCAChanged(t *testing.T) {
 
 const outputDirHCL = `
 ca "mesh" { name = "m" }
-host "node" {
+cert "node" {
   networks   = ["10.0.0.1/16"]
   output_dir = "dir-a"
 }
@@ -487,7 +487,7 @@ func TestBuild_OutputDirNoopWhenPresent(t *testing.T) {
 	m.Hosts["node"] = manifest.Host{Name: "node", CA: "mesh"}
 
 	ca := cfg.CAs[0]
-	a := cfg.HostArtifactPath(cfg.Hosts[0])
+	a := cfg.CertArtifactPath(cfg.Certs[0])
 	exists := existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca), a.CertPath, a.KeyPath)
 	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
@@ -510,7 +510,7 @@ func TestBuild_OutputDirSignWhenFileMissing(t *testing.T) {
 	m.Hosts["node"] = manifest.Host{Name: "node", CA: "mesh"}
 
 	ca := cfg.CAs[0]
-	a := cfg.HostArtifactPath(cfg.Hosts[0])
+	a := cfg.CertArtifactPath(cfg.Certs[0])
 	exists := existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca), a.CertPath)
 	p, err := Build(cfg, m, testNow, exists, Options{})
 	if err != nil {
@@ -619,7 +619,7 @@ ca "ref" {
 
 const inPubBaseCfg = `
 ca "mesh" { name = "m" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
@@ -641,7 +641,7 @@ func inPubTracked(certPath string) *manifest.Manifest {
 
 func TestPlanHost_InPub_NoopWhenCertPresent(t *testing.T) {
 	cfg := parseCfg(t, inPubBaseCfg)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 	m := inPubTracked(art.CertPath)
 
 	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(cfg.CAs[0]), cfg.CAKeyPathForCA(cfg.CAs[0]), art.CertPath), Options{})
@@ -658,7 +658,7 @@ func TestPlanHost_InPub_NoopWhenCertPresent(t *testing.T) {
 func TestPlanHost_InPub_NoKeyCheckNeeded(t *testing.T) {
 	// The key file is absent; for in_pub hosts this must not trigger a re-sign.
 	cfg := parseCfg(t, inPubBaseCfg)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 	m := inPubTracked(art.CertPath)
 
 	// Only cert is present on disk (no key file at art.KeyPath).
@@ -675,7 +675,7 @@ func TestPlanHost_InPub_NoKeyCheckNeeded(t *testing.T) {
 
 func TestPlanHost_InPub_SignWhenCertMissing(t *testing.T) {
 	cfg := parseCfg(t, inPubBaseCfg)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 	m := inPubTracked(art.CertPath)
 
 	// Nothing on disk.
@@ -692,7 +692,7 @@ func TestPlanHost_InPub_SignWhenCertMissing(t *testing.T) {
 
 func TestPlanHost_InPub_SignWhenNotTracked(t *testing.T) {
 	cfg := parseCfg(t, inPubBaseCfg)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	// Host not in manifest.
@@ -711,7 +711,7 @@ func TestPlanHost_InPub_SignWhenNotTracked(t *testing.T) {
 func TestPlanHost_InPub_SignOnProvenanceChange_RegularToInPub(t *testing.T) {
 	// Manifest recorded as regular (InPub=false); config now sets in_pub → re-sign.
 	cfg := parseCfg(t, inPubBaseCfg)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
@@ -743,12 +743,12 @@ func TestPlanHost_InPub_SignOnProvenanceChange_InPubToRegular(t *testing.T) {
 	// Manifest recorded as in_pub; config no longer has in_pub → re-sign.
 	src := `
 ca "mesh" { name = "m" }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
 }
 `
 	cfg := parseCfg(t, src)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
@@ -779,13 +779,13 @@ ca "mesh" {
   name         = "m"
   renew_before = "720h"
 }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
 `
 	cfg := parseCfg(t, src)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 
 	// notAfter is just inside the renewal window (now + 700h < notAfter - 720h fails).
 	// Set notAfter to now + 600h so now >= notAfter - 720h.
@@ -819,13 +819,13 @@ ca "mesh" {
   name         = "m"
   renew_before = "720h"
 }
-host "phone" {
+cert "phone" {
   networks = ["10.0.0.1/16"]
   in_pub   = "inbox/phone.pub"
 }
 `
 	cfg := parseCfg(t, src)
-	art := cfg.HostArtifactPath(cfg.Hosts[0])
+	art := cfg.CertArtifactPath(cfg.Certs[0])
 	notAfter := testNow.Add(600 * time.Hour) // inside 720h window
 
 	m := manifest.New()
