@@ -12,7 +12,7 @@ behaviour, nil slices serialise as `null` and absent-by-design values as
 explicit JSON nulls, producing noise in every diff:
 
 ```json
-"hosts": {
+"certs": {
   "app-server": {
     "name": "app-server",
     "networks": ["10.0.1.5/16"],
@@ -25,10 +25,10 @@ explicit JSON nulls, producing noise in every diff:
 ```
 
 Fields like `groups` and `unsafe_networks` are optional configuration that a
-host may never use. Recording their absence as explicit `null` adds no
-information and makes every host entry longer and every diff noisier.
+cert may never use. Recording their absence as explicit `null` adds no
+information and makes every cert entry longer and every diff noisier.
 
-The `Duration` field on `Host` and the `Dir` field on `Artifact` already carry
+The `Duration` field on `Cert` and the `Dir` field on `Artifact` already carry
 `omitempty` — this extension applies the same principle consistently.
 
 ## Decision
@@ -41,8 +41,8 @@ to be non-zero for every valid record — never carry `omitempty`.
 
 | Struct | Field | Type | Reason it is optional |
 |---|---|---|---|
-| `manifest.Host` | `Groups` | `[]string` | most hosts belong to no groups |
-| `manifest.Host` | `UnsafeNetworks` | `[]string` | very few hosts use unsafe routes |
+| `manifest.Cert` | `Groups` | `[]string` | most certs belong to no groups |
+| `manifest.Cert` | `UnsafeNetworks` | `[]string` | very few certs use unsafe routes |
 
 `Duration` and `Artifact.Dir` already carry `omitempty` and are not changed.
 
@@ -51,13 +51,13 @@ to be non-zero for every valid record — never carry `omitempty`.
 | Field | Reason |
 |---|---|
 | `Networks` | required by the schema; always non-empty |
-| `Artifacts` | every signed host has at least one artifact entry |
+| `Artifacts` | every signed cert has at least one artifact entry |
 | `Name`, `Fingerprint`, `CAFingerprint` | required identity fields |
 | `NotBefore`, `NotAfter` | required validity-window fields |
 
 ### Policy for future optional fields
 
-New optional fields on host or CA records default to `omitempty`. Any field
+New optional fields on cert or CA records default to `omitempty`. Any field
 where the distinction between _absent_ and _explicitly null/false_ must be
 observable by a consumer must document that exception in the relevant ADR.
 
@@ -73,12 +73,12 @@ expectations).
 
 This is not a `schema_version` bump: absent optional fields are a strict
 subset of the previous output, and the change is applied before the first
-tagged release that writes host records (v0.0.5 is untagged at the time of
+tagged release that writes cert records (v0.0.5 is untagged at the time of
 this decision).
 
 ## Consequences
 
-- Minimal manifests: a host with no groups and no unsafe_networks no longer
+- Minimal manifests: a cert with no groups and no unsafe_networks no longer
   carries `"groups": null, "unsafe_networks": null` in every diff — those
   lines simply do not appear.
 - New optional fields follow the same rule by default, so the manifest stays

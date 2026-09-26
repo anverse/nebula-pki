@@ -28,7 +28,7 @@
     * recorded in release notes,
     * printed by `nebula-pki --version`,
     * embedded in the manifest under `generator.nebula_library_version` (see [ADR-002](./002-state-and-artifact-layout.md) for the manifest schema; this field is additive and does not require a `schema_version` bump).
-4. **Cert format versions track upstream.** The HCL `version` field on `ca` and `host` (cert format 1 or 2) maps directly to upstream's `--version` flag. We support whichever format versions the pinned upstream supports — no parallel format, no shimming.
+4. **Cert format versions track upstream.** The HCL `version` field on `ca` and `cert` (cert format 1 or 2) maps directly to upstream's `--version` flag. We support whichever format versions the pinned upstream supports — no parallel format, no shimming.
 5. **Artifact compatibility contract.** Certificates produced by `nebula-pki` at upstream pin `vX` are byte-identical (modulo expected non-deterministic fields like signing nonces) to what `nebula-cert sign` from upstream `vX` would produce. Operators may use any `nebula-cert` build that understands the relevant cert format to inspect or verify artifacts.
 6. **Upgrade story.** Upgrading the pinned upstream version is a `nebula-pki` release event. If an upstream change alters HCL-visible behaviour (flag rename, semantic shift, new cert format), it is called out in release notes. We do not introduce HCL changes that require a newer upstream than the one currently pinned.
 7. **Non-goals.** We do not shim, fork, or extend upstream cert behaviour. If upstream removes or changes a field's semantics, the mirrored HCL field changes in lockstep.

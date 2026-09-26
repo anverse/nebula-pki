@@ -8,7 +8,7 @@ superseded by [ADR-015](./015-multiple-cas-per-config.md)
 
 ## Context
 
-A `nebula.hcl` file describes a CA and the host certificates issued from it. A reasonable alternative would be to allow multiple CAs in a single file — typically one per environment (`dev`, `staging`, `prod`) — with each host bound to one of them. Operators coming from Terraform's workspace model or from "everything in one repo" patterns might expect this.
+A `nebula.hcl` file describes a CA and the certificates issued from it. A reasonable alternative would be to allow multiple CAs in a single file — typically one per environment (`dev`, `staging`, `prod`) — with each cert bound to one of them. Operators coming from Terraform's workspace model or from "everything in one repo" patterns might expect this.
 
 The question is whether v1 should support multi-CA configs.
 
@@ -30,9 +30,9 @@ The schema enforces this: more than one `ca` block in a single file is a validat
 A single CA per file means:
 
 - The manifest has a single CA root. No CA-keyed sub-trees.
-- `host.ca = "<label>"` references are not needed; every host has exactly one CA to sign against.
+- `cert.ca = "<label>"` references are not needed; every cert has exactly one CA to sign against.
 - `output` blocks don't need a CA discriminator either.
-- Validation rules around "host references undeclared CA", "two CAs share a name", "CA-restricted networks/groups apply to the right subset of hosts" do not exist.
+- Validation rules around "cert references undeclared CA", "two CAs share a name", "CA-restricted networks/groups apply to the right subset of certs" do not exist.
 - The CLI surface stays flat — no `--ca <label>` flag, no per-CA dry-run output.
 
 The cost is paid by operators who *want* multiple CAs in one file. The workaround (multiple `*.hcl` files, one per CA) is supported, documented, and already needed for the multi-config-per-directory case (see [ADR-002](./002-state-and-artifact-layout.md) and the manifest-file override in [`hcl-schema.md`](../hcl-schema.md)).
@@ -41,7 +41,7 @@ The cost is paid by operators who *want* multiple CAs in one file. The workaroun
 
 Operators with multiple environments almost always want them isolated in other ways too: separate output directories, separate manifests, separate encryption recipients, separate review/approval flows. Splitting them into separate HCL files aligns with all of those instincts. A single file mixing `dev` and `prod` certs would be a foot-gun even if the schema allowed it.
 
-For the rare case where a single human really does manage two CAs that share most other configuration (encryption recipients, output structure, host list shape), HCL doesn't have a great answer anyway — there's no template/macro layer in the language. Templating belongs in a higher tool (e.g. a small generator script) if it becomes a real need.
+For the rare case where a single human really does manage two CAs that share most other configuration (encryption recipients, output structure, cert list shape), HCL doesn't have a great answer anyway — there's no template/macro layer in the language. Templating belongs in a higher tool (e.g. a small generator script) if it becomes a real need.
 
 ### Forward compatibility is preserved
 
@@ -59,7 +59,7 @@ ca "prod" {
   duration = "26280h"
 }
 
-host "app_01" {
+cert "app_01" {
   ca       = "dev"          # required only when >1 ca block exists
   networks = ["10.99.0.10/16"]
 }
@@ -69,7 +69,7 @@ Rules:
 
 - A single unlabelled `ca { ... }` block continues to parse exactly as today.
 - Labelled `ca "<label>" { ... }` blocks are a new shape — opting in by adding labels.
-- `host.ca` is required only when more than one `ca` block exists.
+- `cert.ca` is required only when more than one `ca` block exists.
 - The manifest grows a `cas` map keyed by label; the existing single-CA `ca` object stays for back-compat (or `cas[0]` semantics are defined cleanly via a manifest schema bump).
 
 None of this constrains the v1 implementation. The single-CA schema is a strict subset of any plausible future multi-CA schema.
@@ -81,26 +81,26 @@ None of this constrains the v1 implementation. The single-CA schema is a strict 
 ```hcl
 ca "dev"  { ... }
 ca "prod" { ... }
-host "app_01" { ca = "dev"; networks = [...] }
+cert "app_01" { ca = "dev"; networks = [...] }
 ```
 
 Rejected for v1 because:
 
-- Adds validation surface (host references undeclared CA; CA label collisions; CA-restricted groups/networks per-host; multi-CA fan-out semantics).
-- Adds manifest schema surface (CA sub-trees, per-host CA fingerprints already present but now non-trivially scoped).
+- Adds validation surface (cert references undeclared CA; CA label collisions; CA-restricted groups/networks per-cert; multi-CA fan-out semantics).
+- Adds manifest schema surface (CA sub-trees, per-cert CA fingerprints already present but now non-trivially scoped).
 - Adds CLI surface (per-CA dry-run output, per-CA error reporting).
 - Solves a problem most operators don't have, and the workaround (multiple HCL files) is already needed for unrelated multi-config-per-directory reasons.
 
 ### B. Implicit "default" CA plus optional labelled CAs
 
 ```hcl
-ca { name = "default-mesh" }       # used when host.ca is unset
+ca { name = "default-mesh" }       # used when cert.ca is unset
 ca "prod" { name = "prod-mesh" }
-host "app_01" { networks = [...] }  # uses default
-host "app_02" { ca = "prod"; ... }  # uses prod
+cert "app_01" { networks = [...] }  # uses default
+cert "app_02" { ca = "prod"; ... }  # uses prod
 ```
 
-Rejected because the implicit/explicit mix is confusing. If multi-CA support arrives, requiring `host.ca` whenever more than one CA exists is clearer.
+Rejected because the implicit/explicit mix is confusing. If multi-CA support arrives, requiring `cert.ca` whenever more than one CA exists is clearer.
 
 ## Consequences
 

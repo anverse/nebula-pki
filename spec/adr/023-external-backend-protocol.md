@@ -64,7 +64,7 @@ Rationale: writing plaintext to disk, even briefly, expands the attack surface. 
 
 `encrypt_command` and `decrypt_command` are both required in the HCL block. A config missing either is rejected with a parse-time error.
 
-Rationale: a config without `decrypt_command` is valid on a fresh run (only encrypt is called) but silently broken on every subsequent run that needs to sign hosts under an encrypted CA key. Surfacing the error at parse time rather than mid-run is strictly better. The operator who truly does not need decryption should use `encryption "none"`.
+Rationale: a config without `decrypt_command` is valid on a fresh run (only encrypt is called) but silently broken on every subsequent run that needs to sign certs under an encrypted CA key. Surfacing the error at parse time rather than mid-run is strictly better. The operator who truly does not need decryption should use `encryption "none"`.
 
 ### D-5: Mismatch fingerprint is SHA-256 of `encrypt_command`
 

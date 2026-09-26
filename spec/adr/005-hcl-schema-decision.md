@@ -13,25 +13,25 @@ The CLI consumes a declarative configuration. We need to choose a config languag
 The configuration language is **HCL2**. Parsed via `hashicorp/hcl/v2` and bound to Go structs with `gohcl`. The schema is intentionally a thin declarative skin over `nebula-cert`:
 
 - One `ca` block ↔ `nebula-cert ca` (or reference an existing CA file).
-- One `host` block per `nebula-cert sign` invocation.
+- One `cert` block per `nebula-cert sign` invocation.
 - `storage`, `output`, and `encryption` blocks are tool-level concerns (where files land, how keys are protected at rest) and have no `nebula-cert` equivalent.
 
 Field names mirror `nebula-cert` flag names with underscores: `-networks` → `networks`, `-unsafe-networks` → `unsafe_networks`, `-out-crt` → `out_crt`, etc. This is deliberate so that operators familiar with `nebula-cert` recognise the schema immediately and can correlate problems with upstream documentation.
 
 Concepts that do not exist in `nebula-cert` are deliberately excluded:
 
-- No `network` top-level block. Networks are per-host (Nebula's `-networks` is per-cert).
+- No `network` top-level block. Networks are declared on each cert (Nebula's `-networks` is per-cert).
 - No `is_lighthouse`. Lighthouses are a runtime concept, not a certificate attribute.
 - No `blocklist_entry`. Blocklist is a runtime config concern; see ADR-004.
 - No `group` top-level block. Group names are free-form strings; a CA can restrict the set via `ca.groups`.
 
 Labelled blocks (`encryption "sops" {}`) are used where a backend or named target is needed, mirroring Terraform's resource-type pattern.
 
-The only cross-block reference is a host naming its signing CA by label (`host.ca`, with the CA marked `default = true` as the fallback when omitted), introduced in [ADR-015](./015-multiple-cas-per-config.md). It is a bare string label, not a traversal expression. Per-host output placement is expressed via the inline `host.output_dir` string (a single directory path), not through a labelled `output` block referenced by name. The schema therefore needs no `hcl.EvalContext` and the JSON projection stays trivially equivalent to the HCL form. See [ADR-020](./020-output-dir-per-host.md) for the output-dir rationale and the conditions under which a named `output` block could be added back additively.
+The only cross-block reference is a cert naming its signing CA by label (`cert.ca`, with the CA marked `default = true` as the fallback when omitted), introduced in [ADR-015](./015-multiple-cas-per-config.md). It is a bare string label, not a traversal expression. Per-cert output placement is expressed via the inline `cert.output_dir` string (a single directory path), not through a labelled `output` block referenced by name. The schema therefore needs no `hcl.EvalContext` and the JSON projection stays trivially equivalent to the HCL form. See [ADR-020](./020-output-dir-per-cert.md) for the output-dir rationale and the conditions under which a named `output` block could be added back additively.
 
 ### Labels and the optional `name` field
 
-The host identifier/CN split — single HCL label plus optional `name` field — is recorded separately in [ADR-009](./009-host-identifier-vs-cert-name.md). The short version: every `host` block has a single label that doubles as the manifest key and reference target; an optional `name` field overrides the certificate CN when label and CN should diverge. `output` blocks have only a label, since their identity is purely structural.
+The cert label/CN split — single HCL label plus optional `name` field — is recorded separately in [ADR-009](./009-cert-label-vs-cert-name.md). The short version: every `cert` block has a single label that doubles as the manifest key and reference target; an optional `name` field overrides the certificate CN when label and CN should diverge. `output` blocks have only a label, since their identity is purely structural.
 
 ## Consequences
 

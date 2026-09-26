@@ -4,13 +4,11 @@
 
 accepted
 
-> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`; read `host.ca`/`host.*` in this ADR's prose as `cert.ca`/`cert.*`. The manifest per-cert key (the block label) is unchanged. Body sweep pending in v0.1.7.
->
 > **Trust bundle (amended by [ADR-026](./026-trust-bundle-block.md)).** `bundle.crt` is **not** always written — it is emitted only when a `trust_bundle` block is declared, and the CA record's `archived` field is removed. Read the "always written" / "non-archived" prose below accordingly. Body sweep pending in v0.1.9.
 
 ## Context
 
-The CLI must produce certificates and a small amount of bookkeeping data. Downstream Terraform projects read these files directly. We need a layout that is stable, predictable, and safe to commit to git. We also need a manifest format that captures enough metadata to support idempotency, per-host output placement, and consumption by other tooling.
+The CLI must produce certificates and a small amount of bookkeeping data. Downstream Terraform projects read these files directly. We need a layout that is stable, predictable, and safe to commit to git. We also need a manifest format that captures enough metadata to support idempotency, per-cert output placement, and consumption by other tooling.
 
 ## Decision
 
@@ -25,7 +23,7 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
     <label>.crt
     <label>.key[.enc]
     bundle.crt        # only when a trust_bundle block is declared; path via trust_bundle.path (ADR-026)
-  hosts/
+  certs/
     <name>.crt
     <name>.key[.enc]
 ```
@@ -46,7 +44,7 @@ permissions `nebula-cert` itself uses:
 - Manifest (`nebula-pki.json`) — `0644`. Contains no secret material.
 - Directories (`out/`, `out/ca/`, `out/<output>/`) — `0755`.
 
-Per-host outputs may specify a destination directory via `host.output_dir`; cert and key filenames default to `<host.name>.crt` / `<host.name>.key`. The filename (or a sub-path within the directory) may be overridden via `host.out_crt` / `host.out_key`, which are joined onto `output_dir` when that is set. See [ADR-020](./020-output-dir-per-host.md) for the full path-resolution rules.
+Per-cert outputs may specify a destination directory via `cert.output_dir`; cert and key filenames default to `<cert.name>.crt` / `<cert.name>.key`. The filename (or a sub-path within the directory) may be overridden via `cert.out_crt` / `cert.out_key`, which are joined onto `output_dir` when that is set. See [ADR-020](./020-output-dir-per-cert.md) for the full path-resolution rules.
 
 In **reference mode** for the CA (the user supplies pre-existing `ca.crt` / `ca.key` paths), the tool reads those files in place and does **not** write anything under `ca/`. The manifest still records the CA's fingerprint and validity window.
 
@@ -101,7 +99,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "key_path":   "out/ca/next.key.enc"
     }
   },
-  "hosts": {
+  "certs": {
     "lh_fra": {
       "name":        "lh-fra",
       "ca":          "current",
@@ -127,7 +125,7 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "not_after":   "2027-05-17T12:42:59Z",
       "ca_fingerprint": "f2a1c9...",
       "artifacts": [
-        { "cert_path": "out/hosts/alice-phone.crt" }
+        { "cert_path": "out/certs/alice-phone.crt" }
       ]
     }
   }
@@ -142,52 +140,52 @@ The manifest always uses the `cas` map — there is no legacy single-CA `ca` obj
 - `generator.nebula_library_version` — the `slackhq/nebula` Go module version pinned at build time. Matches the value reported by `nebula-pki --version`. See [ADR-012](./012-upstream-nebula-coupling.md). Optional in older manifests; written by all current builds.
 - `config_path` — path to the HCL config that produced this manifest, relative to the manifest's directory when possible (absolute fallback). Lets future tooling detect "wrong config writing to my manifest" without enforcing it at runtime.
 - `cas` — map of CA label → CA record. Always present; always has at least one entry. Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, `archived`, validity window, and paths. See [ADR-015](./015-multiple-cas-per-config.md).
-- `cas.<label>.default` — `true` for the one CA marked `default = true` in HCL (the signer for hosts that omit `host.ca`); `false` for the rest. At most one record has `true`. Absent in the legacy single-CA `ca` object. This replaces the earlier top-level `default_ca` field. See [ADR-015](./015-multiple-cas-per-config.md).
+- `cas.<label>.default` — `true` for the one CA marked `default = true` in HCL (the signer for certs that omit `cert.ca`); `false` for the rest. At most one record has `true`. Absent in the legacy single-CA `ca` object. This replaces the earlier top-level `default_ca` field. See [ADR-015](./015-multiple-cas-per-config.md).
 - `trust_bundle` — `{ path, ca_fingerprints }`. `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in bundle order, the fingerprint of every active (non-`archived`) CA cert included. Lets downstream tooling verify what the Nebula network currently trusts without parsing the PEM. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
 - `cas.<label>.archived` — `true` when the CA is excluded from the trust bundle and barred from signing. The CA's record is retained either way (archiving never deletes history).
 - `cas.<label>.mode` — `"generate"` or `"reference"`.
-- `*.fingerprint` (on `ca`, `cas.*`, and `hosts.*`) — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every host), not of the public key and not of any private material — so it is always safe to commit.
-- `hosts.*.name` — the cert Common Name. Equal to the host's HCL label unless `host.name` overrides it (see [ADR-009](./009-host-identifier-vs-cert-name.md)).
-- `hosts.*.ca` — the label of the CA that signed this host (the signing CA resolved from `host.ca`, or the CA marked `default = true`). `hosts.*.ca_fingerprint` pins the exact CA cert regardless.
-- `hosts.*.duration` — the literal value from HCL (e.g. `"8760h"`). **Omitted** when unset (the host co-expires with its CA). Used for idempotency; `not_after` is the resolved timestamp from the most recent sign.
-- `hosts.*.renew_before` — the resolved renewal threshold literal (from `host.renew_before` or the signing CA's `renew_before`). **Omitted** when neither is set. Recorded so the staleness verdict is reproducible. See [ADR-017](./017-host-renewal-threshold.md).
-- `hosts.*.in_pub` — `true` when the host was signed from an externally-supplied public key ([ADR-018](./018-in-pub-air-gapped-signing.md)). **Omitted** when false.
-- Optional fields in general — all optional host and CA record fields are omitted from the JSON when empty (nil slice, empty string, false bool). Required fields are always present. See [ADR-019](./019-manifest-compactness.md) for the full policy. Such a host has **no** `key_path` in any `artifacts` entry (cert only) and never carries an encryption suffix.
-- `hosts.*.artifacts` — always exactly one entry. The entry has `cert_path` and, for key-bearing hosts, `key_path`; `in_pub` hosts omit `key_path`. When `host.output_dir` is set, the entry's `dir` field records that value. When the cert lives at the default placement or the path was specified entirely via `out_crt` / `out_key` without `output_dir`, `dir` is omitted (the full path is already captured by `cert_path` / `key_path`).
+- `*.fingerprint` (on `ca`, `cas.*`, and `certs.*`) — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every node), not of the public key and not of any private material — so it is always safe to commit.
+- `certs.*.name` — the cert Common Name. Equal to the cert's HCL label unless `cert.name` overrides it (see [ADR-009](./009-cert-label-vs-cert-name.md)).
+- `certs.*.ca` — the label of the CA that signed this cert (the signing CA resolved from `cert.ca`, or the CA marked `default = true`). `certs.*.ca_fingerprint` pins the exact CA cert regardless.
+- `certs.*.duration` — the literal value from HCL (e.g. `"8760h"`). **Omitted** when unset (the cert co-expires with its CA). Used for idempotency; `not_after` is the resolved timestamp from the most recent sign.
+- `certs.*.renew_before` — the resolved renewal threshold literal (from `cert.renew_before` or the signing CA's `renew_before`). **Omitted** when neither is set. Recorded so the staleness verdict is reproducible. See [ADR-017](./017-cert-renewal-threshold.md).
+- `certs.*.in_pub` — `true` when the cert was signed from an externally-supplied public key ([ADR-018](./018-in-pub-air-gapped-signing.md)). **Omitted** when false.
+- Optional fields in general — all optional cert and CA record fields are omitted from the JSON when empty (nil slice, empty string, false bool). Required fields are always present. See [ADR-019](./019-manifest-compactness.md) for the full policy. Such a cert has **no** `key_path` in any `artifacts` entry (cert only) and never carries an encryption suffix.
+- `certs.*.artifacts` — always exactly one entry. The entry has `cert_path` and, for key-bearing certs, `key_path`; `in_pub` certs omit `key_path`. When `cert.output_dir` is set, the entry's `dir` field records that value. When the cert lives at the default placement or the path was specified entirely via `out_crt` / `out_key` without `output_dir`, `dir` is omitted (the full path is already captured by `cert_path` / `key_path`).
 - `encryption` — the resolved sops configuration for the run. Whichever key-type fields were set in HCL (`age`, `pgp`, `kms`, etc.) appear here verbatim; absent fields are omitted. When the run deferred to `.sops.yaml`, this block records only `backend` and `output_suffix` — recipients live in `.sops.yaml`. All values are public and safe to commit.
 
-### Pruning removed hosts
+### Pruning removed certs
 
-When a `host` block is deleted from HCL but exists in the previous manifest, all of its recorded `artifacts` paths (cert, key, QR if any) are deleted from disk during reconcile. The QR for the host is deleted alongside the cert/key. The corresponding entry is dropped from the new manifest.
+When a `cert` block is deleted from HCL but exists in the previous manifest, all of its recorded `artifacts` paths (cert, key, QR if any) are deleted from disk during reconcile. The QR for the cert is deleted alongside the cert/key. The corresponding entry is dropped from the new manifest.
 
 `--dry-run` lists the would-be-deleted paths but does not touch them. Files the tool never recorded are left alone.
 
 ### Idempotency rule
 
-A host is **up to date** when:
+A cert is **up to date** when:
 
 1. Its manifest entry exists.
 2. All `artifacts` paths exist on disk.
 3. Cert fields (`name`, `networks`, `groups`, `unsafe_networks`) on the manifest entry match the HCL spec and the cert on disk.
 4. The manifest's recorded `duration` literal matches the HCL `duration` literal (or both are unset, meaning "CA expiry minus 1s").
 5. `not_after` is still in the future.
-6. `ca_fingerprint` matches the host's currently-resolved signing CA (so moving the `default = true` marker, or changing a `host.ca`, during a rotation triggers a re-sign — see [ADR-016](./016-ca-rotation-and-trust-bundles.md)).
-7. The host is **not** within its effective `renew_before` window of `not_after` — i.e. `now + renew_before < not_after`. When no `renew_before` resolves, this clause is vacuously satisfied (no time-based renewal). See [ADR-017](./017-host-renewal-threshold.md).
+6. `ca_fingerprint` matches the cert's currently-resolved signing CA (so moving the `default = true` marker, or changing a `cert.ca`, during a rotation triggers a re-sign — see [ADR-016](./016-ca-rotation-and-trust-bundles.md)).
+7. The cert is **not** within its effective `renew_before` window of `not_after` — i.e. `now + renew_before < not_after`. When no `renew_before` resolves, this clause is vacuously satisfied (no time-based renewal). See [ADR-017](./017-cert-renewal-threshold.md).
 
-Otherwise the host is re-signed. The manifest records the **literal** `duration` value from HCL (e.g. `"8760h"`), not the resolved `not_after`. This keeps re-runs idempotent: `not_after` shifts forward on every sign, but identical inputs produce the same up-to-date verdict.
+Otherwise the cert is re-signed. The manifest records the **literal** `duration` value from HCL (e.g. `"8760h"`), not the resolved `not_after`. This keeps re-runs idempotent: `not_after` shifts forward on every sign, but identical inputs produce the same up-to-date verdict.
 
-For `in_pub` hosts ([ADR-018](./018-in-pub-air-gapped-signing.md)) the same rules apply except there is no key artifact to check or write: a re-sign refreshes the cert from the same supplied public key, and clause 2 checks only `cert_path` entries.
+For `in_pub` certs ([ADR-018](./018-in-pub-air-gapped-signing.md)) the same rules apply except there is no key artifact to check or write: a re-sign refreshes the cert from the same supplied public key, and clause 2 checks only `cert_path` entries.
 
-Time-based renewal (clause 7) is the one place the up-to-date verdict depends on wall-clock time: a run inside the window re-signs once and pushes `not_after` forward, after which the host is immediately outside the window again, so there is no churn loop. Outside any window, re-runs remain byte-identical. The injectable clock keeps this deterministic under test. Operators who want an immediate new `not_after` regardless of window bump `duration` (or use `--force`, deferred).
+Time-based renewal (clause 7) is the one place the up-to-date verdict depends on wall-clock time: a run inside the window re-signs once and pushes `not_after` forward, after which the cert is immediately outside the window again, so there is no churn loop. Outside any window, re-runs remain byte-identical. The injectable clock keeps this deterministic under test. Operators who want an immediate new `not_after` regardless of window bump `duration` (or use `--force`, deferred).
 
 Existing files are not overwritten silently — Nebula refuses to overwrite, so the tool removes its own previously-recorded paths before re-signing.
 
 ## Consequences
 
 - The manifest is the single comparator; no separate state file.
-- Per-host output placement is recorded explicitly so downstream tooling can locate artifacts without inferring paths.
-- Multiple CAs and rotation progress are observable from `cas` + `hosts.*.ca`; the emitted `trust_bundle` records exactly what the Nebula network trusts. See [ADR-015](./015-multiple-cas-per-config.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md).
+- Per-cert output placement is recorded explicitly so downstream tooling can locate artifacts without inferring paths.
+- Multiple CAs and rotation progress are observable from `cas` + `certs.*.ca`; the emitted `trust_bundle` records exactly what the Nebula network trusts. See [ADR-015](./015-multiple-cas-per-config.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md).
 - Reference-mode CA is fully supported: the tool does not touch the existing CA files.
-- Renaming a host counts as remove + add. The old fingerprint is still in the previous git commit if needed for an external blocklist.
-- If a user deletes any artifact for a host, the next run reissues that host's certificate (and key, unless `in_pub`).
-- Manifest is regenerated whenever a run makes changes; partial runs leave the previous manifest intact. A run where every host and every CA are already up to date, and no host is inside a renewal window, writes **nothing** — not even the manifest — so an unchanged tree stays byte-identical across re-runs.
+- Renaming a cert counts as remove + add. The old fingerprint is still in the previous git commit if needed for an external blocklist.
+- If a user deletes any artifact for a cert, the next run reissues that cert's certificate (and key, unless `in_pub`).
+- Manifest is regenerated whenever a run makes changes; partial runs leave the previous manifest intact. A run where every cert and every CA are already up to date, and no cert is inside a renewal window, writes **nothing** — not even the manifest — so an unchanged tree stays byte-identical across re-runs.

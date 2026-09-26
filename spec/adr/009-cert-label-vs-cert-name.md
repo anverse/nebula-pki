@@ -1,19 +1,19 @@
-# Host identifier vs. certificate name
+# Cert block label vs. certificate name
 
 ## Status
 
 accepted
 
-> **Terminology (amended by [ADR-024](./024-rename-host-to-cert.md)).** The `host` block is renamed to `cert`. This ADR's decision is unchanged — a block *label* (HCL identifier) distinct from the certificate *name* (CN) — but reframed it reads "cert label vs cert CN". Read `host`/`host.*` below as `cert`/`cert.*`. The body sweep is a pending v0.1.7 task.
+> Written when the per-certificate block was still called `cert`; reframed for the `cert` block by [ADR-024](./024-rename-host-to-cert.md). The decision itself is unchanged.
 
 ## Context
 
-Each `host` block must answer two related but distinct questions:
+Each `cert` block must answer two related but distinct questions:
 
 1. **What's the local identifier?** The thing that appears as the manifest key and shows up in tool output.
 2. **What's the certificate's common name?** The string that ends up inside the cert binary, that Nebula prints in logs, that operators see in firewall rules and troubleshooting output, and that `nebula-cert -name` sets.
 
-For most hosts these can be the same string. But the two roles have different constraints and different natural rates of change, and conflating them removes options the operator may want later.
+For most certs these can be the same string. But the two roles have different constraints and different natural rates of change, and conflating them removes options the operator may want later.
 
 ### What Terraform does, and why
 
@@ -25,7 +25,7 @@ resource "aws_instance" "web" {       # type=aws_instance, address=web
 }
 ```
 
-- **Type** — schema discriminator. We have only one resource type (`host`), so this slot collapses.
+- **Type** — schema discriminator. We have only one resource type (`cert`), so this slot collapses.
 - **Address** — local identifier used in references (`aws_instance.web.id`), state keys, plan output. Must be a valid HCL identifier.
 - **Real-world name** — what gets sent to the cloud provider, typically constrained by the target system (DNS rules, uniqueness scopes, length).
 
@@ -39,20 +39,20 @@ All three reasons apply, in adapted form, to `nebula-pki`.
 
 ## Decision
 
-Each `host` block has:
+Each `cert` block has:
 
 - A **label** (single HCL label, required): the local identifier. Used as the manifest key and as the target of cross-block references.
 - A **`name` field** (optional, string): the certificate common name (`nebula-cert -name`). Defaults to the label when omitted.
 
 ```hcl
-# Simple case — most hosts look like this:
-host "app_01" {
+# Simple case — most certs look like this:
+cert "app_01" {
   networks = ["10.42.1.10/16"]
 }
 # manifest key = "app_01"; cert CN = "app_01"
 
 # Split case — when you need it:
-host "app_prod_01" {
+cert "app_prod_01" {
   name     = "app-prod-01.mesh.internal"
   networks = ["10.42.1.10/16"]
 }
@@ -80,14 +80,14 @@ The cert CN appears in Nebula daemon logs, in firewall match rules, in `nebula-c
 
 ### Future cross-block references
 
-The only cross-block reference is `host.ca` selecting a signing CA by label ([ADR-015](./015-multiple-cas-per-config.md)) — and it targets a CA's stable label, exactly the kind of stable identifier this split provides for hosts. If future features add more references (a CRL-like list, per-host trust relationships, or a named `output` block referenced from hosts), those must likewise target a stable identifier — the label — not a mutable display name.
+The only cross-block reference is `cert.ca` selecting a signing CA by label ([ADR-015](./015-multiple-cas-per-config.md)) — and it targets a CA's stable label, exactly the kind of stable identifier this split provides for certs. If future features add more references (a CRL-like list, per-cert trust relationships, or a named `output` block referenced from certs), those must likewise target a stable identifier — the label — not a mutable display name.
 
 ## Considered alternatives
 
 ### Label only, no `name` field
 
 ```hcl
-host "app_01" { networks = ["10.42.1.10/16"] }
+cert "app_01" { networks = ["10.42.1.10/16"] }
 ```
 
 Simpler. Rejected because:
@@ -98,7 +98,7 @@ Simpler. Rejected because:
 ### Required `name` field
 
 ```hcl
-host "app_01" {
+cert "app_01" {
   name     = "app_01"
   networks = ["10.42.1.10/16"]
 }
@@ -109,7 +109,7 @@ Rejected because it imposes ceremony on the 80% case (label and CN identical) fo
 ### Single `name` field, no label
 
 ```hcl
-host {
+cert {
   name     = "app-01.mesh"
   networks = ["10.42.1.10/16"]
 }
@@ -121,11 +121,11 @@ Rejected because HCL block labels are the natural anchor for cross-block referen
 
 - Newcomers can ignore the `name` field entirely and the tool works as expected.
 - Operators who need the split get it without re-architecting their configs.
-- The manifest schema uses the label as the per-host key (stable across cert renames). The cert CN is recorded as a separate field.
+- The manifest schema uses the label as the key in the `certs` map (stable across cert renames). The cert CN is recorded as a separate field.
 - Default file paths use the cert name. This is documented in [`adr/002-state-and-artifact-layout.md`](./002-state-and-artifact-layout.md), [`adr/011-output-blocks-are-directories.md`](./011-output-blocks-are-directories.md), and [`hcl-schema.md`](../hcl-schema.md).
-- Validation: no two `host` blocks may share a label; no two `host` blocks may share a cert name (after defaulting). Both rules are independent and both are enforced.
+- Validation: no two `cert` blocks may share a label; no two `cert` blocks may share a cert name (after defaulting). Both rules are independent and both are enforced.
 
 ## Links
 
 - [ADR-005](./005-hcl-schema-decision.md) — broader HCL schema decisions, including the choice of string-valued references over Terraform-style traversals.
-- [`hcl-schema.md`](../hcl-schema.md) — schema reference with the `host` block table.
+- [`hcl-schema.md`](../hcl-schema.md) — schema reference with the `cert` block table.

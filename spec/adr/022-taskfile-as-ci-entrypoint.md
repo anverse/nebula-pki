@@ -31,7 +31,7 @@ same `task` target.
 * Single source of truth for what "lint", "test", and "e2e" mean.
 * Ability to reproduce any CI check locally without knowing the pipeline YAML.
 * Minimal overhead in the Action (tooling install should be a one-liner).
-* CI portability: if the pipeline host changes, logic stays in-repo.
+* CI portability: if the CI provider changes, logic stays in-repo.
 * No disruption to the goreleaser or nix workflows, which have non-trivial
   action-managed setup.
 

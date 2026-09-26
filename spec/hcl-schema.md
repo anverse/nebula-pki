@@ -14,9 +14,9 @@ The CLI is a thin declarative wrapper around `nebula-cert ca` and `nebula-cert s
 |---|---|---|
 | `ca` | 1..N | Certificate authority — either generated or referenced from existing files. Every `ca` block must carry a label: `ca "<label>" {}`. One or more labelled CAs enable CA rotation and multi-CA Nebula networks in a single file. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
 | `storage` | 0..1 | Default output directory, trust-bundle path, and encryption backend. |
-| `host` | 0..N | A host certificate to sign. Maps 1:1 to `nebula-cert sign`. Selects a signing CA via `host.ca` when more than one CA exists. Each host's cert and key are written to a per-host `output_dir` (defaults to `<storage.out_dir>/hosts`). |
+| `cert` | 0..N | A certificate to sign — typically one `cert` block per Nebula node. Maps 1:1 to `nebula-cert sign`. Selects a signing CA via `cert.ca` when more than one CA exists. Each cert and its key are written to the cert's `output_dir` (defaults to `<storage.out_dir>/certs`). |
 
-There is **no** `network`, `group`, `blocklist_entry`, or `is_lighthouse` block. Networks are declared per-host (Nebula `-networks` is per-cert), groups are free-form non-empty UTF-8 strings on each host (commas and surrounding whitespace forbidden — see validation rules), and lighthouse behaviour is decided in the runtime `config.yaml` that downstream projects render.
+There is **no** `network`, `group`, `blocklist_entry`, or `is_lighthouse` block. Networks are declared per-cert (Nebula `-networks` is per-cert), groups are free-form non-empty UTF-8 strings on each cert (commas and surrounding whitespace forbidden — see validation rules), and lighthouse behaviour is decided in the runtime `config.yaml` that downstream projects render.
 
 The signing-CA default is set with `default = true` on a `ca` block (see the `ca` reference below), not at the top level.
 
@@ -29,25 +29,25 @@ Defines a signing CA. Every `ca` block must carry a label: `ca "<label>" {}`. A 
 Each CA has two mutually exclusive modes:
 
 - **Generate mode** — the CLI creates a new CA via `nebula-cert ca`.
-- **Reference mode** — the CLI uses an existing CA key/cert on disk and only signs hosts against it.
+- **Reference mode** — the CLI uses an existing CA key/cert on disk and only signs certs against it.
 
 | Field | Type | Required | Default | `nebula-cert ca` flag | Description |
 |---|---|---|---|---|---|
-| _label_ | identifier | **yes** | — | — | CA label. Required on every `ca` block. Unique within the file; identifier rules `^[A-Za-z_][A-Za-z0-9_-]*$`. The label is the manifest key in `cas` and the target of `host.ca`. |
-| `default` | bool | no | `false` | — | Marks this CA as the default signing CA. Hosts that omit `host.ca` are signed by it. At most one CA may set `default = true`. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
+| _label_ | identifier | **yes** | — | — | CA label. Required on every `ca` block. Unique within the file; identifier rules `^[A-Za-z_][A-Za-z0-9_-]*$`. The label is the manifest key in `cas` and the target of `cert.ca`. |
+| `default` | bool | no | `false` | — | Marks this CA as the default signing CA. Certs that omit `cert.ca` are signed by it. At most one CA may set `default = true`. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
 | `name` | string | yes in generate mode | — | `-name` | CA name. Ignored in reference mode (CA is read as-is). |
 | `duration` | duration | no | `"8760h"` (1 year, matches `nebula-cert` default) | `-duration` | Validity. Generate mode only. |
 | `version` | number | no | `2` | `-version` | Certificate format version (1 or 2). Generate mode only. |
 | `curve` | string | no | `"25519"` | `-curve` | `"25519"` or `"P256"`. Generate mode only. |
-| `groups` | list(string) | no | `[]` | `-groups` | Constrains which groups subordinate certs may declare. Applied to hosts signed by **this** CA. |
-| `networks` | list(CIDR) | no | `[]` | `-networks` | Constrains which networks subordinate certs may declare. Applied to hosts signed by **this** CA. |
-| `unsafe_networks` | list(CIDR) | no | `[]` | `-unsafe-networks` | Constrains routable subnets. Applied to hosts signed by **this** CA. |
+| `groups` | list(string) | no | `[]` | `-groups` | Constrains which groups subordinate certs may declare. Applied to certs signed by **this** CA. |
+| `networks` | list(CIDR) | no | `[]` | `-networks` | Constrains which networks subordinate certs may declare. Applied to certs signed by **this** CA. |
+| `unsafe_networks` | list(CIDR) | no | `[]` | `-unsafe-networks` | Constrains routable subnets. Applied to certs signed by **this** CA. |
 | `encrypt` | bool | no | `false` | `-encrypt` | Encrypt the CA private key with a passphrase (Argon2). Generate mode only. |
 | `argon_memory` | number | no | `2097152` | `-argon-memory` | KiB. |
 | `argon_iterations` | number | no | `1` | `-argon-iterations` | |
 | `argon_parallelism` | number | no | `4` | `-argon-parallelism` | |
-| `renew_before` | duration | no | unset | — | Default renewal threshold for hosts signed by this CA. A host is re-signed when within this window of expiry. Overridden by `host.renew_before`. See [ADR-017](./adr/017-host-renewal-threshold.md). |
-| `archived` | bool | no | `false` | — | When `true`, this CA's certificate is excluded from the emitted trust bundle and the CA may not sign hosts. Its manifest record is kept (archiving never deletes history). Used to stage the final step of a rotation. See [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). |
+| `renew_before` | duration | no | unset | — | Default renewal threshold for certs signed by this CA. A cert is re-signed when within this window of expiry. Overridden by `cert.renew_before`. See [ADR-017](./adr/017-cert-renewal-threshold.md). |
+| `archived` | bool | no | `false` | — | When `true`, this CA's certificate is excluded from the emitted trust bundle and the CA may not sign certs. Its manifest record is kept (archiving never deletes history). Used to stage the final step of a rotation. See [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). |
 | `out_crt` | string | no | `<storage.out_dir>/ca/<label>.crt` | `-out-crt` | Path for CA cert. Generate mode only. |
 | `out_key` | string | no | `<storage.out_dir>/ca/<label>.key` | `-out-key` | Path for CA private key. Generate mode only. |
 | `out_qr` | string | no | unset | `-out-qr` | Optional PNG QR. Generate mode only. |
@@ -61,18 +61,18 @@ Each CA has two mutually exclusive modes:
 
 #### Signing-CA selection
 
-Each host resolves to exactly one signing CA:
+Each cert resolves to exactly one signing CA:
 
-1. `host.ca` if set;
+1. `cert.ca` if set;
 2. else the CA marked `default = true`, if any;
 3. else if exactly one CA is declared, that CA (no ambiguity);
 4. else it is a validation error (ambiguous — name a CA or mark one default).
 
-This mirrors Terraform's provider model: one CA is the default (here via `default = true`), the rest are aliases a host selects with `host.ca`, and a host that names nothing gets the default. Per-CA `groups` / `networks` / `unsafe_networks` restrictions are validated against each host **relative to the CA that signs it**. See [ADR-015](./adr/015-multiple-cas-per-config.md). For the rotation workflow built on this, see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md) and the [rotation example](#ca-rotation-example) below.
+This mirrors Terraform's provider model: one CA is the default (here via `default = true`), the rest are aliases a cert selects with `cert.ca`, and a cert that names nothing gets the default. Per-CA `groups` / `networks` / `unsafe_networks` restrictions are validated against each cert **relative to the CA that signs it**. See [ADR-015](./adr/015-multiple-cas-per-config.md). For the rotation workflow built on this, see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md) and the [rotation example](#ca-rotation-example) below.
 
 #### `link_crt` example
 
-`link_crt` is most useful paired with `host.output_dir`. Declare the same set of directories in both fields so every per-provider directory contains both the host certs and the CA cert it needs:
+`link_crt` is most useful paired with `cert.output_dir`. Declare the same set of directories in both fields so every per-provider directory contains both the certs and the CA cert it needs:
 
 ```hcl
 ca "mesh" {
@@ -81,12 +81,12 @@ ca "mesh" {
   link_crt = ["out/hetzner", "out/aws"]
 }
 
-host "lh_fra" {
+cert "lh_fra" {
   networks   = ["10.42.0.1/16"]
   output_dir = "out/hetzner"
 }
 
-host "app_01" {
+cert "app_01" {
   networks   = ["10.42.1.10/16"]
   output_dir = "out/aws"
 }
@@ -121,13 +121,13 @@ ca "mesh" {
 
 ### `storage`
 
-Defaults applied to every host that does not override paths via `output` or `out_crt` / `out_key`. Also picks the encryption backend.
+Defaults applied to every cert that does not override paths via `output` or `out_crt` / `out_key`. Also picks the encryption backend.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `out_dir` | string | no | `"out"` | Root directory for default-path artifacts. Relative paths resolve against the config file's directory. |
 | `manifest_file` | string | no | `<out_dir>/nebula-pki.json` | Path for the manifest JSON. Relative paths resolve against the config file's directory; absolute paths are honoured. Override when sharing a working directory between multiple HCL configs. |
-| `trust_bundle_file` | string | no | `<out_dir>/ca/bundle.crt` | Path for the emitted CA trust bundle — a concatenated PEM of every active (non-`archived`) CA certificate, suitable for `pki.ca` in each host's `config.yaml`. Always written, even with a single CA. Contains no key material. Membership is implicit (every non-archived CA); an explicit/multiple-bundle `bundle` block may be added additively later — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). |
+| `trust_bundle_file` | string | no | `<out_dir>/ca/bundle.crt` | Path for the emitted CA trust bundle — a concatenated PEM of every active (non-`archived`) CA certificate, suitable for `pki.ca` in each node's `config.yaml`. Always written, even with a single CA. Contains no key material. Membership is implicit (every non-archived CA); an explicit/multiple-bundle `bundle` block may be added additively later — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). |
 | `encryption` | block | no | `encryption "none" {}` | Encryption backend. |
 
 The block label (`"none"`, `"sops"`, `"external"`) selects the backend. In the formal JSON Schema the label is projected as a `label` field, matching the `output` block convention.
@@ -138,7 +138,7 @@ No fields. Private keys are written as plaintext.
 
 #### `encryption "sops" { ... }`
 
-Shells out to the `sops` binary. **The `sops` binary must be in PATH** when this backend is active — both for initial key generation (encrypt) and for any reconcile that signs hosts under an encrypted CA key (decrypt). Every field is optional and maps 1:1 to a `sops` CLI flag. When all key-type fields are empty, sops performs its standard upward search for `.sops.yaml` from the output file's directory and applies whichever `creation_rules` match. When at least one recipient field is set, those values are passed as explicit flags to sops and take precedence over `.sops.yaml` — same behaviour as `sops --encrypt --age ... --pgp ...`.
+Shells out to the `sops` binary. **The `sops` binary must be in PATH** when this backend is active — both for initial key generation (encrypt) and for any reconcile that signs certs under an encrypted CA key (decrypt). Every field is optional and maps 1:1 to a `sops` CLI flag. When all key-type fields are empty, sops performs its standard upward search for `.sops.yaml` from the output file's directory and applies whichever `creation_rules` match. When at least one recipient field is set, those values are passed as explicit flags to sops and take precedence over `.sops.yaml` — same behaviour as `sops --encrypt --age ... --pgp ...`.
 
 | Field | Type | sops CLI flag | Description |
 |---|---|---|---|
@@ -168,49 +168,49 @@ Invokes operator-supplied commands to encrypt and decrypt private key files. Bot
 
 See [ADR-023](./adr/023-external-backend-protocol.md) for the full protocol and rationale.
 
-### `host`
+### `cert`
 
-Each `host` block produces one `nebula-cert sign` invocation. The simplest form is:
+Each `cert` block produces one `nebula-cert sign` invocation. The simplest form is:
 
 ```hcl
-host "app_01" {
+cert "app_01" {
   networks = ["10.42.1.10/16"]
 }
 ```
 
-The block label (`app_01` above) is the **HCL identifier**: the manifest key and the target of cross-block references. The certificate's common name defaults to the label, so most hosts need nothing more.
+The block label (`app_01` above) is the **HCL identifier**: the manifest key and the target of cross-block references. The certificate's common name defaults to the label, so most certs need nothing more.
 
-Set the optional `name` field when the certificate CN needs characters HCL labels cannot represent (e.g. dots), or when the manifest key and the operationally-visible cert name should evolve independently. Full rationale in [ADR-009](./adr/009-host-identifier-vs-cert-name.md).
+Set the optional `name` field when the certificate CN needs characters HCL labels cannot represent (e.g. dots), or when the manifest key and the operationally-visible cert name should evolve independently. Full rationale in [ADR-009](./adr/009-cert-label-vs-cert-name.md).
 
 | Field | Type | Required | `nebula-cert sign` flag | Description |
 |---|---|---|---|---|
 | _label_ | identifier | yes | — | HCL identifier; manifest key. Conventionally snake_case. |
 | `name` | string | no (defaults to label) | `-name` | Certificate common name. Use when label and CN should differ. |
 | `ca` | string | conditional | `-ca-crt`/`-ca-key` (selects which) | Label of the signing CA. Optional when the file has exactly one CA or a CA is marked `default = true` (omit to use the default, or set explicitly); required when the file has more than one CA and none is marked `default`. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
-| `networks` | list(CIDR) | yes | `-networks` | Overlay addresses for this host. Each entry is a full CIDR, e.g. `"10.42.0.1/16"`. |
+| `networks` | list(CIDR) | yes | `-networks` | Overlay addresses for this cert. Each entry is a full CIDR, e.g. `"10.42.0.1/16"`. |
 | `groups` | list(string) | no | `-groups` | Free-form group tags. |
-| `unsafe_networks` | list(CIDR) | no | `-unsafe-networks` | Subnets this host may route for. |
+| `unsafe_networks` | list(CIDR) | no | `-unsafe-networks` | Subnets this cert may route for. |
 | `duration` | duration | no | `-duration` | Cert validity. Defaults to 1 second before CA expiry, matching `nebula-cert`. |
-| `renew_before` | duration | no | — | Re-sign this host when within this window of `not_after`. Falls back to the signing CA's `renew_before`, then to no time-based renewal. Must be less than the effective validity. See [ADR-017](./adr/017-host-renewal-threshold.md). |
-| `output_dir` | string | no | — | Destination directory for this host's cert and key. Relative paths resolve against the config file's directory; absolute paths are honoured. When omitted, defaults to `<storage.out_dir>/hosts`. See [ADR-020](./adr/020-output-dir-per-host.md). |
-| `out_crt` | string | no | `-out-crt` | Cert path component. Joined onto `output_dir` when that is set; otherwise resolved relative to the config file. May be a bare filename (`nebula.crt`) or a relative sub-path (`certs/nebula.crt`). Defaults to `<host.name>.crt` within the base directory. |
-| `out_key` | string | no | `-out-key` | Key path component. Same joining semantics as `out_crt`. Forbidden together with `in_pub` (no key is written). Defaults to `<host.name>.key` within the base directory. |
+| `renew_before` | duration | no | — | Re-sign this cert when within this window of `not_after`. Falls back to the signing CA's `renew_before`, then to no time-based renewal. Must be less than the effective validity. See [ADR-017](./adr/017-cert-renewal-threshold.md). |
+| `output_dir` | string | no | — | Destination directory for this cert and its key. Relative paths resolve against the config file's directory; absolute paths are honoured. When omitted, defaults to `<storage.out_dir>/certs`. See [ADR-020](./adr/020-output-dir-per-cert.md). |
+| `out_crt` | string | no | `-out-crt` | Cert path component. Joined onto `output_dir` when that is set; otherwise resolved relative to the config file. May be a bare filename (`nebula.crt`) or a relative sub-path (`certs/nebula.crt`). Defaults to `<cert.name>.crt` within the base directory. |
+| `out_key` | string | no | `-out-key` | Key path component. Same joining semantics as `out_crt`. Forbidden together with `in_pub` (no key is written). Defaults to `<cert.name>.key` within the base directory. |
 | `out_qr` | string | no | `-out-qr` | Path for the optional QR PNG, joined onto `output_dir` when set. QR contents are public; encryption is never applied. |
 | `in_pub` | string | no | `-in-pub` | Path to a PEM **public key** exported by the device. When set, the CLI signs that public key and writes **only** the cert — no private key is generated or written, and no encryption applies. The key's curve must match the signing CA. Enables the "private key never leaves the device" pattern (mobile, HSM, separation of duties). Mutually exclusive with `out_key`. Mirrors `nebula-cert sign -in-pub`. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md). |
 
 #### Path resolution
 
-For each host, the base directory and file paths are resolved as follows:
+For each cert, the base directory and file paths are resolved as follows:
 
 ```
 base      = output_dir              if set
-            else <storage.out_dir>/hosts
+            else <storage.out_dir>/certs
 
 cert_path = Join(base, out_crt)     if out_crt set
-            else Join(base, <host.name>.crt)
+            else Join(base, <cert.name>.crt)
 
 key_path  = Join(base, out_key)     if out_key set
-            else Join(base, <host.name>.key)
+            else Join(base, <cert.name>.key)
 
 qr_path   = Join(base, out_qr)     if out_qr set  (cert only; no encryption)
 ```
@@ -238,31 +238,31 @@ storage {
   }
 }
 
-host "lh_fra" {
+cert "lh_fra" {
   name       = "lh-fra"
   networks   = ["10.42.0.1/16"]
   groups     = ["lighthouse"]
   output_dir = "out/hetzner"
 }
 
-host "app_01" {
+cert "app_01" {
   networks   = ["10.42.1.10/16"]
   groups     = ["app"]
   output_dir = "out/hetzner"
 }
 
-host "app_02" {
+cert "app_02" {
   networks   = ["10.42.1.11/16"]
   groups     = ["app"]
   output_dir = "out/aws"
 }
 
-host "router_edge" {
+cert "router_edge" {
   name            = "router-edge"
   networks        = ["10.42.2.1/16"]
   unsafe_networks = ["192.168.10.0/24"]
   groups          = ["router"]
-  # Falls back to default path under storage.out_dir/hosts/
+  # Falls back to default path under storage.out_dir/certs/
 }
 ```
 
@@ -278,7 +278,7 @@ storage {
   out_dir = "out"
 }
 
-host "new_app" {
+cert "new_app" {
   networks = ["10.42.3.1/16"]
   groups   = ["app"]
 }
@@ -286,7 +286,7 @@ host "new_app" {
 
 ## CA rotation example
 
-A worked rotation across a CA expiry, using two labelled CAs in one file. Each stage is a small edit to the same `nebula.hcl` followed by `nebula-pki`. The tool emits the artifacts; the operator distributes them and reloads hosts (the tool never pushes — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md)).
+A worked rotation across a CA expiry, using two labelled CAs in one file. Each stage is a small edit to the same `nebula.hcl` followed by `nebula-pki`. The tool emits the artifacts; the operator distributes them and reloads certs (the tool never pushes — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md)).
 
 **Stage 0 — steady state, one CA.**
 
@@ -297,19 +297,19 @@ ca "current" {
   networks = ["10.42.0.0/16"]
 }
 
-host "app_01" { networks = ["10.42.1.10/16"] }   # only one CA, no host.ca needed
+cert "app_01" { networks = ["10.42.1.10/16"] }   # only one CA, no cert.ca needed
 ```
 
 `out/ca/bundle.crt` contains just `current`.
 
-**Stage 1 — add the new CA.** The bundle now carries both; ship `bundle.crt` to every host and reload (hosts now *trust* both CAs; certs still signed by `current`). Mark `current` as the default so existing hosts keep being signed by it without per-host edits.
+**Stage 1 — add the new CA.** The bundle now carries both; ship `bundle.crt` to every node and reload (nodes now *trust* both CAs; certs still signed by `current`). Mark `current` as the default so existing certs keep being signed by it without per-cert edits.
 
 ```hcl
 ca "current" {
   name     = "mesh-2026"
   duration = "8760h"
   networks = ["10.42.0.0/16"]
-  default  = true                 # hosts without `ca` are signed by current
+  default  = true                 # certs without `ca` are signed by current
 }
 
 ca "next" {
@@ -318,10 +318,10 @@ ca "next" {
   networks = ["10.42.0.0/16"]     # same restrictions
 }
 
-host "app_01" { networks = ["10.42.1.10/16"] }
+cert "app_01" { networks = ["10.42.1.10/16"] }
 ```
 
-**Stage 2 — flip the signing CA.** Move the `default = true` marker from `current` to `next`. On the next run every defaulted host is re-signed under `next`; distribute the new host certs and reload. (Canary first by setting `ca = "next"` on a few hosts before moving the default.)
+**Stage 2 — flip the signing CA.** Move the `default = true` marker from `current` to `next`. On the next run every defaulted cert is re-signed under `next`; distribute the new certs and reload. (Canary first by setting `ca = "next"` on a few certs before moving the default.)
 
 ```hcl
 ca "current" {
@@ -351,7 +351,7 @@ ca "current" {
 
 ## Air-gapped (`in_pub`) example
 
-For hosts whose private key must never leave the device — mobile, HSM-backed, or separation-of-duties. The device generates its own keypair (`nebula-cert keygen` on the device, or the Mobile Nebula app) and exports only the public key. The operator drops that `.pub` where the config points; `nebula-pki` signs it and writes a cert only. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
+For certs whose private key must never leave the device — mobile, HSM-backed, or separation-of-duties. The device generates its own keypair (`nebula-cert keygen` on the device, or the Mobile Nebula app) and exports only the public key. The operator drops that `.pub` where the config points; `nebula-pki` signs it and writes a cert only. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
 
 ```hcl
 ca "mesh-2026" {
@@ -359,7 +359,7 @@ ca "mesh-2026" {
   duration = "8760h"
 }
 
-host "alice_phone" {
+cert "alice_phone" {
   networks = ["10.42.5.20/16"]
   groups   = ["mobile"]
   in_pub   = "./inbox/alice_phone.pub"   # device-exported public key (non-secret)
@@ -383,7 +383,7 @@ storage {
   manifest_file = "out/dev.nebula-pki.json"   # or "out/dev/nebula-pki.json"
 }
 
-host "app_01" { networks = ["10.99.0.10/16"] }
+cert "app_01" { networks = ["10.99.0.10/16"] }
 ```
 
 `prod.hcl`:
@@ -396,7 +396,7 @@ storage {
   manifest_file = "out/prod.nebula-pki.json"
 }
 
-host "app_01" { networks = ["10.42.0.10/16"] }
+cert "app_01" { networks = ["10.42.0.10/16"] }
 ```
 
 Run each independently:
@@ -425,7 +425,7 @@ out/
   aws/
     app_02.crt
     app_02.key.enc
-  hosts/
+  certs/
     router-edge.crt
     router-edge.key.enc
 ```
@@ -481,56 +481,56 @@ CA and multi-CA:
 - Two `ca` blocks share a label.
 - A `ca` label is not a valid identifier (`^[A-Za-z_][A-Za-z0-9_-]*$`).
 - More than one `ca` block sets `default = true`.
-- `host.ca` names a CA label that is not declared.
-- A host's signing CA is ambiguous: the file has >1 CA, the host has no `host.ca`, and no CA is marked `default = true`.
-- A host is signed by an `archived = true` CA (archived CAs may not sign).
+- `cert.ca` names a CA label that is not declared.
+- A cert's signing CA is ambiguous: the file has >1 CA, the cert has no `cert.ca`, and no CA is marked `default = true`.
+- A cert is signed by an `archived = true` CA (archived CAs may not sign).
 - `ca` is in reference mode but only one of `cert_file` / `key_file` is set.
 - `ca` is in reference mode and sets generate-only fields (`name`, `duration`, `curve`, `version`, `out_*`, `argon_*`, `encrypt`).
 
-Hosts:
+Certs:
 
-- Two `host` blocks share a label.
-- Two `host` blocks (after `name` defaulting) share a certificate `name`.
-- Two `host` blocks share an overlay address (the `Addr()` of the first prefix in `networks`, regardless of prefix length). `nebula-cert` cannot detect cross-host conflicts; catching them at config time avoids deploying a broken Nebula network.
-- A `host.networks` entry is not a valid CIDR.
-- A `host.duration` exceeds its signing CA's `not_after`.
-- A `host` sets both `in_pub` and `out_key` (no key is written when signing a supplied public key).
-- A `host.in_pub` file's public-key curve does not match its signing CA's curve (checked at reconcile/`check`, not parse time — the file must be read).
-- `host.groups` references a group not permitted by its signing CA's `groups` (when that CA's `groups` is non-empty).
-- `host.networks` contains a prefix not contained by any of its signing CA's `networks` prefixes (when that CA's `networks` is non-empty).
-- `host.unsafe_networks` contains a prefix not contained by any of its signing CA's `unsafe_networks` prefixes (when that CA's `unsafe_networks` is non-empty).
+- Two `cert` blocks share a label.
+- Two `cert` blocks (after `name` defaulting) share a certificate `name`.
+- Two `cert` blocks share an overlay address (the `Addr()` of the first prefix in `networks`, regardless of prefix length). `nebula-cert` cannot detect cross-cert conflicts; catching them at config time avoids deploying a broken Nebula network.
+- A `cert.networks` entry is not a valid CIDR.
+- A `cert.duration` exceeds its signing CA's `not_after`.
+- A `cert` sets both `in_pub` and `out_key` (no key is written when signing a supplied public key).
+- A `cert.in_pub` file's public-key curve does not match its signing CA's curve (checked at reconcile/`check`, not parse time — the file must be read).
+- `cert.groups` references a group not permitted by its signing CA's `groups` (when that CA's `groups` is non-empty).
+- `cert.networks` contains a prefix not contained by any of its signing CA's `networks` prefixes (when that CA's `networks` is non-empty).
+- `cert.unsafe_networks` contains a prefix not contained by any of its signing CA's `unsafe_networks` prefixes (when that CA's `unsafe_networks` is non-empty).
 
 Renewal:
 
-- A host's effective `renew_before` (from `host.renew_before` or the signing CA's `renew_before`) is greater than or equal to the host's effective validity (`duration`, or CA-expiry-minus-1s when unset). See [ADR-017](./adr/017-host-renewal-threshold.md).
+- A cert's effective `renew_before` (from `cert.renew_before` or the signing CA's `renew_before`) is greater than or equal to the cert's effective validity (`duration`, or CA-expiry-minus-1s when unset). See [ADR-017](./adr/017-cert-renewal-threshold.md).
 
 Groups and storage:
 
-- Any `groups` entry (on `ca` or `host`) is empty, contains a comma, or contains leading/trailing whitespace. Group strings are otherwise free-form UTF-8; commas are forbidden because `nebula-cert`'s flag is comma-separated.
+- Any `groups` entry (on `ca` or `cert`) is empty, contains a comma, or contains leading/trailing whitespace. Group strings are otherwise free-form UTF-8; commas are forbidden because `nebula-cert`'s flag is comma-separated.
 - Multiple `encryption` blocks in a single `storage`.
 
 ## References between blocks
 
-The schema has exactly one kind of cross-block reference: a host names its signing CA by **label** via `host.ca` (with the CA marked `default = true` as the fallback when `host.ca` is omitted), introduced in [ADR-015](./adr/015-multiple-cas-per-config.md). This is a plain string label, not a traversal expression — the schema does not use `hcl.EvalContext`; see [ADR-005](./adr/005-hcl-schema-decision.md).
+The schema has exactly one kind of cross-block reference: a cert names its signing CA by **label** via `cert.ca` (with the CA marked `default = true` as the fallback when `cert.ca` is omitted), introduced in [ADR-015](./adr/015-multiple-cas-per-config.md). This is a plain string label, not a traversal expression — the schema does not use `hcl.EvalContext`; see [ADR-005](./adr/005-hcl-schema-decision.md).
 
-Hosts name their destination directory via `output_dir`. See [ADR-020](./adr/020-output-dir-per-host.md) for the rationale, path-resolution rules, and the conditions under which multi-directory fan-out would be reintroduced.
+Certs name their destination directory via `output_dir`. See [ADR-020](./adr/020-output-dir-per-cert.md) for the rationale, path-resolution rules, and the conditions under which multi-directory fan-out would be reintroduced.
 
-If a future field needs to reference another block (per-output encryption recipients, for example), it will be added by reintroducing a named `output` block alongside the inline form, following the same label-reference pattern as `host.ca`.
+If a future field needs to reference another block (per-output encryption recipients, for example), it will be added by reintroducing a named `output` block alongside the inline form, following the same label-reference pattern as `cert.ca`.
 
 ## Labels vs. names (worked example)
 
 ```hcl
-host "app_prod_01" {              # label only; cert CN = "app_prod_01"
+cert "app_prod_01" {              # label only; cert CN = "app_prod_01"
   networks = ["10.42.1.10/16"]
 }
 
-host "app_prod_02" {
+cert "app_prod_02" {
   name     = "app-prod-02.mesh"   # cert CN differs from label
   networks = ["10.42.1.11/16"]
 }
 ```
 
-The label is the manifest key and the reference target. The `name` is what ends up inside the cert and what appears in Nebula's logs. Rationale in [ADR-009](./adr/009-host-identifier-vs-cert-name.md).
+The label is the manifest key and the reference target. The `name` is what ends up inside the cert and what appears in Nebula's logs. Rationale in [ADR-009](./adr/009-cert-label-vs-cert-name.md).
 
 ## Schema evolution
 

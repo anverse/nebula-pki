@@ -156,12 +156,12 @@ iteration plan.
 - **ADRs:** every ADR mentioning the `host` block, `host.*` fields, the `hosts` manifest map,
   or `out/hosts/` gets the body sweep (see scope item 7) and loses its "Terminology
   (amended by ADR-024)" notice. The largest changes:
-  - [ADR-009](./009-host-identifier-vs-cert-name.md) is reframed as "cert block label (HCL
+  - [ADR-009](./009-cert-label-vs-cert-name.md) is reframed as "cert block label (HCL
     identifier) vs cert CN (`name`)" and renamed to `009-cert-label-vs-cert-name.md`. The
     character-rule and rate-of-change rationale is unchanged; only the narrative changes
     (the label is the cert's local handle, not a host's).
-  - [ADR-017](./017-host-renewal-threshold.md) is renamed to `017-cert-renewal-threshold.md`
-    and [ADR-020](./020-output-dir-per-host.md) to `020-output-dir-per-cert.md`.
+  - [ADR-017](./017-cert-renewal-threshold.md) is renamed to `017-cert-renewal-threshold.md`
+    and [ADR-020](./020-output-dir-per-cert.md) to `020-output-dir-per-cert.md`.
   - [ADR-002](./002-state-and-artifact-layout.md) gets the manifest example and field list
     (`certs.*`) plus the `out/certs/` layout.
   - [ADR-011](./011-output-blocks-are-directories.md), [ADR-015](./015-multiple-cas-per-config.md),
@@ -209,7 +209,7 @@ cert today regardless).
 
 ## Links
 
-- [ADR-009](./009-host-identifier-vs-cert-name.md) — the label-vs-CN split, reframed by this rename.
+- [ADR-009](./009-cert-label-vs-cert-name.md) — the label-vs-CN split, reframed by this rename.
 - [ADR-007](./007-schema-evolution.md) — pre-1.0 breaking-change amendment.
 - [ADR-025](./025-ca-references.md) — next iteration; changes `cert.ca` to a `ca.<label>` reference.
 - [ADR-026](./026-trust-bundle-block.md) — later iteration; the explicit trust-bundle block, written against `cert`.

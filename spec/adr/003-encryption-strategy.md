@@ -81,9 +81,9 @@ Accepted. See ADR-006 for the extensibility shape.
 
 ## What gets encrypted
 
-Only **private key files** are encrypted. Specifically: CA private keys (generate mode, written as `<label>.key<suffix>`) and host private keys (written as `<host.name>.key<suffix>`). Nothing else is encrypted:
+Only **private key files** are encrypted. Specifically: CA private keys (generate mode, written as `<label>.key<suffix>`) and cert private keys (written as `<cert.name>.key<suffix>`). Nothing else is encrypted:
 
-- **Public certificates (`.crt`)** are not secret material in Nebula's design. Hosts broadcast them during connection establishment; they are meant to be distributed. Encrypting them would add decryption overhead to every downstream consumer (Terraform `file()`, Ansible copy tasks, etc.) with no security benefit.
+- **Public certificates (`.crt`)** are not secret material in Nebula's design. Nodes present them during connection establishment; they are meant to be distributed. Encrypting them would add decryption overhead to every downstream consumer (Terraform `file()`, Ansible copy tasks, etc.) with no security benefit.
 - **The trust bundle** (`bundle.crt`) is a concatenation of CA public certs — equally public.
 - **The manifest** (`nebula-pki.json`) is designed to contain no secret material. Fingerprints are public identifiers; artifact paths are structural metadata.
 - **QR PNGs** contain public key material only.
@@ -92,7 +92,7 @@ Operators who want to protect certificate metadata (network topology, group memb
 
 ## Decryption on reuse
 
-When a CA is in generate mode and its key was written encrypted in a previous run, subsequent runs must decrypt the key before using it to sign hosts. For the `sops` backend, `sops --decrypt` is invoked; for `external`, the configured `decrypt_command` is run. The operator's decryption credentials (age private key, GPG keyring, AWS IAM role, etc.) must be present in the environment on every reconcile run that triggers a host re-sign, not only at CA generation time. This constraint is documented in `hcl-schema.md` under the `encryption "sops"` and `encryption "external"` block references.
+When a CA is in generate mode and its key was written encrypted in a previous run, subsequent runs must decrypt the key before using it to sign certs. For the `sops` backend, `sops --decrypt` is invoked; for `external`, the configured `decrypt_command` is run. The operator's decryption credentials (age private key, GPG keyring, AWS IAM role, etc.) must be present in the environment on every reconcile run that triggers a cert re-sign, not only at CA generation time. This constraint is documented in `hcl-schema.md` under the `encryption "sops"` and `encryption "external"` block references.
 
 No plaintext temp file is written to disk during decryption: the decrypted bytes are piped through stdout directly into memory.
 
@@ -104,7 +104,7 @@ A `defer os.Remove` does not execute when the process is killed with SIGKILL, by
 
 **Mitigation — startup sweep:** On every real reconcile run (not `--dry-run`), `nebula-pki` walks the standard output tree (`storage.out_dir`) and removes any `.nebula-pki-plain-*` files before doing any other work. This makes the SIGKILL case self-healing on the next run.
 
-**Known gap:** per-host `output_dir` values set to an absolute path outside `storage.out_dir` are not included in the sweep. Operators using custom output dirs should verify no orphaned files remain after an abnormal exit.
+**Known gap:** per-cert `output_dir` values set to an absolute path outside `storage.out_dir` are not included in the sweep. Operators using custom output dirs should verify no orphaned files remain after an abnormal exit.
 
 This is a known limitation of the CLI subprocess approach — it does not apply to the `none` backend and will not apply to the `external` backend either, since those do not require a plaintext input file on disk.
 
@@ -125,7 +125,7 @@ Changing the `age`, `pgp`, or other recipient fields in the HCL between runs doe
 When the tool detects that an existing encrypted key file's metadata (embedded sops recipient list, or the `encrypt_command` for the `external` backend) differs from the currently configured recipients, it prints a warning on stderr on **every** run until the mismatch is resolved:
 
 ```
-warning: out/hosts/app_01.key.enc was encrypted with different recipients than currently configured.
+warning: out/certs/app_01.key.enc was encrypted with different recipients than currently configured.
          Run 'nebula-pki rekey' to re-encrypt with the current recipients.
 ```
 

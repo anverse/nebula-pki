@@ -6,7 +6,7 @@
 
 ## Context and Problem Statement
 
-Each Nebula host needs three files to run: `host.key`, `host.crt`, and `ca.crt` (the trust bundle or the specific CA cert). When hosts are fanned out to per-provider directories via `host.output_dir`, the host key and cert land there automatically. The CA cert does not — it lives under `<storage.out_dir>/ca/`. Operators currently copy or manually symlink it into each host directory.
+Each Nebula node needs three files to run: its key, its cert, and `ca.crt` (the trust bundle or the specific CA cert). When certs are fanned out to per-provider directories via `cert.output_dir`, the cert key and cert land there automatically. The CA cert does not — it lives under `<storage.out_dir>/ca/`. Operators currently copy or manually symlink it into each cert directory.
 
 This is error-prone and must be repeated whenever a new output directory is introduced. The tool should manage these links declaratively so they are created, kept correct, and cleaned up without manual intervention.
 
@@ -16,7 +16,7 @@ This is error-prone and must be repeated whenever a new output directory is intr
 * The feature should reuse existing path-resolution conventions rather than introducing a new naming system.
 * The tool must never silently clobber non-symlink files.
 * Idempotency: a re-run verifies existing links rather than always recreating them.
-* Explicit over magic: the operator declares which directories need the CA cert; the tool does not auto-infer this from `host.output_dir` values.
+* Explicit over magic: the operator declares which directories need the CA cert; the tool does not auto-infer this from `cert.output_dir` values.
 
 ## Decision
 
@@ -62,7 +62,7 @@ An `--abs-links` flag is intentionally absent. If the two paths are on different
 
 ### Directory creation
 
-If a listed directory does not exist at reconcile time, the tool creates it (consistent with how `apply` handles `output_dir` for host artifacts).
+If a listed directory does not exist at reconcile time, the tool creates it (consistent with how `apply` handles `output_dir` for cert artifacts).
 
 ### Idempotency
 
@@ -102,7 +102,7 @@ The manifest records every managed link. On each run the planner diffs the manif
 
 ## Interaction with `output_dir`
 
-The primary use case is pairing `link_crt` directories with `host.output_dir` values:
+The primary use case is pairing `link_crt` directories with `cert.output_dir` values:
 
 ```hcl
 ca "mesh" {
@@ -111,18 +111,18 @@ ca "mesh" {
   link_crt = ["out/hetzner", "out/aws"]   # mirrors the output_dir values below
 }
 
-host "lh_fra" {
+cert "lh_fra" {
   networks   = ["10.42.0.1/16"]
   output_dir = "out/hetzner"
 }
 
-host "app_01" {
+cert "app_01" {
   networks   = ["10.42.1.10/16"]
   output_dir = "out/aws"
 }
 ```
 
-The tool does **not** auto-populate `link_crt` from declared `output_dir` values. The operator lists them explicitly. This is intentional: the CA may serve hosts across many directories, and not every host directory needs the CA cert co-located (some downstream systems point at a central cert path). Automation here would be magic with non-obvious scope; explicit declaration is unambiguous.
+The tool does **not** auto-populate `link_crt` from declared `output_dir` values. The operator lists them explicitly. This is intentional: the CA may serve certs across many directories, and not every cert directory needs the CA cert co-located (some downstream systems point at a central cert path). Automation here would be magic with non-obvious scope; explicit declaration is unambiguous.
 
 `spec/hcl-schema.md` should include a worked example pairing `link_crt` with `output_dir` to guide operators toward the pattern.
 
@@ -142,6 +142,6 @@ The tool does **not** auto-populate `link_crt` from declared `output_dir` values
 
 ## Links
 
-- [ADR-020](./020-output-dir-per-host.md) — per-host `output_dir`; motivation for the fan-out pattern.
+- [ADR-020](./020-output-dir-per-cert.md) — per-cert `output_dir`; motivation for the fan-out pattern.
 - [ADR-002](./002-state-and-artifact-layout.md) — artifact layout and manifest schema.
 - [Milestone v0.2](../milestones/v0.2.md) — feature context and iteration plan.

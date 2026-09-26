@@ -7,7 +7,7 @@
 ## Context
 
 A single `nebula-pki` run writes several files: the CA certificate, the CA
-private key, host certificates and keys, and the manifest. Two distinct
+private key, certificates and keys, and the manifest. Two distinct
 failure modes threaten that work:
 
 1. **A torn write of one file.** If the process is interrupted *while writing
