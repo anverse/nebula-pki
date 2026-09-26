@@ -4,7 +4,7 @@
 # deploy target (Terraform / Ansible) reads from its own directory.
 #
 # This example is meant to show "yes, this scales beyond a homelab",
-# but the tool is still aimed at the dozens-of-hosts range, not
+# but the tool is still aimed at the dozens-of-nodes range, not
 # thousands. The HCL is written by hand and reviewed in PRs; that's
 # the whole point of the declarative rewrite.
 #
@@ -37,7 +37,7 @@ ca "acme-mesh" {
   networks        = ["10.0.0.0/8"]
   unsafe_networks = ["192.168.10.0/24"]
 
-  # Restrict the group vocabulary. Hosts may only use groups from this
+  # Restrict the group vocabulary. Certs may only use groups from this
   # list. Useful when configs are written by multiple teams.
   groups = [
     "lighthouse",
@@ -59,10 +59,10 @@ storage {
 # -----------------------------------------------------------------------------
 # Output directories — one per site.
 #
-# Each host names its destination via `output_dir`. The per-site deploy
+# Each cert names its destination via `output_dir`. The per-site deploy
 # pipeline (Terraform module, Ansible inventory, ...) reads from these
-# directories. Filenames are always <host.name>.crt and
-# <host.name>.key.enc, derived from the host label.
+# directories. Filenames are always <cert.name>.crt and
+# <cert.name>.key.enc, derived from the cert label.
 #
 # Conventions used below:
 #   "out/sites/hq"

@@ -6,9 +6,9 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 
 - Wraps `nebula-cert` (slackhq/nebula).
 - HCL fields mirror `nebula-cert ca` and `nebula-cert sign` flags 1:1 with underscores.
-- Adds: declarative config, per-host `output_dir` for custom certificate placement, optional at-rest encryption, a JSON manifest.
+- Adds: declarative config, per-cert `output_dir` for custom certificate placement, optional at-rest encryption, a JSON manifest.
 - One or more CAs per HCL file: a single unlabelled `ca {}`, or multiple labelled `ca "<label>" {}` blocks for rotation and multi-CA Nebula networks ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
-- Emits a CA trust bundle for `pki.ca` and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-host-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
+- Emits a CA trust bundle for `pki.ca` and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-cert-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
 - Does not render `config.yaml`, does not push files (including during rotation), does not implement lighthouse/blocklist/firewall.
 
 > Capability detail for the four areas above (multi-CA, rotation/bundle, `renew_before`, `in_pub`) is also covered in [`spec/`](./spec/readme.md) and the cited ADRs. Where anything conflicts, `spec/hcl-schema.md` is the final authority.
@@ -24,7 +24,7 @@ nebula-pki -c <path>      # alternate config path (default: ./nebula.hcl)
 
 Exit codes: `0` on success or clean dry-run; `1` on validation/runtime error; `2` on usage error.
 
-After each reconcile and `--dry-run` (including no-op runs), the tool prints to stderr the earliest actionable deadline — the soonest of a host entering its `renew_before` window or the expiry of any cert without a threshold — plus a "run again before `<date>`" hint. Advisory only; it changes no exit code and triggers no writes. See [`spec/adr/017-host-renewal-threshold.md`](./spec/adr/017-host-renewal-threshold.md).
+After each reconcile and `--dry-run` (including no-op runs), the tool prints to stderr the earliest actionable deadline — the soonest of a cert entering its `renew_before` window or the expiry of any cert without a threshold — plus a "run again before `<date>`" hint. Advisory only; it changes no exit code and triggers no writes. See [`spec/adr/017-cert-renewal-threshold.md`](./spec/adr/017-cert-renewal-threshold.md).
 
 Deferred:
 
@@ -35,7 +35,7 @@ Deferred:
 By default, the block label is everything: manifest key, reference target, and cert common name.
 
 ```hcl
-host "app_prod_01" {
+cert "app_prod_01" {
   networks = ["10.42.1.10/16"]
 }
 # cert CN = "app_prod_01"; manifest key = "app_prod_01"
@@ -44,18 +44,18 @@ host "app_prod_01" {
 Set the optional `name` field only when label and CN should differ (cert needs characters HCL labels can't carry, or you want to evolve the two independently):
 
 ```hcl
-host "edge_router" {
+cert "edge_router" {
   name     = "edge-router.mesh"
   networks = ["10.42.2.1/16"]
 }
 # cert CN = "edge-router.mesh"; manifest key = "edge_router"
 ```
 
-Default file paths use the **cert name**, not the label. Full rationale in [`spec/adr/009-host-identifier-vs-cert-name.md`](./spec/adr/009-host-identifier-vs-cert-name.md).
+Default file paths use the **cert name**, not the label. Full rationale in [`spec/adr/009-cert-label-vs-cert-name.md`](./spec/adr/009-cert-label-vs-cert-name.md).
 
 ## References between blocks
 
-The only cross-block reference is `host.ca` (with the CA marked `default = true` as the fallback when omitted), a plain string label selecting the signing CA when more than one CA exists ([ADR-015](./spec/adr/015-multiple-cas-per-config.md)). Hosts name their destination directory directly via `host.output_dir`. The schema avoids `hcl.EvalContext` because nothing is interpolated — references are bare labels, not traversal expressions. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-020](./spec/adr/020-output-dir-per-host.md).
+The only cross-block reference is `cert.ca` (with the CA marked `default = true` as the fallback when omitted), a plain string label selecting the signing CA when more than one CA exists ([ADR-015](./spec/adr/015-multiple-cas-per-config.md)). Certs name their destination directory directly via `cert.output_dir`. The schema avoids `hcl.EvalContext` because nothing is interpolated — references are bare labels, not traversal expressions. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-020](./spec/adr/020-output-dir-per-cert.md).
 
 ## Using an existing CA (reference mode)
 
@@ -78,11 +78,11 @@ Reference-mode reconcile is idempotent: a second run against an unchanged refere
 ca "label" {
   # Identity
   name              = "wiech-mesh"
-  default           = true                   # default signing CA for hosts that omit host.ca
+  default           = true                   # default signing CA for certs that omit cert.ca
 
   # Validity
   duration          = "26280h"               # 3 years
-  renew_before      = "720h"                 # re-sign hosts 30 days before expiry (inherited)
+  renew_before      = "720h"                 # re-sign certs 30 days before expiry (inherited)
 
   # Rotation
   archived          = false                  # true → excluded from trust bundle; may not sign
@@ -91,7 +91,7 @@ ca "label" {
   version           = 2                      # cert format 1 or 2
   curve             = "25519"                # or "P256"
 
-  # Subordinate cert restrictions (validated per host)
+  # Subordinate cert restrictions (validated per cert)
   groups            = ["lighthouse", "app"]
   networks          = ["10.42.0.0/16"]
   unsafe_networks   = ["192.168.0.0/16"]
@@ -109,18 +109,18 @@ ca "label" {
 }
 ```
 
-## Full host options
+## Full cert options
 
 ```hcl
-host "router" {
+cert "router" {
   name            = "router.mesh"               # optional; defaults to label
   ca              = "my-ca"                     # signing CA label; omit to use the default CA
   networks        = ["10.42.2.1/16", "fd42::1/64"]
   unsafe_networks = ["192.168.10.0/24"]
   groups          = ["router"]
   duration        = "8760h"
-  renew_before    = "48h"                       # overrides CA-level renew_before for this host
-  output_dir      = "out/routers"               # destination directory; defaults to out/hosts
+  renew_before    = "48h"                       # overrides CA-level renew_before for this cert
+  output_dir      = "out/routers"               # destination directory; defaults to out/certs
   in_pub          = "./pre-generated/router.pub"
   out_crt         = "out/router.crt"
   out_key         = "out/router.key"
@@ -128,11 +128,11 @@ host "router" {
 }
 ```
 
-Path resolution for a host's cert/key (see [ADR-020](./spec/adr/020-output-dir-per-host.md)):
+Path resolution for a cert and its key (see [ADR-020](./spec/adr/020-output-dir-per-cert.md)):
 
 ```
 base      = output_dir              if set
-          = <storage.out_dir>/hosts  otherwise
+          = <storage.out_dir>/certs  otherwise
 cert_path = Join(base, out_crt)     if out_crt set
           = Join(base, <name>.crt)  otherwise
 key_path  = Join(base, out_key)     if out_key set
@@ -197,14 +197,14 @@ The tool writes plaintext to a temp file, substitutes placeholders, runs the com
 ## Custom output directory (`output_dir`)
 
 ```hcl
-host "lh_fra" {
+cert "lh_fra" {
   networks   = ["10.42.0.1/16"]
   groups     = ["lighthouse"]
   output_dir = "out/hetzner"
 }
 ```
 
-`output_dir` is a single **directory**. Filenames default to `<host.name>.crt` / `.key`; override with `out_crt` / `out_key` (path components joined onto the directory). When omitted, files land in `<storage.out_dir>/hosts`. See [ADR-020](./spec/adr/020-output-dir-per-host.md).
+`output_dir` is a single **directory**. Filenames default to `<cert.name>.crt` / `.key`; override with `out_crt` / `out_key` (path components joined onto the directory). When omitted, files land in `<storage.out_dir>/certs`. See [ADR-020](./spec/adr/020-output-dir-per-cert.md).
 
 ## File layout
 
@@ -226,7 +226,7 @@ nebula/
       006-storage-backend-extensibility.md
       007-schema-evolution.md
       008-cli-surface.md
-      009-host-identifier-vs-cert-name.md
+      009-cert-label-vs-cert-name.md
       010-single-ca-per-config.md
       011-output-blocks-are-directories.md
       012-upstream-nebula-coupling.md
@@ -234,16 +234,21 @@ nebula/
       014-flake-version-sync.md
       015-multiple-cas-per-config.md
       016-ca-rotation-and-trust-bundles.md
-      017-host-renewal-threshold.md
+      017-cert-renewal-threshold.md
       018-in-pub-air-gapped-signing.md
       019-manifest-compactness.md
-      020-output-dir-per-host.md
+      020-output-dir-per-cert.md
       021-ca-cert-links.md
+      022-taskfile-as-ci-entrypoint.md
+      023-external-backend-protocol.md
+      024-rename-host-to-cert.md
+      025-ca-references.md
+      026-trust-bundle-block.md
   out/                  # generated; safe to commit when encryption is on
     nebula-pki.json     # manifest; rename via storage.manifest_file
     ca/
-    hosts/              # default location for hosts without an `output_dir`
-    <custom-dir>/       # any directory set via host.output_dir
+    certs/              # default location for certs without an `output_dir`
+    <custom-dir>/       # any directory set via cert.output_dir
 ```
 
 ## Manifest
@@ -252,7 +257,7 @@ nebula/
 
 - `schema_version` — integer, currently `1`.
 - `ca.mode` — `"generate"` or `"reference"`; includes fingerprint, validity, paths.
-- `hosts` — map keyed by host label; each entry carries cert name, fingerprint, validity, the literal HCL `duration`, groups, networks, and `artifacts` (one entry per resolved destination directory with concrete `crt_path` and `key_path`).
+- `certs` — map keyed by cert label; each entry carries cert name, fingerprint, validity, the literal HCL `duration`, groups, networks, and `artifacts` (one entry per resolved destination directory with concrete `crt_path` and `key_path`).
 - `encryption` — public backend identifier and parameters (no secret material).
 
 Full schema in [`spec/adr/002-state-and-artifact-layout.md`](./spec/adr/002-state-and-artifact-layout.md).
@@ -274,21 +279,21 @@ Current release: **v0.0.11** (`in_pub` air-gapped signing). Installable via Home
 
 ## Validation rules (selected)
 
-- Duplicate `host` labels → error.
+- Duplicate `cert` labels → error.
 - Duplicate cert `name`s (after defaulting from labels) → error.
-- Duplicate first-prefix overlay addresses across hosts → error.
+- Duplicate first-prefix overlay addresses across certs → error.
 - `ca` in reference mode with generate-only fields → error.
 - `ca` reference mode with only one of `cert_file`/`key_file` → error.
 - `ca` reference mode whose `cert_file`/`key_file` do not exist on disk → error (at reconcile/`check`, not parse time).
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
-- A host's signing CA has `archived = true` → error (archived CAs may not sign).
+- A cert's signing CA has `archived = true` → error (archived CAs may not sign).
 - More than one `ca` block sets `default = true` → error.
-- `host.ca` names a CA that is not declared → error.
-- `host.groups` containing a group not in `ca.groups` (when restricted) → error.
-- `host.networks` containing a prefix not contained by `ca.networks` (when restricted) → error.
-- `host.unsafe_networks` containing a prefix not contained by `ca.unsafe_networks` (when restricted) → error.
+- `cert.ca` names a CA that is not declared → error.
+- `cert.groups` containing a group not in `ca.groups` (when restricted) → error.
+- `cert.networks` containing a prefix not contained by `ca.networks` (when restricted) → error.
+- `cert.unsafe_networks` containing a prefix not contained by `ca.unsafe_networks` (when restricted) → error.
 - A CA's `renew_before` is ≥ its `duration` → error.
-- A host's effective `renew_before` is ≥ its effective validity → error.
+- A cert's effective `renew_before` is ≥ its effective validity → error.
 
 Full list in [`spec/hcl-schema.md`](./spec/hcl-schema.md#validation-rules).
 

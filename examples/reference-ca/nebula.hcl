@@ -34,8 +34,8 @@ storage {
   out_dir = "out"
 }
 
-# Hosts are signed under the referenced CA exactly as they would be under a
-# generated one. Uncomment the blocks below to add hosts.
+# Certs are signed under the referenced CA exactly as they would be under a
+# generated one. Uncomment the blocks below to add certs.
 #
 # cert "gateway" {
 #   networks = ["10.50.0.1/16"]

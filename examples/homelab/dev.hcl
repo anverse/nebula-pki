@@ -3,7 +3,7 @@
 # A typical small homelab Nebula network: a handful of cluster nodes (k3s in this
 # example, but the tool doesn't care), a couple of admin laptops, and an
 # optional phone or two. Dev and prod share the same overlay /16 but use
-# different host ranges and different CAs, so a dev host cannot
+# different address ranges and different CAs, so a dev node cannot
 # authenticate to prod and vice versa.
 #
 # Address plan (mirrors the prod.hcl layout):
@@ -26,7 +26,7 @@ storage {
 }
 
 # Cluster certs go into a dedicated directory so the downstream consumer
-# (Ansible, Terraform, ...) can read just the cluster material. Each host
+# (Ansible, Terraform, ...) can read just the cluster material. Each cert
 # points at the directory via `output_dir`.
 
 # -----------------------------------------------------------------------------
@@ -84,7 +84,7 @@ cert "node_5" {
 # -----------------------------------------------------------------------------
 # Admin laptops.
 #
-# Default placement: out/dev/hosts/<name>.crt, no `output_dir`,
+# Default placement: out/dev/certs/<name>.crt, no `output_dir`,
 # since admin keys typically don't ship alongside the cluster deploy.
 # -----------------------------------------------------------------------------
 
@@ -108,10 +108,10 @@ cert "laptop_2" {
 # Workflow:
 #   1. In the Nebula app: "Sites" -> "+" -> "Create a Site Manually" ->
 #      "Generate Key Pair". Export/share the public key (one text block).
-#   2. Save it to ./mobile-pubkeys/<host_label>.pub in this directory.
-#   3. Uncomment / add the host block below and re-run nebula-pki.
+#   2. Save it to ./mobile-pubkeys/<cert_label>.pub in this directory.
+#   3. Uncomment / add the cert block below and re-run nebula-pki.
 #   4. Send the resulting .crt and the CA cert back to the phone.
-#      No .key file is produced for these hosts; the phone already has it.
+#      No .key file is produced for these certs; the phone already has it.
 # -----------------------------------------------------------------------------
 
 # cert "phone_1" {

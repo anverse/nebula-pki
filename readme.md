@@ -3,10 +3,10 @@
 `nebula-pki` is a declarative layer over [`nebula-cert`](https://github.com/slackhq/nebula).
 Describe the Nebula network in one config; automatically generate and sign the certificates.
 
-Without it, managing a Nebula network means running `nebula-cert` commands by hand: per-host flags, signing sessions in shell history, no record of what changed or when.
+Without it, managing a Nebula network means running `nebula-cert` commands by hand: per-cert flags, signing sessions in shell history, no record of what changed or when.
 
-`nebula-pki` replaces that with an HCL config that describes every CA and host in one place.
-After every run it writes `nebula-pki.json` with CA fingerprints, host cert windows, and signing CA labels.
+`nebula-pki` replaces that with an HCL config that describes every CA and cert in one place.
+After every run it writes `nebula-pki.json` with CA fingerprints, cert windows, and signing CA labels.
 Changes flow through pull requests with a complete, readable diff.
 
 > nebula-pki is under active development. It's ready to use day-to-day, but breaking changes may still happen before v1.0.
@@ -63,12 +63,12 @@ ca "my_mesh" {
   duration = "8760h" # 365 days
 }
 
-host "lh_01" {
+cert "lh_01" {
   networks = ["10.42.0.1/16"]
   groups   = ["lighthouse"]
 }
 
-host "node_01" {
+cert "node_01" {
   networks = ["10.42.1.10/16"]
   groups   = ["node"]
 }
@@ -78,30 +78,32 @@ host "node_01" {
 nebula-pki
 ```
 
+Declare one `cert` block per Nebula node. `nebula-pki` only issues the certificates and keys; it does not generate the node's Nebula `config.yaml`.
+
 Running the tool reconciles `out/` with `nebula.hcl`.
-It generates the CA if it doesn't exist, signs missing host certs, and updates the manifest at `out/nebula-pki.json`.
+It generates the CA if it doesn't exist, signs missing certs, and updates the manifest at `out/nebula-pki.json`.
 
-## Per-host output directory
+## Per-cert output directory
 
-Running a Nebula network that spans several Terraform projects, providers, or deploy targets? Each one usually only needs the certs for the hosts it owns. `output_dir` places a host's cert and key in a specific directory so every downstream project reads from its own folder and sees nothing else.
+Running a Nebula network that spans several Terraform projects, providers, or deploy targets? Each one usually only needs the certs for the nodes it owns. `output_dir` places a cert and its key in a specific directory so every downstream project reads from its own folder and sees nothing else.
 
 ```hcl
-host "lh_fra" {
+cert "lh_fra" {
   name       = "lh-fra"                 # cert CN; optional, defaults to label
   networks   = ["10.42.0.1/16"]
   output_dir = "out/third/party/vendor" # cert written to out/third/party/vendor/lh-fra.{crt,key}
 }
 
-host "vendor_node_01" {
+cert "vendor_node_01" {
   networks   = ["10.42.1.10/16"]
   output_dir = "out/vendor"
 }
 ```
 
-Filenames default to `<host.name>.crt` / `.key`. Use `out_crt` / `out_key` to rename them while keeping the same `output_dir`:
+Filenames default to `<cert.name>.crt` / `.key`. Use `out_crt` / `out_key` to rename them while keeping the same `output_dir`:
 
 ```hcl
-host "lh_fra" {
+cert "lh_fra" {
   networks   = ["10.42.0.1/16"]
   output_dir = "out/vendor"
   out_crt    = "nebula.crt"      # → out/vendor/nebula.crt
@@ -110,7 +112,7 @@ host "lh_fra" {
 
 ## CA cert links
 
-When hosts are fanned out to per-provider directories via `output_dir`, each directory also needs the CA certificate for that host to authenticate against. The CA cert lives under `out/ca/` — it doesn't follow `output_dir` automatically.
+When certs are fanned out to per-provider directories via `output_dir`, each directory also needs the CA certificate for its nodes to authenticate against. The CA cert lives under `out/ca/` — it doesn't follow `output_dir` automatically.
 
 Use `link_crt` on a `ca` block to place a relative symlink of the CA certificate into each directory that needs it:
 
@@ -121,18 +123,18 @@ ca "mesh" {
   link_crt = ["out/hetzner", "out/aws"]
 }
 
-host "lh_fra" {
+cert "lh_fra" {
   networks   = ["10.42.0.1/16"]
   output_dir = "out/hetzner"
 }
 
-host "app_01" {
+cert "app_01" {
   networks   = ["10.42.1.10/16"]
   output_dir = "out/aws"
 }
 ```
 
-After `nebula-pki`, each output directory contains both the host's cert/key pair and a symlink to the CA cert:
+After `nebula-pki`, each output directory contains both the cert/key pair and a symlink to the CA cert:
 
 ```
 out/
@@ -159,7 +161,7 @@ The manifest records each managed link under `cas.<label>.links` so the tool can
 
 ## Trust bundle
 
-Every run writes `out/ca/bundle.crt`, a concatenated PEM of all active CA certificates suitable for `pki.ca` in each host's Nebula `config.yaml`. The path is configurable:
+Every run writes `out/ca/bundle.crt`, a concatenated PEM of all active CA certificates suitable for `pki.ca` in each node's Nebula `config.yaml`. The path is configurable:
 
 ```hcl
 storage {
@@ -167,14 +169,14 @@ storage {
 }
 ```
 
-With a single CA, the bundle equals that CA's certificate. During rotation it holds both the old and new CA so hosts can authenticate against either; once the old CA is archived the bundle shrinks back to the active CA only.
+With a single CA, the bundle equals that CA's certificate. During rotation it holds both the old and new CA so nodes can authenticate against either; once the old CA is archived the bundle shrinks back to the active CA only.
 
 ## CA rotation
 
 Rotating a CA is four edits to `nebula.hcl`, each followed by a rerun:
 
-1. **Add the new CA.** The bundle now contains both; distribute `bundle.crt` and reload hosts (they trust both, certs still signed by the old CA).
-2. **Promote the new CA** to `default = true`. Hosts are re-signed under the new CA on the next run; distribute the new certs and reload.
+1. **Add the new CA.** The bundle now contains both; distribute `bundle.crt` and reload nodes (they trust both, certs still signed by the old CA).
+2. **Promote the new CA** to `default = true`. Certs are re-signed under the new CA on the next run; distribute the new certs and reload.
 3. **Archive the old CA** with `archived = true`. The bundle drops the old CA; distribute the slimmer `bundle.crt` and reload.
 4. **Remove the archived block** (optional cleanup) once satisfied. The old CA's cert and key files remain on disk unmanaged after the block is removed; delete them manually if desired.
 
@@ -195,17 +197,17 @@ Full worked example in [`spec/hcl-schema.md`](./spec/hcl-schema.md#ca-rotation-e
 
 ## Time-based renewal
 
-Set `renew_before` on a CA (inherited by all its hosts) or on individual hosts. When a cert enters its renewal window, the next run re-signs it automatically:
+Set `renew_before` on a CA (inherited by all its certs) or on individual certs. When a cert enters its renewal window, the next run re-signs it automatically:
 
 ```hcl
 ca "mesh" {
   name         = "mesh-2026"
-  renew_before = "720h"    # re-sign all hosts 30 days before expiry
+  renew_before = "720h"    # re-sign all certs 30 days before expiry
 }
 
-host "edge" {
+cert "edge" {
   networks     = ["10.42.2.1/16"]
-  renew_before = "48h"     # this host re-signs with 2 days to spare instead
+  renew_before = "48h"     # this cert re-signs with 2 days to spare instead
 }
 ```
 
@@ -213,13 +215,13 @@ After every run, including no-op runs, the tool prints to stderr the earliest up
 
 ## Air-gapped signing
 
-For hosts whose private key must never leave the device (phones, HSMs, or any
+For certs whose private key must never leave the device (phones, HSMs, or any
 separation-of-duties setup) the device generates its own keypair and exports
 only the public key. Point `in_pub` at that file; `nebula-pki` signs it and
 writes only the cert. No private key is generated, stored, or encrypted.
 
 ```hcl
-host "alice_phone" {
+cert "alice_phone" {
   networks = ["10.42.5.20/16"]
   groups   = ["mobile"]
   in_pub   = "./inbox/alice_phone.pub"   # device-exported public key
@@ -231,7 +233,7 @@ host "alice_phone" {
 
 ## Encryption at rest (opt-in)
 
-By default, CA and host private keys land on disk as plaintext. The optional `storage.encryption` block encrypts every private key before it touches disk. Certificates, the trust bundle, and the manifest are **never** encrypted.
+By default, CA and cert private keys land on disk as plaintext. The optional `storage.encryption` block encrypts every private key before it touches disk. Certificates, the trust bundle, and the manifest are **never** encrypted.
 
 Three backends are available:
 
@@ -247,7 +249,7 @@ Omit the `encryption` block (or declare `encryption "none" {}`) and keys are wri
 
 ### sops
 
-`sops` must be installed and in `PATH` on every machine running `nebula-pki` with this backend active — both for initial key generation (encrypt) and for any reconcile that signs hosts under an existing encrypted CA key (decrypt).
+`sops` must be installed and in `PATH` on every machine running `nebula-pki` with this backend active — both for initial key generation (encrypt) and for any reconcile that signs certs under an existing encrypted CA key (decrypt).
 
 #### Inline recipients
 
@@ -261,7 +263,7 @@ storage {
 }
 ```
 
-Keys are written with the configured suffix (default `.enc`): `out/ca/mesh.key.enc`, `out/hosts/alpha.key.enc`. Plaintext `.key` files are never written to disk.
+Keys are written with the configured suffix (default `.enc`): `out/ca/mesh.key.enc`, `out/certs/alpha.key.enc`. Plaintext `.key` files are never written to disk.
 
 #### `.sops.yaml` discovery
 
@@ -282,7 +284,7 @@ creation_rules:
 
 #### Decryption on rerun
 
-When a CA key is already encrypted on disk, `nebula-pki` decrypts it in-memory — no plaintext file is written — and uses it to sign new or renewing hosts. Set `SOPS_AGE_KEY`, `SOPS_AGE_KEY_FILE`, or the appropriate credential for your backend so sops can decrypt.
+When a CA key is already encrypted on disk, `nebula-pki` decrypts it in-memory — no plaintext file is written — and uses it to sign new or renewing certs. Set `SOPS_AGE_KEY`, `SOPS_AGE_KEY_FILE`, or the appropriate credential for your backend so sops can decrypt.
 
 #### Changing recipients
 
@@ -290,10 +292,10 @@ Changing the recipients in the config does **not** re-encrypt existing key files
 
 ```
 warning: CA "mesh" key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt
-warning: host "alpha" key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt
+warning: cert "alpha" key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt
 ```
 
-New hosts added in the same run are encrypted with the current (new) recipients. Existing files are left under the old recipients until `nebula-pki rekey` is run.
+New certs added in the same run are encrypted with the current (new) recipients. Existing files are left under the old recipients until `nebula-pki rekey` is run.
 
 This is intentional: silently re-encrypting a CA private key on a routine run is risky — a crash between decrypt and re-encrypt can leave the key unrecoverable. The explicit `rekey` command makes rotation a deliberate, audited step.
 
@@ -423,8 +425,8 @@ All three directions are handled in a single pass.
 
 ```
 would encrypt CA "mesh" key: out/ca/mesh.key → out/ca/mesh.key.enc (sops)
-would re-encrypt host "alpha" key: out/hosts/alpha.key.enc (sops, new recipients)
-would decrypt host "beta" key: out/hosts/beta.key.enc → out/hosts/beta.key (plaintext)
+would re-encrypt cert "alpha" key: out/certs/alpha.key.enc (sops, new recipients)
+would decrypt cert "beta" key: out/certs/beta.key.enc → out/certs/beta.key (plaintext)
 3 key files would be rekeyed.
 ```
 
@@ -472,7 +474,7 @@ resource "some_provider_file" "nebula_cert" {
 
 ## Further reading
 
-- Full HCL reference, encryption backends, CA reference mode, host options: [`hcl-schema.md`](./spec/hcl-schema.md).
+- Full HCL reference, encryption backends, CA reference mode, cert options: [`hcl-schema.md`](./spec/hcl-schema.md).
 - Building, testing, releasing: [`development.md`](./development.md).
 - Design rationale and decisions: [`spec/`](./spec/readme.md).
 - Upstream Nebula: <https://github.com/slackhq/nebula>.

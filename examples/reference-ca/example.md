@@ -14,7 +14,7 @@ For a from-scratch CA the tool generates and owns, see
 
 | File | Purpose |
 |---|---|
-| [`nebula.hcl`](./nebula.hcl) | Reference-mode CA block plus (commented) host blocks. |
+| [`nebula.hcl`](./nebula.hcl) | Reference-mode CA block plus (commented) cert blocks. |
 
 ## How reference mode behaves
 
@@ -55,7 +55,7 @@ nebula-cert ca -name "shared-root" -out-crt ca.crt -out-key ca.key
 
 # Validate the config and confirm which CA you are pointed at.
 nebula-pki check
-# config valid: nebula.hcl (ca mode=reference, hosts=0)
+# config valid: nebula.hcl (cas=1, certs=0)
 #   ca verified: name="shared-root" fingerprint=<hex>
 
 # Record the referenced CA in the manifest.
@@ -84,9 +84,9 @@ the next run updates the recorded fingerprint.
 The manifest is safe to commit: it holds the CA fingerprint, validity, and
 paths, with no key material.
 
-## Hosts
+## Certs
 
-Hosts are signed under the referenced CA exactly as they would be under a
-generated one; only the `ca` block differs. The `host` blocks in
+Certs are signed under the referenced CA exactly as they would be under a
+generated one; only the `ca` block differs. The `cert` blocks in
 `nebula.hcl` are commented out as a minimal starting point; uncomment or
 add them as you would in any other config.

@@ -12,8 +12,8 @@ larger or more structured (multiple sites, role-based subnets, per-site
 
 | File | Purpose |
 |---|---|
-| [`dev.hcl`](./dev.hcl)   | Dev environment — CA `homelab-dev`, host range `172.16.{0,1,2}.0/24`. |
-| [`prod.hcl`](./prod.hcl) | Prod environment — CA `homelab-prod`, host range `172.16.{100,110,120}.0/24`. |
+| [`dev.hcl`](./dev.hcl)   | Dev environment — CA `homelab-dev`, address range `172.16.{0,1,2}.0/24`. |
+| [`prod.hcl`](./prod.hcl) | Prod environment — CA `homelab-prod`, address range `172.16.{100,110,120}.0/24`. |
 
 Both configs share this directory and write to disjoint subtrees under
 `out/`, which is the supported pattern for multi-CA setups
@@ -43,9 +43,9 @@ to prod and vice versa, even though the overlay /16 is shared.
 - Two CAs in one working directory, one per file.
 - A single `output_dir` per environment (`out/<env>/cluster/`) that
   a downstream consumer (Terraform, Ansible, ...) can read with no
-  extra glue. Hosts opt into it via `output_dir = "out/<env>/cluster"`.
+  extra glue. Certs opt into it via `output_dir = "out/<env>/cluster"`.
 - Default placement for admin laptops (no `output_dir`) ends up in
-  `out/<env>/hosts/`.
+  `out/<env>/certs/`.
 - `lighthouse` group on every control-plane cert. Which node actually
   runs as a lighthouse is a **runtime** decision in `config.yaml`, not
   a cert property. `nebula-pki` deliberately has no `is_lighthouse`
@@ -82,7 +82,7 @@ homelab/
         ...
         node_5.crt
         node_5.key.enc
-      hosts/                      # <- default location, admin laptops
+      certs/                      # <- default location, admin laptops
         laptop_1.crt
         laptop_1.key.enc
         laptop_2.crt
@@ -106,7 +106,7 @@ them is different from a laptop:
    `-----BEGIN NEBULA X25519 PUBLIC KEY-----`.
 
 2. **On the operator workstation.** Save the exported public key into
-   `mobile-pubkeys/<host_label>.pub` in this directory:
+   `mobile-pubkeys/<cert_label>.pub` in this directory:
 
    ```sh
    mkdir -p mobile-pubkeys
@@ -116,7 +116,7 @@ them is different from a laptop:
 3. **Add an HCL block.** In `dev.hcl` (or `prod.hcl`), uncomment / add:
 
    ```hcl
-   host "phone_1" {
+   cert "phone_1" {
      networks = ["172.16.0.10/16"]      # pick an address inside the admin subnet
      groups   = ["admin", "mobile"]
      in_pub   = "./mobile-pubkeys/phone_1.pub"
@@ -125,7 +125,7 @@ them is different from a laptop:
 
    `in_pub` maps directly to `nebula-cert sign -in-pub`. Because we are
    supplying the public key, `nebula-pki` does NOT generate a private
-   key for this host. No `.key` (or `.key.enc`) file is produced; only
+   key for this cert. No `.key` (or `.key.enc`) file is produced; only
    the `.crt`.
 
 4. **Reconcile.**
@@ -134,13 +134,13 @@ them is different from a laptop:
    nebula-pki -c dev.hcl
    ```
 
-   The cert lands at `out/dev/hosts/phone_1.crt`. The matching private
+   The cert lands at `out/dev/certs/phone_1.crt`. The matching private
    key is still on the phone, where it has always been.
 
 5. **Back to the phone.** Send the signed `.crt` and the CA cert
    (`out/dev/ca/homelab-dev.crt`) to the phone: AirDrop, signal-to-self, the
    secure-share feature inside the Nebula app, whatever you trust. In
-   the app: *Site → Certificate → Import* for the host cert, and
+   the app: *Site → Certificate → Import* for the cert, and
    *Site → CA → Import* for the CA cert.
 
 ### Why this fits the threat model
@@ -155,5 +155,5 @@ process or the operator's machine.
 
 Phones can be rotated independently. Generate a fresh keypair on the
 device, export the new public key, overwrite
-`mobile-pubkeys/<host>.pub`, re-run `nebula-pki`. The manifest will
-show a new fingerprint for that host on the next run.
+`mobile-pubkeys/<cert_label>.pub`, re-run `nebula-pki`. The manifest will
+show a new fingerprint for that cert on the next run.

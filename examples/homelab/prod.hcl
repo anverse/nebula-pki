@@ -1,7 +1,7 @@
 # Homelab — prod environment.
 #
-# Same overlay /16 as dev (172.16.0.0/16), different host ranges, and a
-# distinct CA. The two CAs are signed independently, so a prod host
+# Same overlay /16 as dev (172.16.0.0/16), different address ranges, and a
+# distinct CA. The two CAs are signed independently, so a prod node
 # cannot authenticate to dev and vice versa.
 #
 # Address plan:
@@ -22,7 +22,7 @@ storage {
   out_dir       = "out/prod"
   manifest_file = "out/prod/nebula-pki.json"
 
-  # At-rest encryption of the CA and host private keys ships in v0.2 via a
+  # At-rest encryption of the CA and cert private keys ships in v0.2 via a
   # `storage.encryption` block. The current release rejects the block with a
   # clear error, so it stays commented out here. Planned shape:
   #

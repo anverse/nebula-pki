@@ -6,7 +6,7 @@ from its own `output_dir`.
 
 This is the "yes, it scales beyond a homelab" example. It is *not* a
 benchmark. `nebula-pki` is still a hand-written-HCL tool aimed at the
-dozens-of-hosts range. Configs are reviewed in PRs and a diff per host
+dozens-of-nodes range. Configs are reviewed in PRs and a diff per node
 is a feature, not a problem at this scale. For a smaller setup see
 [`../homelab/`](../homelab/example.md).
 
@@ -37,7 +37,7 @@ is a feature, not a problem at this scale. For a smaller setup see
     10.30.1.0/24     app servers
 ```
 
-A single CA (`acme-mesh`) signs every host. All hosts can authenticate
+A single CA (`acme-mesh`) signs every cert. All nodes can authenticate
 to each other; segmentation between sites and roles is enforced at
 runtime via Nebula firewall rules that match on the `groups` carried by
 each cert.
@@ -47,7 +47,7 @@ each cert.
 - **One CA, many sites.** A single trust root with per-site `output_dir`.
 - **`ca.networks` and `ca.groups` as guard rails.** Subordinate certs
   can only declare addresses inside `10.0.0.0/8` and groups from the
-  allow-list. Catches typos and out-of-band hosts at config-parse time
+  allow-list. Catches typos and out-of-band certs at config-parse time
   rather than after deploy.
 - **`unsafe_networks` for office bridging.** The HQ edge router carries
   `192.168.10.0/24` so overlay peers can reach the office LAN through
@@ -55,10 +55,10 @@ each cert.
   allowed to appear on subordinate certs.
 - **Per-site `output_dir` as deploy target.** Each site's deploy
   pipeline reads from `out/sites/<site>/`. Adding a fourth site means
-  setting `output_dir = "out/sites/<site>"` on the new hosts.
-- **Default placement for non-shipped hosts.** Admin workstations have
+  setting `output_dir = "out/sites/<site>"` on the new certs.
+- **Default placement for non-shipped certs.** Admin workstations have
   no `output_dir`; their material ends up under
-  `out/hosts/<name>.{crt,key.enc}` and stays on the operator
+  `out/certs/<name>.{crt,key.enc}` and stays on the operator
   workstation.
 - **Sops backend deferring to `.sops.yaml`.** Empty `encryption "sops"
   {}` block; recipients live next to the rest of the org's secrets
@@ -101,7 +101,7 @@ business/
       us-east/
         lh_use_1.crt       + .key.enc
         app_use_1..2.crt   + .key.enc
-    hosts/
+    certs/
       admin_1.crt          + .key.enc
       admin_2.crt          + .key.enc
 ```
@@ -109,15 +109,15 @@ business/
 The `nebula-pki.json` manifest is safe to commit. It holds cert
 fingerprints, validity, and artifact paths. It contains no secret material.
 
-## Adding a host
+## Adding a node
 
 1. Pick a free address inside the right site's `/16`.
-2. Add a `host` block with `output_dir = "out/sites/<site>"` for the
-   right site (omit `output_dir` if the host shouldn't ship with the
+2. Add a `cert` block with `output_dir = "out/sites/<site>"` for the
+   right site (omit `output_dir` if the cert shouldn't ship with the
    site deploy).
 3. Run `nebula-pki --dry-run` to confirm the plan, then
    `nebula-pki` to reconcile.
-4. The PR diff is one host block. Reviewers see exactly what changes
+4. The PR diff is one cert block. Reviewers see exactly what changes
    on the Nebula network.
 
 ## Adding a site
@@ -125,7 +125,7 @@ fingerprints, validity, and artifact paths. It contains no secret material.
 1. Pick an unused `/16` inside `10.0.0.0/8`.
 2. Add an entry to `ca.groups` if the site warrants its own group
    (e.g. `"ap_south"`).
-3. Add `host` blocks for that site's lighthouses, app servers, etc.,
+3. Add `cert` blocks for that site's lighthouses, app servers, etc.,
    each with `output_dir = "out/sites/<site>"`.
 
 ## What this example deliberately does NOT do
@@ -133,7 +133,7 @@ fingerprints, validity, and artifact paths. It contains no secret material.
 - It does not render `config.yaml`. Lighthouse selection, firewall
   rules, blocklist, and runtime tuning live in the downstream deploy
   pipeline.
-- It does not ship certs to hosts. Terraform's `file()` reading from
+- It does not ship certs to nodes. Terraform's `file()` reading from
   `out/sites/<site>/` (or any equivalent) handles distribution.
 - It does not split into dev/staging/prod. For multiple environments,
   use one HCL file per environment in the same directory; see the
