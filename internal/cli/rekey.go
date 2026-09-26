@@ -136,8 +136,8 @@ func collectRekeyEntries(m *manifest.Manifest, newEnc crypto.Encryptor, force bo
 		})
 	}
 
-	hostLabels := sortedKeys(m.Certs)
-	for _, label := range hostLabels {
+	certLabels := sortedKeys(m.Certs)
+	for _, label := range certLabels {
 		h := m.Certs[label]
 		if h.InPub {
 			continue

@@ -13,9 +13,9 @@ import (
 // PEM-encoded public key as the device would export it via nebula-cert keygen.
 // The returned privRaw can be used in subsequent assertions on the cert's
 // embedded public key.
-func makeHostPubPEM(t *testing.T, curve cert.Curve) (pubPEM, pubRaw []byte) {
+func makeCertPubPEM(t *testing.T, curve cert.Curve) (pubPEM, pubRaw []byte) {
 	t.Helper()
-	pub, _, err := generateHostKeypair(curve)
+	pub, _, err := generateCertKeypair(curve)
 	if err != nil {
 		t.Fatalf("generateHostKeypair: %v", err)
 	}
@@ -39,10 +39,10 @@ func makeCA(t *testing.T, src string) *CAResult {
 
 // --- ParseHostPublicKeyPEM --------------------------------------------------
 
-func TestParseHostPublicKeyPEM_Curve25519(t *testing.T) {
-	pubPEM, pubRaw := makeHostPubPEM(t, cert.Curve_CURVE25519)
+func TestParseCertPublicKeyPEM_Curve25519(t *testing.T) {
+	pubPEM, pubRaw := makeCertPubPEM(t, cert.Curve_CURVE25519)
 
-	got, curveStr, err := ParseHostPublicKeyPEM(pubPEM)
+	got, curveStr, err := ParseCertPublicKeyPEM(pubPEM)
 	if err != nil {
 		t.Fatalf("ParseHostPublicKeyPEM: %v", err)
 	}
@@ -54,10 +54,10 @@ func TestParseHostPublicKeyPEM_Curve25519(t *testing.T) {
 	}
 }
 
-func TestParseHostPublicKeyPEM_P256(t *testing.T) {
-	pubPEM, pubRaw := makeHostPubPEM(t, cert.Curve_P256)
+func TestParseCertPublicKeyPEM_P256(t *testing.T) {
+	pubPEM, pubRaw := makeCertPubPEM(t, cert.Curve_P256)
 
-	got, curveStr, err := ParseHostPublicKeyPEM(pubPEM)
+	got, curveStr, err := ParseCertPublicKeyPEM(pubPEM)
 	if err != nil {
 		t.Fatalf("ParseHostPublicKeyPEM: %v", err)
 	}
@@ -69,17 +69,17 @@ func TestParseHostPublicKeyPEM_P256(t *testing.T) {
 	}
 }
 
-func TestParseHostPublicKeyPEM_InvalidPEM(t *testing.T) {
-	_, _, err := ParseHostPublicKeyPEM([]byte("not a pem block"))
+func TestParseCertPublicKeyPEM_InvalidPEM(t *testing.T) {
+	_, _, err := ParseCertPublicKeyPEM([]byte("not a pem block"))
 	if err == nil {
 		t.Fatal("expected error for invalid PEM, got nil")
 	}
 }
 
-func TestParseHostPublicKeyPEM_WrongType(t *testing.T) {
+func TestParseCertPublicKeyPEM_WrongType(t *testing.T) {
 	// A CA certificate PEM is not a host public key.
 	ca := makeCA(t, `ca "m" { name = "m" }`)
-	_, _, err := ParseHostPublicKeyPEM(ca.CertPEM)
+	_, _, err := ParseCertPublicKeyPEM(ca.CertPEM)
 	if err == nil {
 		t.Fatal("expected error when parsing a CA cert PEM as a host public key, got nil")
 	}
@@ -87,7 +87,7 @@ func TestParseHostPublicKeyPEM_WrongType(t *testing.T) {
 
 // --- SignHostFromPub ---------------------------------------------------------
 
-const inPubHostHCL = `
+const inPubCertHCL = `
 ca "mesh" { name = "mesh" }
 cert "phone" {
   name     = "alice-phone"
@@ -97,21 +97,21 @@ cert "phone" {
 }
 `
 
-func mustParseInPubHost(t *testing.T) config.Cert {
+func mustParseInPubCert(t *testing.T) config.Cert {
 	t.Helper()
-	cfg, err := config.Parse("nebula.hcl", []byte(inPubHostHCL))
+	cfg, err := config.Parse("nebula.hcl", []byte(inPubCertHCL))
 	if err != nil {
 		t.Fatalf("config.Parse: %v", err)
 	}
 	return cfg.Certs[0]
 }
 
-func TestSignHostFromPub_Curve25519(t *testing.T) {
+func TestSignCertFromPub_Curve25519(t *testing.T) {
 	ca := makeCA(t, `ca "mesh" { name = "mesh" }`)
-	pubPEM, pubRaw := makeHostPubPEM(t, cert.Curve_CURVE25519)
-	h := mustParseInPubHost(t)
+	pubPEM, pubRaw := makeCertPubPEM(t, cert.Curve_CURVE25519)
+	h := mustParseInPubCert(t)
 
-	res, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
+	res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
 	if err != nil {
 		t.Fatalf("SignHostFromPub: %v", err)
 	}
@@ -152,13 +152,13 @@ func TestSignHostFromPub_Curve25519(t *testing.T) {
 	}
 }
 
-func TestSignHostFromPub_P256(t *testing.T) {
+func TestSignCertFromPub_P256(t *testing.T) {
 	ca := makeCA(t, `
 ca "p256" {
   name  = "p256-mesh"
   curve = "P256"
 }`)
-	pubPEM, pubRaw := makeHostPubPEM(t, cert.Curve_P256)
+	pubPEM, pubRaw := makeCertPubPEM(t, cert.Curve_P256)
 
 	cfg, err := config.Parse("n.hcl", []byte(`
 ca "p256" {
@@ -174,7 +174,7 @@ cert "device" {
 		t.Fatalf("config.Parse: %v", err)
 	}
 
-	res, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Certs[0], fixedTime)
+	res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHostFromPub: %v", err)
 	}
@@ -190,13 +190,13 @@ cert "device" {
 	}
 }
 
-func TestSignHostFromPub_CurveMismatch(t *testing.T) {
+func TestSignCertFromPub_CurveMismatch(t *testing.T) {
 	// Curve25519 CA, P256 device pubkey → error.
 	ca := makeCA(t, `ca "mesh" { name = "mesh" }`)
-	pubPEM, _ := makeHostPubPEM(t, cert.Curve_P256)
-	h := mustParseInPubHost(t)
+	pubPEM, _ := makeCertPubPEM(t, cert.Curve_P256)
+	h := mustParseInPubCert(t)
 
-	_, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
+	_, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
 	if err == nil {
 		t.Fatal("expected curve mismatch error, got nil")
 	}
@@ -205,14 +205,14 @@ func TestSignHostFromPub_CurveMismatch(t *testing.T) {
 	}
 }
 
-func TestSignHostFromPub_CurveMismatch_P256CAWith25519Key(t *testing.T) {
+func TestSignCertFromPub_CurveMismatch_P256CAWith25519Key(t *testing.T) {
 	// P256 CA, Curve25519 device pubkey → error.
 	ca := makeCA(t, `
 ca "p256" {
   name  = "p256-mesh"
   curve = "P256"
 }`)
-	pubPEM, _ := makeHostPubPEM(t, cert.Curve_CURVE25519)
+	pubPEM, _ := makeCertPubPEM(t, cert.Curve_CURVE25519)
 
 	cfg, _ := config.Parse("n.hcl", []byte(`
 ca "p256" {
@@ -225,7 +225,7 @@ cert "device" {
 }
 `))
 
-	_, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Certs[0], fixedTime)
+	_, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Certs[0], fixedTime)
 	if err == nil {
 		t.Fatal("expected curve mismatch error, got nil")
 	}
@@ -234,17 +234,17 @@ cert "device" {
 	}
 }
 
-func TestSignHostFromPub_InvalidPEM(t *testing.T) {
+func TestSignCertFromPub_InvalidPEM(t *testing.T) {
 	ca := makeCA(t, `ca "mesh" { name = "mesh" }`)
-	h := mustParseInPubHost(t)
+	h := mustParseInPubCert(t)
 
-	_, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, []byte("not a pub key"), h, fixedTime)
+	_, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, []byte("not a pub key"), h, fixedTime)
 	if err == nil {
 		t.Fatal("expected error for invalid pubkey PEM, got nil")
 	}
 }
 
-func TestSignHostFromPub_ValidityCapAtCA(t *testing.T) {
+func TestSignCertFromPub_ValidityCapAtCA(t *testing.T) {
 	// Host duration exceeds CA lifetime → cert notAfter capped at CA notAfter.
 	// We use a short CA (2h) and a host duration that fits within it (1h30m)
 	// for config validation, then manually build a host with an even shorter
@@ -254,7 +254,7 @@ ca "mesh" {
   name     = "mesh"
   duration = "2h"
 }`)
-	pubPEM, _ := makeHostPubPEM(t, cert.Curve_CURVE25519)
+	pubPEM, _ := makeCertPubPEM(t, cert.Curve_CURVE25519)
 
 	// Build a host config that is valid (duration < ca.duration) but pass a
 	// longer duration directly to the signing call to exercise the cap logic.
@@ -278,7 +278,7 @@ cert "phone" {
 	h.Duration = 100 * 3600 * 1_000_000_000 // 100h as nanoseconds
 	h.HasDuration = true
 
-	res, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
+	res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
 	if err != nil {
 		t.Fatalf("SignHostFromPub: %v", err)
 	}
@@ -287,16 +287,16 @@ cert "phone" {
 	}
 }
 
-func TestSignHostFromPub_SamePubKeyProducesSameCertShape(t *testing.T) {
+func TestSignCertFromPub_SamePubKeyProducesSameCertShape(t *testing.T) {
 	// Two calls with the same public key produce certs with the same embedded
 	// public key (but may differ in signing entropy if any). The embedded
 	// public key must always equal the device-supplied one.
 	ca := makeCA(t, `ca "mesh" { name = "mesh" }`)
-	pubPEM, pubRaw := makeHostPubPEM(t, cert.Curve_CURVE25519)
-	h := mustParseInPubHost(t)
+	pubPEM, pubRaw := makeCertPubPEM(t, cert.Curve_CURVE25519)
+	h := mustParseInPubCert(t)
 
 	for i := range 2 {
-		res, err := SignHostFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
+		res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
 		if err != nil {
 			t.Fatalf("call %d: SignHostFromPub: %v", i+1, err)
 		}

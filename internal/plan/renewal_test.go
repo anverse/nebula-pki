@@ -14,48 +14,48 @@ import (
 // hostInRenewalWindow unit tests
 // ---------------------------------------------------------------------------
 
-func TestHostInRenewalWindow_ZeroRenewBefore_NeverInWindow(t *testing.T) {
+func TestCertInRenewalWindow_ZeroRenewBefore_NeverInWindow(t *testing.T) {
 	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := notAfter.Add(-24 * time.Hour) // well before expiry
-	if hostInRenewalWindow(0, notAfter, now) {
+	if certInRenewalWindow(0, notAfter, now) {
 		t.Error("hostInRenewalWindow(0, ...) = true, want false (no threshold configured)")
 	}
 }
 
-func TestHostInRenewalWindow_OutsideWindow(t *testing.T) {
+func TestCertInRenewalWindow_OutsideWindow(t *testing.T) {
 	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	renewBefore := 720 * time.Hour // 30 days
 	// now is 31 days before notAfter, outside the window
 	now := notAfter.Add(-31 * 24 * time.Hour)
-	if hostInRenewalWindow(renewBefore, notAfter, now) {
+	if certInRenewalWindow(renewBefore, notAfter, now) {
 		t.Error("hostInRenewalWindow = true, want false (now is before window entry)")
 	}
 }
 
-func TestHostInRenewalWindow_AtWindowBoundary(t *testing.T) {
+func TestCertInRenewalWindow_AtWindowBoundary(t *testing.T) {
 	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	renewBefore := 720 * time.Hour    // 30 days
 	now := notAfter.Add(-renewBefore) // exactly at the window boundary
-	if !hostInRenewalWindow(renewBefore, notAfter, now) {
+	if !certInRenewalWindow(renewBefore, notAfter, now) {
 		t.Error("hostInRenewalWindow = false at boundary, want true (now == window entry)")
 	}
 }
 
-func TestHostInRenewalWindow_InsideWindow(t *testing.T) {
+func TestCertInRenewalWindow_InsideWindow(t *testing.T) {
 	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	renewBefore := 720 * time.Hour // 30 days
 	// now is 10 days before notAfter, deep inside the window
 	now := notAfter.Add(-10 * 24 * time.Hour)
-	if !hostInRenewalWindow(renewBefore, notAfter, now) {
+	if !certInRenewalWindow(renewBefore, notAfter, now) {
 		t.Error("hostInRenewalWindow = false, want true (now inside window)")
 	}
 }
 
-func TestHostInRenewalWindow_AfterExpiry(t *testing.T) {
+func TestCertInRenewalWindow_AfterExpiry(t *testing.T) {
 	notAfter := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	renewBefore := 720 * time.Hour
 	now := notAfter.Add(24 * time.Hour) // already expired
-	if !hostInRenewalWindow(renewBefore, notAfter, now) {
+	if !certInRenewalWindow(renewBefore, notAfter, now) {
 		t.Error("hostInRenewalWindow = false after expiry, want true")
 	}
 }
@@ -72,13 +72,13 @@ cert "alpha" {
 }
 `
 
-func TestBuild_HostNoopOutsideRenewalWindow(t *testing.T) {
+func TestBuild_CertNoopOutsideRenewalWindow(t *testing.T) {
 	cfg := parseCfg(t, renewHCL)
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	// now is 31 days before notAfter, outside the 30-day window
 	now := notAfter.Add(-31 * 24 * time.Hour)
 
-	m := trackedHostManifest(cfg, notAfter)
+	m := trackedCertManifest(cfg, notAfter)
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
@@ -92,20 +92,20 @@ func TestBuild_HostNoopOutsideRenewalWindow(t *testing.T) {
 	if p.Changes() {
 		t.Fatalf("Changes() = true, want false (outside renewal window); actions = %+v", p.Actions)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpNoop {
 			t.Errorf("host %q: Op = %q, want noop", a.Label, a.Op)
 		}
 	}
 }
 
-func TestBuild_HostSignInsideRenewalWindow(t *testing.T) {
+func TestBuild_CertSignInsideRenewalWindow(t *testing.T) {
 	cfg := parseCfg(t, renewHCL)
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	// now is 10 days before notAfter, inside the 30-day window
 	now := notAfter.Add(-10 * 24 * time.Hour)
 
-	m := trackedHostManifest(cfg, notAfter)
+	m := trackedCertManifest(cfg, notAfter)
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
@@ -119,14 +119,14 @@ func TestBuild_HostSignInsideRenewalWindow(t *testing.T) {
 	if !p.Changes() {
 		t.Fatal("Changes() = false, want true (host inside renewal window)")
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpSign {
 			t.Errorf("host %q: Op = %q, want sign (inside renewal window)", a.Label, a.Op)
 		}
 	}
 }
 
-func TestBuild_HostNoRenewBefore_AlwaysNoop(t *testing.T) {
+func TestBuild_CertNoRenewBefore_AlwaysNoop(t *testing.T) {
 	// No renew_before on host or CA: time-based renewal is disabled.
 	cfg := parseCfg(t, `
 ca "mesh" { name = "m" }
@@ -137,7 +137,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	// no threshold is set.
 	now := notAfter.Add(-time.Second)
 
-	m := trackedHostManifest(cfg, notAfter)
+	m := trackedCertManifest(cfg, notAfter)
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
@@ -153,7 +153,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	}
 }
 
-func TestBuild_HostInheritedRenewBefore_InsideWindow_Signs(t *testing.T) {
+func TestBuild_CertInheritedRenewBefore_InsideWindow_Signs(t *testing.T) {
 	// renew_before is on the CA, not the host; the host should still renew.
 	cfg := parseCfg(t, `
 ca "mesh" {
@@ -166,7 +166,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	// now is 15 days before notAfter, inside the 30-day window
 	now := notAfter.Add(-15 * 24 * time.Hour)
 
-	m := trackedHostManifest(cfg, notAfter)
+	m := trackedCertManifest(cfg, notAfter)
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
@@ -180,14 +180,14 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if !p.Changes() {
 		t.Fatal("Changes() = false, want true (inherited renew_before, inside window)")
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpSign {
 			t.Errorf("host %q: Op = %q, want sign", a.Label, a.Op)
 		}
 	}
 }
 
-func TestBuild_CARotation_DefaultChange_ResignsHosts(t *testing.T) {
+func TestBuild_CARotation_DefaultChange_ResignsCerts(t *testing.T) {
 	// Before rotation: hosts were signed under "current".
 	// After moving default = true to "next": hosts must be re-signed.
 	cfg := parseCfg(t, `
@@ -222,7 +222,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if !p.Changes() {
 		t.Fatal("Changes() = false, want true (alpha must be re-signed under 'next')")
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "alpha" && a.Op != OpSign {
 			t.Errorf("alpha: Op = %q, want sign (CA rotation: was 'current', now 'next')", a.Op)
 		}
@@ -238,7 +238,7 @@ func TestBuild_NoRenewal_InsideWindow_Noop(t *testing.T) {
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	now := notAfter.Add(-10 * 24 * time.Hour) // inside the 30-day window
 
-	m := trackedHostManifest(cfg, notAfter)
+	m := trackedCertManifest(cfg, notAfter)
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
@@ -252,14 +252,14 @@ func TestBuild_NoRenewal_InsideWindow_Noop(t *testing.T) {
 	if p.Changes() {
 		t.Fatalf("Changes() = true with NoRenewal=true, want false (renewal suppressed); actions = %+v", p.Actions)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpNoop {
 			t.Errorf("host %q: Op = %q, want noop (NoRenewal suppresses window check)", a.Label, a.Op)
 		}
 	}
 }
 
-func TestBuild_NoRenewal_NewHost_StillSigns(t *testing.T) {
+func TestBuild_NoRenewal_NewCert_StillSigns(t *testing.T) {
 	cfg := parseCfg(t, renewHCL)
 
 	// No host record in manifest: untracked → must sign regardless of NoRenewal.
@@ -272,7 +272,7 @@ func TestBuild_NoRenewal_NewHost_StillSigns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpSign {
 			t.Errorf("host %q: Op = %q, want sign (new host, NoRenewal does not suppress)", a.Label, a.Op)
 		}
@@ -298,7 +298,7 @@ func TestBuild_NoRenewal_CAMismatch_StillSigns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpSign {
 			t.Errorf("host %q: Op = %q, want sign (CA mismatch, NoRenewal does not suppress)", a.Label, a.Op)
 		}
@@ -314,7 +314,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	now := notAfter.Add(-time.Second) // one second before expiry
 
-	m := trackedHostManifest(cfg, notAfter)
+	m := trackedCertManifest(cfg, notAfter)
 	ca := cfg.CAs[0]
 	exists := existsSet(
 		cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca),
@@ -332,7 +332,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 
 // trackedHostManifest builds a manifest with the mesh CA tracked and alpha
 // signed with the given notAfter.
-func trackedHostManifest(cfg *config.Config, notAfter time.Time) *manifest.Manifest {
+func trackedCertManifest(cfg *config.Config, notAfter time.Time) *manifest.Manifest {
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	m.Certs["alpha"] = manifest.Cert{

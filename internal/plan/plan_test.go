@@ -250,14 +250,14 @@ func TestBuild_NilManifestTreatedAsUntracked(t *testing.T) {
 
 // --- Host planning ----------------------------------------------------
 
-const hostHCL = `
+const certHCL = `
 ca "mesh" { name = "m" }
 cert "alpha" { networks = ["10.0.0.1/16"] }
 cert "beta"  { networks = ["10.0.0.2/16"] }
 `
 
-func TestBuild_HostSignWhenUntracked(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_CertSignWhenUntracked(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 
@@ -269,7 +269,7 @@ func TestBuild_HostSignWhenUntracked(t *testing.T) {
 	if !p.Changes() {
 		t.Fatal("Changes() = false, want true when hosts need signing")
 	}
-	ha := p.HostActions()
+	ha := p.CertActions()
 	if len(ha) != 2 {
 		t.Fatalf("HostActions() = %d, want 2", len(ha))
 	}
@@ -277,14 +277,14 @@ func TestBuild_HostSignWhenUntracked(t *testing.T) {
 		if a.Op != OpSign {
 			t.Errorf("host %q: Op = %q, want sign", a.Label, a.Op)
 		}
-		if a.Kind != KindHost {
+		if a.Kind != KindCert {
 			t.Errorf("host %q: Kind = %q, want host", a.Label, a.Kind)
 		}
 	}
 }
 
-func TestBuild_HostNoopWhenTrackedAndPresent(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_CertNoopWhenTrackedAndPresent(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
@@ -303,15 +303,15 @@ func TestBuild_HostNoopWhenTrackedAndPresent(t *testing.T) {
 	if p.Changes() {
 		t.Fatalf("Changes() = true, want false; actions = %+v", p.Actions)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpNoop {
 			t.Errorf("host %q: Op = %q, want noop", a.Label, a.Op)
 		}
 	}
 }
 
-func TestBuild_HostSignWhenFilesAbsent(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_CertSignWhenFilesAbsent(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
@@ -325,15 +325,15 @@ func TestBuild_HostSignWhenFilesAbsent(t *testing.T) {
 	if !p.Changes() {
 		t.Fatal("Changes() = false, want true when tracked hosts are missing their files")
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Op != OpSign {
 			t.Errorf("host %q: Op = %q, want sign (re-create missing files)", a.Label, a.Op)
 		}
 	}
 }
 
-func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_CertSignWhenCertPresentKeyMissing(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
@@ -349,7 +349,7 @@ func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	var alphaAction Action
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "alpha" {
 			alphaAction = a
 		}
@@ -359,8 +359,8 @@ func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
 	}
 }
 
-func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_CertSignWhenKeyPresentCertMissing(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
@@ -376,7 +376,7 @@ func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	var alphaAction Action
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "alpha" {
 			alphaAction = a
 		}
@@ -386,8 +386,8 @@ func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
 	}
 }
 
-func TestBuild_MultipleHostsMixedActions(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_MultipleCertsMixedActions(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	// alpha is tracked and present; beta is untracked.
@@ -406,7 +406,7 @@ func TestBuild_MultipleHostsMixedActions(t *testing.T) {
 	if !p.Changes() {
 		t.Fatal("Changes() = false, want true (beta needs signing)")
 	}
-	ha := p.HostActions()
+	ha := p.CertActions()
 	if len(ha) != 2 {
 		t.Fatalf("HostActions() = %d, want 2", len(ha))
 	}
@@ -418,8 +418,8 @@ func TestBuild_MultipleHostsMixedActions(t *testing.T) {
 	}
 }
 
-func TestBuild_CANoopHostSign_ChangesTrue(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_CANoopCertSign_ChangesTrue(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	// CA is tracked and both files present; CA action is noop.
@@ -443,8 +443,8 @@ func TestBuild_CANoopHostSign_ChangesTrue(t *testing.T) {
 // TestBuild_HostResignsWhenCAChanged verifies that if the recorded CA label
 // in the manifest differs from the current signing CA, planHost emits OpSign
 // even when the files are present.
-func TestBuild_HostResignsWhenCAChanged(t *testing.T) {
-	cfg := parseCfg(t, hostHCL)
+func TestBuild_CertResignsWhenCAChanged(t *testing.T) {
+	cfg := parseCfg(t, certHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	// Record alpha as having been signed by a different CA label.
@@ -460,7 +460,7 @@ func TestBuild_HostResignsWhenCAChanged(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	var alphaAction Action
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "alpha" {
 			alphaAction = a
 		}
@@ -496,7 +496,7 @@ func TestBuild_OutputDirNoopWhenPresent(t *testing.T) {
 	if p.Changes() {
 		t.Fatalf("Changes() = true, want false when output_dir artifacts present; actions = %+v", p.Actions)
 	}
-	for _, act := range p.HostActions() {
+	for _, act := range p.CertActions() {
 		if act.Op != OpNoop {
 			t.Errorf("host %q: Op = %q, want noop", act.Label, act.Op)
 		}
@@ -519,7 +519,7 @@ func TestBuild_OutputDirSignWhenFileMissing(t *testing.T) {
 	if !p.Changes() {
 		t.Fatal("Changes() = false, want true when output_dir key is missing")
 	}
-	for _, act := range p.HostActions() {
+	for _, act := range p.CertActions() {
 		if act.Op != OpSign {
 			t.Errorf("host %q: Op = %q, want sign", act.Label, act.Op)
 		}
@@ -639,7 +639,7 @@ func inPubTracked(certPath string) *manifest.Manifest {
 	return m
 }
 
-func TestPlanHost_InPub_NoopWhenCertPresent(t *testing.T) {
+func TestPlanCert_InPub_NoopWhenCertPresent(t *testing.T) {
 	cfg := parseCfg(t, inPubBaseCfg)
 	art := cfg.CertArtifactPath(cfg.Certs[0])
 	m := inPubTracked(art.CertPath)
@@ -648,14 +648,14 @@ func TestPlanHost_InPub_NoopWhenCertPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpNoop {
 			t.Errorf("phone op = %q, want noop (cert present, no key check for in_pub)", a.Op)
 		}
 	}
 }
 
-func TestPlanHost_InPub_NoKeyCheckNeeded(t *testing.T) {
+func TestPlanCert_InPub_NoKeyCheckNeeded(t *testing.T) {
 	// The key file is absent; for in_pub hosts this must not trigger a re-sign.
 	cfg := parseCfg(t, inPubBaseCfg)
 	art := cfg.CertArtifactPath(cfg.Certs[0])
@@ -666,14 +666,14 @@ func TestPlanHost_InPub_NoKeyCheckNeeded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpNoop {
 			t.Errorf("phone op = %q, want noop; in_pub hosts have no key to check", a.Op)
 		}
 	}
 }
 
-func TestPlanHost_InPub_SignWhenCertMissing(t *testing.T) {
+func TestPlanCert_InPub_SignWhenCertMissing(t *testing.T) {
 	cfg := parseCfg(t, inPubBaseCfg)
 	art := cfg.CertArtifactPath(cfg.Certs[0])
 	m := inPubTracked(art.CertPath)
@@ -683,14 +683,14 @@ func TestPlanHost_InPub_SignWhenCertMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpSign {
 			t.Errorf("phone op = %q, want sign (cert missing)", a.Op)
 		}
 	}
 }
 
-func TestPlanHost_InPub_SignWhenNotTracked(t *testing.T) {
+func TestPlanCert_InPub_SignWhenNotTracked(t *testing.T) {
 	cfg := parseCfg(t, inPubBaseCfg)
 	art := cfg.CertArtifactPath(cfg.Certs[0])
 	m := manifest.New()
@@ -701,14 +701,14 @@ func TestPlanHost_InPub_SignWhenNotTracked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpSign {
 			t.Errorf("phone op = %q, want sign (not tracked)", a.Op)
 		}
 	}
 }
 
-func TestPlanHost_InPub_SignOnProvenanceChange_RegularToInPub(t *testing.T) {
+func TestPlanCert_InPub_SignOnProvenanceChange_RegularToInPub(t *testing.T) {
 	// Manifest recorded as regular (InPub=false); config now sets in_pub → re-sign.
 	cfg := parseCfg(t, inPubBaseCfg)
 	art := cfg.CertArtifactPath(cfg.Certs[0])
@@ -732,14 +732,14 @@ func TestPlanHost_InPub_SignOnProvenanceChange_RegularToInPub(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpSign {
 			t.Errorf("phone op = %q, want sign (provenance changed regular → in_pub)", a.Op)
 		}
 	}
 }
 
-func TestPlanHost_InPub_SignOnProvenanceChange_InPubToRegular(t *testing.T) {
+func TestPlanCert_InPub_SignOnProvenanceChange_InPubToRegular(t *testing.T) {
 	// Manifest recorded as in_pub; config no longer has in_pub → re-sign.
 	src := `
 ca "mesh" { name = "m" }
@@ -766,14 +766,14 @@ cert "phone" {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpSign {
 			t.Errorf("phone op = %q, want sign (provenance changed in_pub → regular)", a.Op)
 		}
 	}
 }
 
-func TestPlanHost_InPub_RenewalTriggersReSign(t *testing.T) {
+func TestPlanCert_InPub_RenewalTriggersReSign(t *testing.T) {
 	src := `
 ca "mesh" {
   name         = "m"
@@ -806,14 +806,14 @@ cert "phone" {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpSign {
 			t.Errorf("phone op = %q, want sign (in renewal window)", a.Op)
 		}
 	}
 }
 
-func TestPlanHost_InPub_RenewalSuppressedByNoRenewal(t *testing.T) {
+func TestPlanCert_InPub_RenewalSuppressedByNoRenewal(t *testing.T) {
 	src := `
 ca "mesh" {
   name         = "m"
@@ -844,7 +844,7 @@ cert "phone" {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, a := range p.HostActions() {
+	for _, a := range p.CertActions() {
 		if a.Label == "phone" && a.Op != OpNoop {
 			t.Errorf("phone op = %q, want noop (NoRenewal suppresses window)", a.Op)
 		}

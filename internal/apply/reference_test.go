@@ -404,7 +404,7 @@ ca "mesh" {
 // TestReconcile_ReferenceWithHosts verifies that reference mode signs host
 // certs using the operator-supplied CA (the CA files themselves are never
 // rewritten) and that a second run is byte-identical.
-func TestReconcile_ReferenceWithHosts(t *testing.T) {
+func TestReconcile_ReferenceWithCerts(t *testing.T) {
 	dir := t.TempDir()
 	seed := seedReferenceCA(t, dir, `ca "mesh" { name = "ref-mesh" }`)
 
@@ -433,17 +433,17 @@ cert "alpha" {
 	if !rep.Changed {
 		t.Fatal("Changed = false on first reference+host run, want true")
 	}
-	if len(rep.SignedHosts) != 1 || rep.SignedHosts[0].Label != "alpha" {
-		t.Errorf("SignedHosts = %v, want [{alpha ...}]", rep.SignedHosts)
+	if len(rep.SignedCerts) != 1 || rep.SignedCerts[0].Label != "alpha" {
+		t.Errorf("SignedHosts = %v, want [{alpha ...}]", rep.SignedCerts)
 	}
 
 	// Host cert and key must exist.
-	hostCertReal := cfg.Resolve(rep.SignedHosts[0].Artifacts[0].CertPath)
-	hostKeyReal := cfg.Resolve(rep.SignedHosts[0].Artifacts[0].KeyPath)
-	if _, err := os.Stat(hostCertReal); err != nil {
+	crtReal := cfg.Resolve(rep.SignedCerts[0].Artifacts[0].CertPath)
+	keyReal := cfg.Resolve(rep.SignedCerts[0].Artifacts[0].KeyPath)
+	if _, err := os.Stat(crtReal); err != nil {
 		t.Errorf("host cert missing: %v", err)
 	}
-	if _, err := os.Stat(hostKeyReal); err != nil {
+	if _, err := os.Stat(keyReal); err != nil {
 		t.Errorf("host key missing: %v", err)
 	}
 
@@ -460,8 +460,8 @@ cert "alpha" {
 
 	// Second run must be a noop; files and manifest byte-identical.
 	manBefore := mustRead(t, cfg.Resolve(cfg.ManifestPath()))
-	certBefore := mustRead(t, hostCertReal)
-	keyBefore := mustRead(t, hostKeyReal)
+	certBefore := mustRead(t, crtReal)
+	keyBefore := mustRead(t, keyReal)
 
 	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
 	if err != nil {
@@ -473,10 +473,10 @@ cert "alpha" {
 	if !bytes.Equal(mustRead(t, cfg.Resolve(cfg.ManifestPath())), manBefore) {
 		t.Error("manifest changed on idempotent reference+host rerun")
 	}
-	if !bytes.Equal(mustRead(t, hostCertReal), certBefore) {
+	if !bytes.Equal(mustRead(t, crtReal), certBefore) {
 		t.Error("host cert changed on idempotent reference+host rerun")
 	}
-	if !bytes.Equal(mustRead(t, hostKeyReal), keyBefore) {
+	if !bytes.Equal(mustRead(t, keyReal), keyBefore) {
 		t.Error("host key changed on idempotent reference+host rerun")
 	}
 }

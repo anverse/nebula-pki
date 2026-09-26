@@ -308,7 +308,7 @@ ca "ref" {
 
 // --- Missing host networks --------------------------------------------------
 
-func TestParse_HostWithoutNetworks(t *testing.T) {
+func TestParse_CertWithoutNetworks(t *testing.T) {
 	src := minimalGenerate + `
 cert "a" {}
 `
@@ -321,7 +321,7 @@ cert "a" {}
 	}
 }
 
-func TestParse_HostWithEmptyNetworks(t *testing.T) {
+func TestParse_CertWithEmptyNetworks(t *testing.T) {
 	src := minimalGenerate + `
 cert "a" { networks = [] }
 `
@@ -350,7 +350,7 @@ cert "a" {
 	}
 }
 
-func TestParse_HostNetworkFamilyMismatchAgainstCA(t *testing.T) {
+func TestParse_CertNetworkFamilyMismatchAgainstCA(t *testing.T) {
 	src := `
 ca "m" {
   name     = "m"
@@ -389,7 +389,7 @@ ca "m" {
 
 // TestParse_HostValidatedAgainstItsSigningCA ensures that host restriction
 // checks use the host's signing CA, not some other CA in the config.
-func TestParse_HostValidatedAgainstItsSigningCA(t *testing.T) {
+func TestParse_CertValidatedAgainstItsSigningCA(t *testing.T) {
 	src := `
 ca "permissive" {
   name    = "permissive"

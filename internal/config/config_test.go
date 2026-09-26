@@ -190,7 +190,7 @@ cert "edge" {
 	}
 }
 
-func TestParse_HostNameDefaultsToLabel(t *testing.T) {
+func TestParse_CertNameDefaultsToLabel(t *testing.T) {
 	src := minimalGenerate + `
 cert "alpha" {
   networks = ["10.0.0.1/16"]
@@ -544,7 +544,7 @@ ca "b" {
 }
 
 // TestParse_HostExplicitCARef verifies that a host can name its signing CA.
-func TestParse_HostExplicitCARef(t *testing.T) {
+func TestParse_CertExplicitCARef(t *testing.T) {
 	src := `
 ca "alpha" { name = "alpha" }
 ca "beta"  { name = "beta" }
@@ -593,7 +593,7 @@ func mustPrefix(t *testing.T, s string) netip.Prefix {
 	return p
 }
 
-func TestParse_MultipleHostsHappyPath(t *testing.T) {
+func TestParse_MultipleCertsHappyPath(t *testing.T) {
 	src := `
 ca "m" {
   name     = "m"

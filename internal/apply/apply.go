@@ -74,7 +74,7 @@ type SignedArtifact struct {
 }
 
 // SignedHost is a brief record of one host that was signed this run.
-type SignedHost struct {
+type SignedCert struct {
 	Label     string
 	Artifacts []SignedArtifact
 }
@@ -138,7 +138,7 @@ type Report struct {
 
 	// SignedHosts is the set of hosts that were signed this run, in config
 	// order. Empty on a noop run.
-	SignedHosts []SignedHost
+	SignedCerts []SignedCert
 
 	// StaleArtifacts is the list of logical paths from a previous run that
 	// are no longer written by the current configuration, for example the
@@ -283,7 +283,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	report.CreatedLinks = createdLinks
 	report.DeletedLinks = deletedLinks
 
-	signed, stale, err := applyHosts(cfg, enc, opts, p.HostActions(), caKeys, current, next)
+	signed, stale, err := applyCerts(cfg, enc, opts, p.CertActions(), caKeys, current, next)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +328,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		return nil, err
 	}
 	report.Changed = true
-	report.SignedHosts = signed
+	report.SignedCerts = signed
 	report.StaleArtifacts = stale
 	return report, nil
 }
@@ -512,17 +512,17 @@ func writeKeyFile(cfg *config.Config, enc crypto.Encryptor, basePath string, key
 // files for each signed host and populates next.Hosts. Returns the list
 // of newly signed hosts (in action order) and any logical paths from a
 // previous run that are no longer written by the current configuration.
-func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedHost, []string, error) {
-	var signed []SignedHost
+func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedCert, []string, error) {
+	var signed []SignedCert
 	var stale []string
 
-	hostByLabel := make(map[string]*config.Cert, len(cfg.Certs))
+	certByLabel := make(map[string]*config.Cert, len(cfg.Certs))
 	for i := range cfg.Certs {
-		hostByLabel[cfg.Certs[i].Label] = &cfg.Certs[i]
+		certByLabel[cfg.Certs[i].Label] = &cfg.Certs[i]
 	}
 
-	for _, ha := range hostActions {
-		h := hostByLabel[ha.Label]
+	for _, ha := range certActions {
+		h := certByLabel[ha.Label]
 		if h == nil {
 			return nil, nil, fmt.Errorf("host action references unknown label %q", ha.Label)
 		}
@@ -577,7 +577,7 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 			caKeys[signingCA.Label] = pems
 		}
 
-		var result *pki.HostResult
+		var result *pki.CertResult
 		if h.InPub != "" {
 			// Air-gapped signing (ADR-018): read the device-supplied public key
 			// and sign it. No keypair is generated; no key file is written.
@@ -585,13 +585,13 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 			if err != nil {
 				return nil, nil, fmt.Errorf("host %q: read in_pub %s: %w", h.Label, h.InPub, err)
 			}
-			result, err = pki.SignHostFromPub(pems.cert, pems.key, pubKeyPEM, *h, opts.Now)
+			result, err = pki.SignCertFromPub(pems.cert, pems.key, pubKeyPEM, *h, opts.Now)
 			if err != nil {
 				return nil, nil, err
 			}
 		} else {
 			var err error
-			result, err = pki.SignHost(pems.cert, pems.key, *h, opts.Now)
+			result, err = pki.SignCert(pems.cert, pems.key, *h, opts.Now)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -645,7 +645,7 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 			}},
 		}
 
-		signed = append(signed, SignedHost{
+		signed = append(signed, SignedCert{
 			Label: h.Label,
 			Artifacts: []SignedArtifact{{
 				Dir:      newArt.Dir,
@@ -898,13 +898,13 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 		}
 	}
 
-	hostByLabel := make(map[string]*config.Cert, len(cfg.Certs))
+	certByLabel := make(map[string]*config.Cert, len(cfg.Certs))
 	for i := range cfg.Certs {
-		hostByLabel[cfg.Certs[i].Label] = &cfg.Certs[i]
+		certByLabel[cfg.Certs[i].Label] = &cfg.Certs[i]
 	}
-	for _, ha := range p.HostActions() {
+	for _, ha := range p.CertActions() {
 		if ha.Op == plan.OpSign {
-			if h, ok := hostByLabel[ha.Label]; ok {
+			if h, ok := certByLabel[ha.Label]; ok {
 				art := cfg.CertArtifactPath(*h)
 				writes = append(writes, art.CertPath)
 				// in_pub hosts write only a certificate, no key file.

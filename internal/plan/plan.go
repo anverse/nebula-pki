@@ -48,7 +48,7 @@ const (
 	// KindCA is the certificate authority.
 	KindCA Kind = "ca"
 	// KindHost is a host certificate.
-	KindHost Kind = "host"
+	KindCert Kind = "host"
 	// KindLink is a link_crt symlink.
 	KindLink Kind = "link"
 )
@@ -109,14 +109,14 @@ func (p Plan) CAActions() []Action {
 }
 
 // HostActions returns all host actions from the plan, in config order.
-func (p Plan) HostActions() []Action {
-	var hosts []Action
+func (p Plan) CertActions() []Action {
+	var certs []Action
 	for _, a := range p.Actions {
-		if a.Kind == KindHost {
-			hosts = append(hosts, a)
+		if a.Kind == KindCert {
+			certs = append(certs, a)
 		}
 	}
-	return hosts
+	return certs
 }
 
 // LinkActions returns all link_crt symlink actions from the plan.
@@ -174,7 +174,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 	}
 
 	for i := range cfg.Certs {
-		ha := planHost(cfg, m, &cfg.Certs[i], now, exists, opts.NoRenewal)
+		ha := planCert(cfg, m, &cfg.Certs[i], now, exists, opts.NoRenewal)
 		actions = append(actions, ha)
 	}
 
@@ -192,7 +192,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 // hostInRenewalWindow reports whether a host cert is within its renew_before
 // window as of now: true when now >= not_after - renewBefore. Returns false
 // when renewBefore is zero (no time-based renewal configured).
-func hostInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) bool {
+func certInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) bool {
 	if renewBefore <= 0 {
 		return false
 	}
@@ -218,7 +218,7 @@ func hostInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) boo
 // does NOT detect it; only cert presence and provenance are compared. For
 // hardware-bound keys this is correct (key never changes). For other cases
 // the operator must delete the cert file to force a re-sign.
-func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time.Time, exists func(string) bool, noRenewal bool) Action {
+func planCert(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time.Time, exists func(string) bool, noRenewal bool) Action {
 	artifact := cfg.CertArtifactPath(*h)
 	signingCA := cfg.SigningCA(*h)
 
@@ -247,14 +247,14 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 	if tracked && caMatch && provenanceMatch && certOK && keyOK {
 		rb := cfg.ResolvedRenewBefore(*h)
 		mh := m.Certs[h.Label]
-		if noRenewal || !hostInRenewalWindow(rb, mh.NotAfter, now) {
-			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+		if noRenewal || !certInRenewalWindow(rb, mh.NotAfter, now) {
+			return Action{Op: OpNoop, Kind: KindCert, Label: h.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("host %q up to date", h.Label)}
 		}
 		// Inside renewal window and renewal is not suppressed; fall through to sign.
 	}
 	return Action{
 		Op:         OpSign,
-		Kind:       KindHost,
+		Kind:       KindCert,
 		Label:      h.Label,
 		Path:       artifact.CertPath,
 		Desc:       fmt.Sprintf("sign host %q", h.Label),

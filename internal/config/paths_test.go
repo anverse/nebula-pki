@@ -89,7 +89,7 @@ storage { out_dir = "artifacts" }
 	}
 }
 
-func TestHostArtifactPath_Default(t *testing.T) {
+func TestCertArtifactPath_Default(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
 cert "node" { networks = ["10.0.0.1/16"] }
@@ -108,7 +108,7 @@ cert "node" { networks = ["10.0.0.1/16"] }
 	}
 }
 
-func TestHostArtifactPath_ExplicitPaths(t *testing.T) {
+func TestCertArtifactPath_ExplicitPaths(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
 cert "node" {
@@ -131,7 +131,7 @@ cert "node" {
 	}
 }
 
-func TestHostArtifactPath_OutputDir(t *testing.T) {
+func TestCertArtifactPath_OutputDir(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
 cert "node" {
@@ -153,7 +153,7 @@ cert "node" {
 	}
 }
 
-func TestHostArtifactPath_OutputDirAndOutCrt(t *testing.T) {
+func TestCertArtifactPath_OutputDirAndOutCrt(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
 cert "node" {
@@ -176,7 +176,7 @@ cert "node" {
 	}
 }
 
-func TestHostArtifactPath_OutputDirAndOutKey(t *testing.T) {
+func TestCertArtifactPath_OutputDirAndOutKey(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
 cert "node" {
@@ -199,7 +199,7 @@ cert "node" {
 	}
 }
 
-func TestHostArtifactPath_OutputDirAndBoth(t *testing.T) {
+func TestCertArtifactPath_OutputDirAndBoth(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 ca "m" { name = "m" }
 cert "node" {

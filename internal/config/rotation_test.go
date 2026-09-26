@@ -64,7 +64,7 @@ ca "mesh" {
 	}
 }
 
-func TestCA_Archived_HostSigningViaDefaultErrors(t *testing.T) {
+func TestCA_Archived_CertSigningViaDefaultErrors(t *testing.T) {
 	// Only CA is archived; host would use it as the sole/default CA.
 	src := `
 ca "mesh" {
@@ -82,7 +82,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	}
 }
 
-func TestCA_Archived_HostSigningViaExplicitRefErrors(t *testing.T) {
+func TestCA_Archived_CertSigningViaExplicitRefErrors(t *testing.T) {
 	src := `
 ca "current" {
   name     = "old"
@@ -106,7 +106,7 @@ cert "alpha" {
 	}
 }
 
-func TestCA_Archived_HostCanUseLiveCAWhileOtherIsArchived(t *testing.T) {
+func TestCA_Archived_CertCanUseLiveCAWhileOtherIsArchived(t *testing.T) {
 	src := `
 ca "current" {
   name     = "old"
@@ -241,7 +241,7 @@ ca "mesh" {
 // host.renew_before
 // ---------------------------------------------------------------------------
 
-func TestHost_RenewBefore_Parsed(t *testing.T) {
+func TestCert_RenewBefore_Parsed(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
 cert "alpha" {
@@ -262,7 +262,7 @@ cert "alpha" {
 	}
 }
 
-func TestHost_RenewBefore_InvalidDurationErrors(t *testing.T) {
+func TestCert_RenewBefore_InvalidDurationErrors(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
 cert "alpha" {
@@ -279,7 +279,7 @@ cert "alpha" {
 	}
 }
 
-func TestHost_RenewBefore_GeqDuration_Errors(t *testing.T) {
+func TestCert_RenewBefore_GeqDuration_Errors(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
 cert "alpha" {
@@ -297,7 +297,7 @@ cert "alpha" {
 	}
 }
 
-func TestHost_RenewBefore_LessThanDuration_OK(t *testing.T) {
+func TestCert_RenewBefore_LessThanDuration_OK(t *testing.T) {
 	src := `
 ca "mesh" { name = "m" }
 cert "alpha" {
@@ -311,7 +311,7 @@ cert "alpha" {
 	}
 }
 
-func TestHost_RenewBefore_GeqCADuration_Inherited_Errors(t *testing.T) {
+func TestCert_RenewBefore_GeqCADuration_Inherited_Errors(t *testing.T) {
 	// host.renew_before 300h >= signing ca.duration 300h → error (no host duration set).
 	src := `
 ca "mesh" {
@@ -333,7 +333,7 @@ cert "alpha" {
 	}
 }
 
-func TestHost_RenewBefore_InheritedFromCA_GeqHostDuration_Errors(t *testing.T) {
+func TestCert_RenewBefore_InheritedFromCA_GeqCertDuration_Errors(t *testing.T) {
 	// CA renew_before 100h inherited by host; host.duration = 50h → churn.
 	src := `
 ca "mesh" {
@@ -354,7 +354,7 @@ cert "alpha" {
 	}
 }
 
-func TestHost_RenewBefore_InheritedFromCA_LessThanHostDuration_OK(t *testing.T) {
+func TestCert_RenewBefore_InheritedFromCA_LessThanCertDuration_OK(t *testing.T) {
 	src := `
 ca "mesh" {
   name         = "m"
@@ -374,7 +374,7 @@ cert "alpha" {
 // Config.ResolvedRenewBefore
 // ---------------------------------------------------------------------------
 
-func TestConfig_ResolvedRenewBefore_HostOverrideWins(t *testing.T) {
+func TestConfig_ResolvedRenewBefore_CertOverrideWins(t *testing.T) {
 	src := `
 ca "mesh" {
   name         = "m"

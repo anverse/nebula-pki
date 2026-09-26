@@ -37,7 +37,7 @@ func nebulaPkiMain() int {
 // curve is "25519" (default) or "P256". With -key, the device private key
 // PEM is also written, so smoke tests can assemble a full nebula config
 // for an in_pub-signed certificate.
-func genHostPub(ts *testscript.TestScript, neg bool, args []string) {
+func genCertPub(ts *testscript.TestScript, neg bool, args []string) {
 	const usage = "gen-host-pub: usage: gen-host-pub [-key <key-path>] <output-path> [25519|P256]"
 
 	keyPath := ""

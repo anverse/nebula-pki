@@ -205,26 +205,26 @@ func TestGenerateCA_DistinctNamesProduceDistinctCerts(t *testing.T) {
 // --- SignHost tests -------------------------------------------------------
 
 // mustSignHost is a helper that generates a CA then signs a host under it.
-func mustSignHost(t *testing.T, caSrc, hostSrc string) (*CAResult, *HostResult) {
+func mustSignCert(t *testing.T, caSrc, certSrc string) (*CAResult, *CertResult) {
 	t.Helper()
 	caCfg := mustParseCA(t, caSrc)
 	ca, err := GenerateCA(caCfg.CAs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("GenerateCA: %v", err)
 	}
-	hCfg, err := config.Parse("nebula.hcl", []byte(hostSrc))
+	hCfg, err := config.Parse("nebula.hcl", []byte(certSrc))
 	if err != nil {
 		t.Fatalf("config.Parse host: %v", err)
 	}
-	hr, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
+	hr, err := SignCert(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHost: %v", err)
 	}
 	return ca, hr
 }
 
-func TestSignHost_CNAndNotACA(t *testing.T) {
-	_, hr := mustSignHost(t,
+func TestSignCert_CNAndNotACA(t *testing.T) {
+	_, hr := mustSignCert(t,
 		`ca "mesh" { name = "mesh" }`,
 		`ca "mesh" { name = "mesh" }
 cert "h" {
@@ -245,8 +245,8 @@ cert "h" {
 	}
 }
 
-func TestSignHost_CurveAndVersionInheritedFromCA(t *testing.T) {
-	_, hr := mustSignHost(t,
+func TestSignCert_CurveAndVersionInheritedFromCA(t *testing.T) {
+	_, hr := mustSignCert(t,
 		`ca "mesh" {
   name    = "mesh"
   curve   = "25519"
@@ -263,8 +263,8 @@ cert "h" { networks = ["10.0.0.1/16"] }`)
 	}
 }
 
-func TestSignHost_NetworksGroupsUnsafeNetworksRoundTrip(t *testing.T) {
-	_, hr := mustSignHost(t,
+func TestSignCert_NetworksGroupsUnsafeNetworksRoundTrip(t *testing.T) {
+	_, hr := mustSignCert(t,
 		`ca "mesh" {
   name            = "mesh"
   groups          = ["edge", "app"]
@@ -294,8 +294,8 @@ cert "h" {
 	}
 }
 
-func TestSignHost_DefaultDurationMatchesCAExpiry(t *testing.T) {
-	ca, hr := mustSignHost(t,
+func TestSignCert_DefaultDurationMatchesCAExpiry(t *testing.T) {
+	ca, hr := mustSignCert(t,
 		`ca "mesh" { name = "mesh" }`,
 		`ca "mesh" { name = "mesh" }
 cert "h" { networks = ["10.0.0.1/16"] }`)
@@ -309,8 +309,8 @@ cert "h" { networks = ["10.0.0.1/16"] }`)
 	}
 }
 
-func TestSignHost_ExplicitDuration(t *testing.T) {
-	_, hr := mustSignHost(t,
+func TestSignCert_ExplicitDuration(t *testing.T) {
+	_, hr := mustSignCert(t,
 		`ca "mesh" {
   name     = "mesh"
   duration = "8760h"
@@ -327,8 +327,8 @@ cert "h" {
 	}
 }
 
-func TestSignHost_CAFingerprintMatches(t *testing.T) {
-	ca, hr := mustSignHost(t,
+func TestSignCert_CAFingerprintMatches(t *testing.T) {
+	ca, hr := mustSignCert(t,
 		`ca "mesh" { name = "mesh" }`,
 		`ca "mesh" { name = "mesh" }
 cert "h" { networks = ["10.0.0.1/16"] }`)
@@ -341,8 +341,8 @@ cert "h" { networks = ["10.0.0.1/16"] }`)
 	}
 }
 
-func TestSignHost_DurationCappedToCACertExpiry(t *testing.T) {
-	ca, hr := mustSignHost(t,
+func TestSignCert_DurationCappedToCACertExpiry(t *testing.T) {
+	ca, hr := mustSignCert(t,
 		`ca "mesh" {
   name     = "mesh"
   duration = "1h"
@@ -363,8 +363,8 @@ cert "h" {
 	}
 }
 
-func TestSignHost_DurationShorterThanCAIsHonoured(t *testing.T) {
-	ca, hr := mustSignHost(t,
+func TestSignCert_DurationShorterThanCAIsHonoured(t *testing.T) {
+	ca, hr := mustSignCert(t,
 		`ca "mesh" {
   name     = "mesh"
   duration = "100h"
@@ -384,7 +384,7 @@ cert "h" {
 	}
 }
 
-func TestSignHost_Distinct(t *testing.T) {
+func TestSignCert_Distinct(t *testing.T) {
 	caCfg := mustParseCA(t, `ca "mesh" { name = "mesh" }`)
 	ca, err := GenerateCA(caCfg.CAs[0], fixedTime)
 	if err != nil {
@@ -395,11 +395,11 @@ ca "m" { name = "m" }
 cert "h" { networks = ["10.0.0.1/16"] }
 `))
 
-	a, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
+	a, err := SignCert(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHost a: %v", err)
 	}
-	b, err := SignHost(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
+	b, err := SignCert(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
 		t.Fatalf("SignHost b: %v", err)
 	}
@@ -414,7 +414,7 @@ cert "h" { networks = ["10.0.0.1/16"] }
 // keys a CA uses. Regression test for host keys being issued with the
 // "NEBULA ED25519 PRIVATE KEY" banner, which nebula rejects with "bytes
 // did not contain a proper private key banner".
-func TestSignHost_KeyIsEncryptionKey(t *testing.T) {
+func TestSignCert_KeyIsEncryptionKey(t *testing.T) {
 	cases := []struct {
 		name   string
 		caSrc  string
@@ -443,7 +443,7 @@ func TestSignHost_KeyIsEncryptionKey(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ca, hr := mustSignHost(t, tc.caSrc,
+			ca, hr := mustSignCert(t, tc.caSrc,
 				`ca "mesh" { name = "mesh" }
 cert "h" { networks = ["10.0.0.1/16"] }`)
 

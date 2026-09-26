@@ -213,7 +213,7 @@ func TestCollectRekeyEntries_SkipsReferenceCA(t *testing.T) {
 	}
 }
 
-func TestCollectRekeyEntries_SkipsInPubHost(t *testing.T) {
+func TestCollectRekeyEntries_SkipsInPubCert(t *testing.T) {
 	m := manifest.New()
 	m.Certs["inpub"] = manifest.Cert{InPub: true, Artifacts: []manifest.Artifact{{CertPath: "out/certs/inpub.crt"}}}
 

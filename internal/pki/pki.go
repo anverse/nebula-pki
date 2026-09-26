@@ -279,7 +279,7 @@ func generateKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 // cert.UnmarshalPrivateKeyFromPEM and the Noise handshake expect: a
 // 32-byte X25519 scalar for CURVE25519, or the 32-byte P256 scalar via
 // the ECDH encoding. CAs use generateKeypair (signing keys) instead.
-func generateHostKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
+func generateCertKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 	switch curve {
 	case cert.Curve_CURVE25519:
 		key, err := ecdh.X25519().GenerateKey(rand.Reader)
@@ -304,7 +304,7 @@ func generateHostKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 // freshly generated private key, plus the metadata the manifest records.
 // Curve and Version are returned in their HCL spellings ("25519"/"P256",
 // 1/2) for consistency with CAResult and the manifest format.
-type HostResult struct {
+type CertResult struct {
 	CertPEM []byte
 	KeyPEM  []byte
 
@@ -330,7 +330,7 @@ type HostResult struct {
 // the CA's expiry so it never outlives its signing CA. Otherwise it
 // co-expires with the CA (mirrors nebula-cert sign's default behaviour
 // when no -duration flag is given).
-func SignHost(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*HostResult, error) {
+func SignCert(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*CertResult, error) {
 	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
 	if err != nil {
 		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)
@@ -352,7 +352,7 @@ func SignHost(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*HostRe
 		}
 	}
 
-	pub, rawPriv, err := generateHostKeypair(curve)
+	pub, rawPriv, err := generateCertKeypair(curve)
 	if err != nil {
 		return nil, fmt.Errorf("generate host keypair: %w", err)
 	}
@@ -393,7 +393,7 @@ func SignHost(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*HostRe
 		return nil, fmt.Errorf("compute CA fingerprint while signing host %q: %w", h.Name, err)
 	}
 
-	return &HostResult{
+	return &CertResult{
 		CertPEM:       certPEM,
 		KeyPEM:        keyPEM,
 		Name:          c.Name(),
@@ -424,7 +424,7 @@ func CurveString(cv cert.Curve) string {
 // by nebula-cert keygen or a mobile app) and returns the raw key bytes and
 // the curve string ("25519" or "P256"). Used by SignHostFromPub and by the
 // check command to verify the curve before attempting a full reconcile.
-func ParseHostPublicKeyPEM(pubKeyPEM []byte) (rawPub []byte, curveStr string, err error) {
+func ParseCertPublicKeyPEM(pubKeyPEM []byte) (rawPub []byte, curveStr string, err error) {
 	raw, _, curve, err := cert.UnmarshalPublicKeyFromPEM(pubKeyPEM)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse host public key PEM: %w", err)
@@ -438,7 +438,7 @@ func ParseHostPublicKeyPEM(pubKeyPEM []byte) (rawPub []byte, curveStr string, er
 // fresh keypair, and it returns a HostResult with a nil KeyPEM because no
 // private key exists on the CA host. The curve of the supplied public key must
 // match the signing CA's curve; a mismatch is returned as an error.
-func SignHostFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Cert, now time.Time) (*HostResult, error) {
+func SignCertFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Cert, now time.Time) (*CertResult, error) {
 	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
 	if err != nil {
 		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)
@@ -449,7 +449,7 @@ func SignHostFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Cert, now t
 		return nil, fmt.Errorf("parse CA key for host signing: %w", err)
 	}
 
-	rawPub, pubCurveStr, err := ParseHostPublicKeyPEM(pubKeyPEM)
+	rawPub, pubCurveStr, err := ParseCertPublicKeyPEM(pubKeyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("host %q in_pub: %w", h.Name, err)
 	}
@@ -503,7 +503,7 @@ func SignHostFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Cert, now t
 		return nil, fmt.Errorf("compute CA fingerprint while signing host %q: %w", h.Name, err)
 	}
 
-	return &HostResult{
+	return &CertResult{
 		CertPEM:       certPEM,
 		KeyPEM:        nil, // device holds the private key; never on the CA host
 		Name:          c.Name(),

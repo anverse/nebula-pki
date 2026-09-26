@@ -416,7 +416,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 					CertPath: "out/ca/ca.crt",
 					KeyPath:  "out/ca/ca.key",
 				}},
-				SignedHosts: []apply.SignedHost{
+				SignedCerts: []apply.SignedCert{
 					{Label: "alpha", Artifacts: []apply.SignedArtifact{
 						{CertPath: "out/certs/alpha.crt", KeyPath: "out/certs/alpha.key"},
 					}},
@@ -444,7 +444,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 					CertPath: "out/ca/ca.crt",
 					KeyPath:  "out/ca/ca.key",
 				}},
-				SignedHosts: []apply.SignedHost{
+				SignedCerts: []apply.SignedCert{
 					{Label: "node", Artifacts: []apply.SignedArtifact{
 						{CertPath: "dir-a/node.crt", KeyPath: "dir-a/node.key"},
 					}},
@@ -494,7 +494,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 					CertPath: "out/ca/ca.crt",
 					KeyPath:  "out/ca/ca.key",
 				}},
-				SignedHosts: []apply.SignedHost{
+				SignedCerts: []apply.SignedCert{
 					{Label: "node", Artifacts: []apply.SignedArtifact{
 						{CertPath: "dir-b/node.crt", KeyPath: "dir-b/node.key"},
 					}},
@@ -584,15 +584,15 @@ func TestWriteReconcileSummary(t *testing.T) {
 
 // patchManifestNotAfter loads the manifest at manReal, sets the named host's
 // NotAfter to t, and writes it back.
-func patchManifestNotAfter(tb testing.TB, manReal, hostLabel string, notAfter time.Time) {
+func patchManifestNotAfter(tb testing.TB, manReal, certLabel string, notAfter time.Time) {
 	tb.Helper()
 	m, err := manifest.Load(manReal)
 	if err != nil {
 		tb.Fatalf("manifest.Load: %v", err)
 	}
-	h := m.Certs[hostLabel]
+	h := m.Certs[certLabel]
 	h.NotAfter = notAfter
-	m.Certs[hostLabel] = h
+	m.Certs[certLabel] = h
 	data, err := manifest.Marshal(m)
 	if err != nil {
 		tb.Fatalf("manifest.Marshal: %v", err)
@@ -604,7 +604,7 @@ func patchManifestNotAfter(tb testing.TB, manReal, hostLabel string, notAfter ti
 
 // TestNoRenewalFlag_NewHostStillSigns verifies that --no-renewal does not
 // prevent a genuinely new host from being signed.
-func TestNoRenewalFlag_NewHostStillSigns(t *testing.T) {
+func TestNoRenewalFlag_NewCertStillSigns(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "nebula.hcl")
 
@@ -692,8 +692,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	// Place alpha's not_after 15 days from now, inside the 30-day window.
 	patchManifestNotAfter(t, manReal, "alpha", time.Now().UTC().Add(15*24*time.Hour))
 
-	hostCertReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath)
-	certBefore, err := os.ReadFile(hostCertReal)
+	crtReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath)
+	certBefore, err := os.ReadFile(crtReal)
 	if err != nil {
 		t.Fatalf("read cert before: %v", err)
 	}
@@ -705,7 +705,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("--no-renewal run: %v", err)
 	}
 
-	certAfter, err := os.ReadFile(hostCertReal)
+	certAfter, err := os.ReadFile(crtReal)
 	if err != nil {
 		t.Fatalf("read cert after: %v", err)
 	}
@@ -839,8 +839,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	hostCertReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath)
-	certBefore, err := os.ReadFile(hostCertReal)
+	crtReal := cfg.Resolve(cfg.CertArtifactPath(cfg.Certs[0]).CertPath)
+	certBefore, err := os.ReadFile(crtReal)
 	if err != nil {
 		t.Fatalf("read cert: %v", err)
 	}
@@ -852,7 +852,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("--no-renewal run: %v", err)
 	}
 
-	certAfter, err := os.ReadFile(hostCertReal)
+	certAfter, err := os.ReadFile(crtReal)
 	if err != nil {
 		t.Fatalf("read cert after: %v", err)
 	}

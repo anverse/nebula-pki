@@ -165,7 +165,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 // Renewal re-sign
 // ---------------------------------------------------------------------------
 
-func TestReconcile_RenewalWindow_HostResigned(t *testing.T) {
+func TestReconcile_RenewalWindow_CertResigned(t *testing.T) {
 	// Sign a host with duration = 100h, renew_before = 50h.
 	// On the first run at T=0 the cert is fresh.
 	// At T=60h (inside window) the host must be re-signed.
@@ -231,7 +231,7 @@ cert "alpha" {
 // computeDeadlines unit tests
 // ---------------------------------------------------------------------------
 
-func TestComputeDeadlines_NoHosts_CAExpiryIsDeadline(t *testing.T) {
+func TestComputeDeadlines_NoCerts_CAExpiryIsDeadline(t *testing.T) {
 	caExpiry := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 
@@ -251,7 +251,7 @@ func TestComputeDeadlines_NoHosts_CAExpiryIsDeadline(t *testing.T) {
 	}
 }
 
-func TestComputeDeadlines_HostWithRenewBefore_WindowEntryIsDeadline(t *testing.T) {
+func TestComputeDeadlines_CertWithRenewBefore_WindowEntryIsDeadline(t *testing.T) {
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC) // host not_after
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	// renew_before = 720h (30 days) → window entry = notAfter - 30d
@@ -280,7 +280,7 @@ cert "alpha" {
 func TestComputeDeadlines_SoonItems_WithinWindow(t *testing.T) {
 	// Host expires in 30 days, within the 60-day soon window.
 	now := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
-	hostExpiry := now.Add(30 * 24 * time.Hour)
+	certExpiry := now.Add(30 * 24 * time.Hour)
 
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
@@ -288,7 +288,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{NotAfter: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}
-	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh", NotAfter: hostExpiry}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh", NotAfter: certExpiry}
 
 	d := computeDeadlines(cfg, m, now)
 	// SoonItems should include alpha.

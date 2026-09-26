@@ -117,7 +117,7 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 	for _, p := range rep.DeletedLinks {
 		fmt.Fprintf(w, "deleted link %s\n", p)
 	}
-	for _, h := range rep.SignedHosts {
+	for _, h := range rep.SignedCerts {
 		fmt.Fprintf(w, "signed host %q\n", h.Label)
 		for _, a := range h.Artifacts {
 			fmt.Fprintf(w, "  cert: %s\n", a.CertPath)
@@ -260,7 +260,7 @@ func newCheckCmd(configPath *string) *cobra.Command {
 
 			for i := range cfg.Certs {
 				if cfg.Certs[i].InPub != "" {
-					if err := checkInPubHost(cmd, cfg, &cfg.Certs[i], caCurves); err != nil {
+					if err := checkInPubCert(cmd, cfg, &cfg.Certs[i], caCurves); err != nil {
 						return err
 					}
 				}
@@ -307,14 +307,14 @@ func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) (cu
 // its curve matches the signing CA's curve. A mismatch would always cause
 // reconcile to fail with a curve error, so surfacing it here lets the operator
 // know before any output-tree changes are attempted.
-func checkInPubHost(cmd *cobra.Command, cfg *config.Config, h *config.Cert, caCurves map[string]string) error {
+func checkInPubCert(cmd *cobra.Command, cfg *config.Config, h *config.Cert, caCurves map[string]string) error {
 	pubReal := cfg.Resolve(h.InPub)
 	pubPEM, err := os.ReadFile(pubReal)
 	if err != nil {
 		return fmt.Errorf("host %q: read in_pub %s: %w", h.Label, h.InPub, err)
 	}
 
-	_, pubCurveStr, err := pki.ParseHostPublicKeyPEM(pubPEM)
+	_, pubCurveStr, err := pki.ParseCertPublicKeyPEM(pubPEM)
 	if err != nil {
 		return fmt.Errorf("host %q: in_pub %s: %w", h.Label, h.InPub, err)
 	}

@@ -134,7 +134,7 @@ func TestLoadRejectsCorruptJSON(t *testing.T) {
 
 // TestHostsAndArtifactsRoundTrip pins the JSON shape of the host /
 // artifact records.
-func TestHostsAndArtifactsRoundTrip(t *testing.T) {
+func TestCertsAndArtifactsRoundTrip(t *testing.T) {
 	t0 := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	orig := New()
 	orig.GeneratedAt = t0
@@ -164,7 +164,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	}
 
 	var raw struct {
-		Hosts map[string]struct {
+		Certs map[string]struct {
 			CA             string   `json:"ca"`
 			Name           string   `json:"name"`
 			Fingerprint    string   `json:"fingerprint"`
@@ -183,7 +183,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("decode raw: %v", err)
 	}
-	alpha, ok := raw.Hosts["alpha"]
+	alpha, ok := raw.Certs["alpha"]
 	if !ok {
 		t.Fatal("hosts.alpha missing from JSON")
 	}
@@ -214,24 +214,24 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	gotHost, ok := got.Certs["alpha"]
+	gotCert, ok := got.Certs["alpha"]
 	if !ok {
 		t.Fatal("Load: hosts.alpha missing")
 	}
-	if len(gotHost.Artifacts) != 2 {
-		t.Errorf("artifacts after load: got %d, want 2", len(gotHost.Artifacts))
+	if len(gotCert.Artifacts) != 2 {
+		t.Errorf("artifacts after load: got %d, want 2", len(gotCert.Artifacts))
 	}
-	if gotHost.Duration != "8760h" {
-		t.Errorf("duration after load = %q, want 8760h", gotHost.Duration)
+	if gotCert.Duration != "8760h" {
+		t.Errorf("duration after load = %q, want 8760h", gotCert.Duration)
 	}
-	if gotHost.CA != "mesh" {
-		t.Errorf("ca after load = %q, want mesh", gotHost.CA)
+	if gotCert.CA != "mesh" {
+		t.Errorf("ca after load = %q, want mesh", gotCert.CA)
 	}
 }
 
 // TestHostOptionalFieldsOmitEmpty pins the omitempty behaviour for
 // optional host fields (Groups, UnsafeNetworks).
-func TestHostOptionalFieldsOmitEmpty(t *testing.T) {
+func TestCertOptionalFieldsOmitEmpty(t *testing.T) {
 	t0 := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
 	m := New()
 	m.Certs["bare"] = Cert{

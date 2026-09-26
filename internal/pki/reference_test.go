@@ -95,12 +95,12 @@ func TestLoadReferenceCA_CorruptKeyPEM(t *testing.T) {
 // the loader must reject a leaf cert rather than later mis-signing under
 // a non-CA.
 func TestLoadReferenceCA_NotACA(t *testing.T) {
-	hostCertPEM, _ := mintHostCert(t)
+	crtPEM, _ := mintCert(t)
 	// Pair it with any syntactically valid signing key so the failure is
 	// the IsCA check, not a key parse error.
 	gen := generateCAForRef(t, `ca "m" { name = "x" }`)
 
-	_, err := LoadReferenceCA(hostCertPEM, gen.KeyPEM, fixedTime)
+	_, err := LoadReferenceCA(crtPEM, gen.KeyPEM, fixedTime)
 	if err == nil {
 		t.Fatal("LoadReferenceCA: want error for non-CA certificate, got nil")
 	}
@@ -227,7 +227,7 @@ ca "m" {
 // mintHostCert produces a non-CA (leaf) certificate signed by a throwaway
 // CA, plus its key PEM, for negative tests that need a real-but-not-CA
 // certificate.
-func mintHostCert(t *testing.T) (certPEM, keyPEM []byte) {
+func mintCert(t *testing.T) (certPEM, keyPEM []byte) {
 	t.Helper()
 
 	ca := mustParseCA(t, `ca "m" { name = "issuer" }`)
@@ -244,34 +244,34 @@ func mintHostCert(t *testing.T) (certPEM, keyPEM []byte) {
 		t.Fatalf("unmarshal issuer key: %v", err)
 	}
 
-	hostPub, _, err := generateHostKeypair(caCurve)
+	certPub, _, err := generateCertKeypair(caCurve)
 	if err != nil {
 		t.Fatalf("generate host keypair: %v", err)
 	}
 
-	hostNet, err := netip.ParsePrefix("10.0.0.9/24")
+	certNet, err := netip.ParsePrefix("10.0.0.9/24")
 	if err != nil {
 		t.Fatalf("parse host network: %v", err)
 	}
 	tbs := &cert.TBSCertificate{
 		Version:   cert.Version2,
 		Name:      "a-host",
-		Networks:  []netip.Prefix{hostNet},
+		Networks:  []netip.Prefix{certNet},
 		NotBefore: fixedTime,
 		NotAfter:  fixedTime.Add(time.Hour),
-		PublicKey: hostPub,
+		PublicKey: certPub,
 		IsCA:      false,
 		Curve:     caCurve,
 	}
-	hostCert, err := tbs.Sign(caCert, caCurve, caKey)
+	issued, err := tbs.Sign(caCert, caCurve, caKey)
 	if err != nil {
 		t.Fatalf("sign host cert: %v", err)
 	}
-	hostCertPEM, err := hostCert.MarshalPEM()
+	crtPEM, err := issued.MarshalPEM()
 	if err != nil {
 		t.Fatalf("marshal host cert: %v", err)
 	}
-	return hostCertPEM, nil
+	return crtPEM, nil
 }
 
 // mintBadSelfSignedCA produces a CA certificate whose self-signature does
