@@ -13,19 +13,19 @@ stderr '^generated CA "current" \(test-mesh\)$'
 stderr '^  cert: out/ca/current\.crt$'
 stderr '^  key:  out/ca/current\.key$'
 stderr '^signed host "alpha"$'
-stderr '^  cert: out/hosts/alpha\.crt$'
-stderr '^  key:  out/hosts/alpha\.key$'
+stderr '^  cert: out/certs/alpha\.crt$'
+stderr '^  key:  out/certs/alpha\.key$'
 stderr '^signed host "beta"$'
-stderr '^  cert: out/hosts/beta\.crt$'
-stderr '^  key:  out/hosts/beta\.key$'
+stderr '^  cert: out/certs/beta\.crt$'
+stderr '^  key:  out/certs/beta\.key$'
 stderr '^wrote trust bundle: out/ca/bundle\.crt$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
 exists out/ca/current.crt
 exists out/ca/current.key
-exists out/hosts/alpha.crt
-exists out/hosts/beta.crt
+exists out/certs/alpha.crt
+exists out/certs/beta.crt
 exists out/ca/bundle.crt
 
 # Single-CA bundle equals the CA cert itself.
@@ -37,8 +37,8 @@ grep '"alpha"' out/nebula-pki.json
 grep '"beta"' out/nebula-pki.json
 
 # Snapshot host certs and bundle for later comparison.
-cp out/hosts/alpha.crt alpha.step1.crt
-cp out/hosts/beta.crt  beta.step1.crt
+cp out/certs/alpha.crt alpha.step1.crt
+cp out/certs/beta.crt  beta.step1.crt
 cp out/ca/bundle.crt   bundle.step1.crt
 
 # ── Step 2: add "next" CA ─────────────────────────────────────────────────────
@@ -55,8 +55,8 @@ exists out/ca/next.crt
 exists out/ca/next.key
 
 # Hosts not re-signed: certs unchanged.
-cmp out/hosts/alpha.crt alpha.step1.crt
-cmp out/hosts/beta.crt  beta.step1.crt
+cmp out/certs/alpha.crt alpha.step1.crt
+cmp out/certs/beta.crt  beta.step1.crt
 
 # Bundle now contains both CAs (not equal to either CA cert alone).
 ! cmp out/ca/bundle.crt out/ca/current.crt
@@ -83,15 +83,15 @@ stderr '^wrote manifest'
 ! stdout .
 
 # Hosts re-signed under "next" CA.
-! cmp out/hosts/alpha.crt alpha.step1.crt
-! cmp out/hosts/beta.crt  beta.step1.crt
+! cmp out/certs/alpha.crt alpha.step1.crt
+! cmp out/certs/beta.crt  beta.step1.crt
 
 # Bundle unchanged: same two CAs, neither archived.
 cmp out/ca/bundle.crt bundle.step2.crt
 
 # Snapshot new host certs.
-cp out/hosts/alpha.crt alpha.step3.crt
-cp out/hosts/beta.crt  beta.step3.crt
+cp out/certs/alpha.crt alpha.step3.crt
+cp out/certs/beta.crt  beta.step3.crt
 
 # Idempotency: a second run with step 3 config is a noop.
 exec nebula-pki
@@ -100,8 +100,8 @@ stderr '^up to date; nothing to do$'
 ! stderr 'signed host'
 ! stdout .
 
-cmp out/hosts/alpha.crt alpha.step3.crt
-cmp out/hosts/beta.crt  beta.step3.crt
+cmp out/certs/alpha.crt alpha.step3.crt
+cmp out/certs/beta.crt  beta.step3.crt
 cmp out/ca/bundle.crt   bundle.step2.crt
 
 # ── Step 4: archive "current" — bundle shrinks to "next" only ────────────────
@@ -124,8 +124,8 @@ stderr '^wrote manifest'
 ! stdout .
 
 # Hosts not re-signed (already under "next", outside renewal window).
-cmp out/hosts/alpha.crt alpha.step3.crt
-cmp out/hosts/beta.crt  beta.step3.crt
+cmp out/certs/alpha.crt alpha.step3.crt
+cmp out/certs/beta.crt  beta.step3.crt
 
 # Bundle now equals just the "next" CA cert.
 cmp out/ca/bundle.crt out/ca/next.crt
@@ -141,8 +141,8 @@ stderr '^up to date; nothing to do$'
 ! stderr 'wrote trust bundle'
 ! stdout .
 
-cmp out/hosts/alpha.crt alpha.step3.crt
-cmp out/hosts/beta.crt  beta.step3.crt
+cmp out/certs/alpha.crt alpha.step3.crt
+cmp out/certs/beta.crt  beta.step3.crt
 
 # Dry-run after idempotency must also show nothing to do.
 exec nebula-pki --dry-run
@@ -162,8 +162,8 @@ stderr '^up to date; nothing to do$'
 ! stdout .
 
 # Host certs and bundle are byte-identical to end of step 4.
-cmp out/hosts/alpha.crt alpha.step3.crt
-cmp out/hosts/beta.crt  beta.step3.crt
+cmp out/certs/alpha.crt alpha.step3.crt
+cmp out/certs/beta.crt  beta.step3.crt
 cmp out/ca/bundle.crt   out/ca/next.crt
 
 # Manifest is unchanged (noop run never rewrites it): the stale "current"

@@ -14,25 +14,25 @@ cp out/ca/gen.key pki/ca.key
 
 # --dry-run: new host alpha needs signing; CA lines must be absent.
 exec nebula-pki --dry-run
-stdout '^\+ write out/hosts/alpha\.crt$'
-stdout '^\+ write out/hosts/alpha\.key$'
+stdout '^\+ write out/certs/alpha\.crt$'
+stdout '^\+ write out/certs/alpha\.key$'
 stdout '^\+ write refs/nebula-pki\.json$'
 ! stdout 'ca\.crt'
 ! stdout 'ca\.key'
 ! stderr .
 
 # No host cert or reference manifest written.
-! exists out/hosts/alpha.crt
+! exists out/certs/alpha.crt
 ! exists refs/nebula-pki.json
 
 # A real run materialises the host cert and manifest.
 exec nebula-pki
-exists out/hosts/alpha.crt
+exists out/certs/alpha.crt
 exists refs/nebula-pki.json
 ! stdout .
 
 # Snapshot to prove the second dry-run leaves everything untouched.
-cp out/hosts/alpha.crt alpha.crt.snap
+cp out/certs/alpha.crt alpha.crt.snap
 cp refs/nebula-pki.json manifest.snap
 
 # Up-to-date tree: dry-run reports nothing to do and prints the deadline advisory.
@@ -40,7 +40,7 @@ exec nebula-pki --dry-run
 stdout '^up to date; nothing to do$'
 stderr 'next deadline'
 
-cmp out/hosts/alpha.crt alpha.crt.snap
+cmp out/certs/alpha.crt alpha.crt.snap
 cmp refs/nebula-pki.json manifest.snap
 
 # The referenced CA files remain untouched throughout.

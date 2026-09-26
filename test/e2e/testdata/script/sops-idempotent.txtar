@@ -9,14 +9,14 @@ exec nebula-pki
 stderr '^generated CA "test-ca" \(test-ca\)$'
 stderr '  key:  out/ca/test-ca\.key\.enc'
 stderr '^signed host "alpha"$'
-stderr '  key:  out/hosts/alpha\.key\.enc'
+stderr '  key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
 # Snapshot all artifacts after the first run.
 cp out/ca/test-ca.crt ca.crt.first
 cp out/ca/test-ca.key.enc ca.key.enc.first
-cp out/hosts/alpha.crt alpha.crt.first
-cp out/hosts/alpha.key.enc alpha.key.enc.first
+cp out/certs/alpha.crt alpha.crt.first
+cp out/certs/alpha.key.enc alpha.key.enc.first
 cp out/nebula-pki.json manifest.first
 
 # Second run must report "up to date" and touch nothing.
@@ -29,8 +29,8 @@ stderr '^up to date; nothing to do$'
 # Every artifact is byte-identical to the first run.
 cmp out/ca/test-ca.crt ca.crt.first
 cmp out/ca/test-ca.key.enc ca.key.enc.first
-cmp out/hosts/alpha.crt alpha.crt.first
-cmp out/hosts/alpha.key.enc alpha.key.enc.first
+cmp out/certs/alpha.crt alpha.crt.first
+cmp out/certs/alpha.key.enc alpha.key.enc.first
 cmp out/nebula-pki.json manifest.first
 
 -- nebula.hcl --

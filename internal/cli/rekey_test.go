@@ -215,7 +215,7 @@ func TestCollectRekeyEntries_SkipsReferenceCA(t *testing.T) {
 
 func TestCollectRekeyEntries_SkipsInPubHost(t *testing.T) {
 	m := manifest.New()
-	m.Hosts["inpub"] = manifest.Host{InPub: true, Artifacts: []manifest.Artifact{{CertPath: "out/hosts/inpub.crt"}}}
+	m.Certs["inpub"] = manifest.Cert{InPub: true, Artifacts: []manifest.Artifact{{CertPath: "out/certs/inpub.crt"}}}
 
 	sopsEnc := mustNewEnc(t, config.EncryptionConfig{Backend: "sops", Sops: &config.SopsConfig{
 		Age: []string{"age1rtertzj2zyt36nl3lp8cqlcjgq3e584lhfurv7rf7fmyld4ldcese49nj9"},

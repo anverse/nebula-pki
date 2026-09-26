@@ -287,8 +287,8 @@ func TestBuild_HostNoopWhenTrackedAndPresent(t *testing.T) {
 	cfg := parseCfg(t, hostHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh"}
-	m.Hosts["beta"] = manifest.Host{Name: "beta", CA: "mesh"}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
+	m.Certs["beta"] = manifest.Cert{Name: "beta", CA: "mesh"}
 
 	ca := cfg.CAs[0]
 	exists := existsSet(
@@ -314,8 +314,8 @@ func TestBuild_HostSignWhenFilesAbsent(t *testing.T) {
 	cfg := parseCfg(t, hostHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh"}
-	m.Hosts["beta"] = manifest.Host{Name: "beta", CA: "mesh"}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
+	m.Certs["beta"] = manifest.Cert{Name: "beta", CA: "mesh"}
 
 	ca := cfg.CAs[0]
 	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
@@ -336,7 +336,7 @@ func TestBuild_HostSignWhenCertPresentKeyMissing(t *testing.T) {
 	cfg := parseCfg(t, hostHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh"}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
 
 	ca := cfg.CAs[0]
 	exists := existsSet(
@@ -363,7 +363,7 @@ func TestBuild_HostSignWhenKeyPresentCertMissing(t *testing.T) {
 	cfg := parseCfg(t, hostHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh"}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
 
 	ca := cfg.CAs[0]
 	exists := existsSet(
@@ -391,7 +391,7 @@ func TestBuild_MultipleHostsMixedActions(t *testing.T) {
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	// alpha is tracked and present; beta is untracked.
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh"}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh"}
 
 	ca := cfg.CAs[0]
 	exists := existsSet(
@@ -448,7 +448,7 @@ func TestBuild_HostResignsWhenCAChanged(t *testing.T) {
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
 	// Record alpha as having been signed by a different CA label.
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "old-mesh"}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "old-mesh"}
 
 	ca := cfg.CAs[0]
 	exists := existsSet(
@@ -484,7 +484,7 @@ func TestBuild_OutputDirNoopWhenPresent(t *testing.T) {
 	cfg := parseCfg(t, outputDirHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["node"] = manifest.Host{Name: "node", CA: "mesh"}
+	m.Certs["node"] = manifest.Cert{Name: "node", CA: "mesh"}
 
 	ca := cfg.CAs[0]
 	a := cfg.CertArtifactPath(cfg.Certs[0])
@@ -507,7 +507,7 @@ func TestBuild_OutputDirSignWhenFileMissing(t *testing.T) {
 	cfg := parseCfg(t, outputDirHCL)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["node"] = manifest.Host{Name: "node", CA: "mesh"}
+	m.Certs["node"] = manifest.Cert{Name: "node", CA: "mesh"}
 
 	ca := cfg.CAs[0]
 	a := cfg.CertArtifactPath(cfg.Certs[0])
@@ -629,7 +629,7 @@ cert "phone" {
 func inPubTracked(certPath string) *manifest.Manifest {
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["phone"] = manifest.Host{
+	m.Certs["phone"] = manifest.Cert{
 		CA:        "mesh",
 		Name:      "phone",
 		InPub:     true,
@@ -715,7 +715,7 @@ func TestPlanHost_InPub_SignOnProvenanceChange_RegularToInPub(t *testing.T) {
 
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["phone"] = manifest.Host{
+	m.Certs["phone"] = manifest.Cert{
 		CA:       "mesh",
 		Name:     "phone",
 		InPub:    false, // was regular
@@ -752,7 +752,7 @@ cert "phone" {
 
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["phone"] = manifest.Host{
+	m.Certs["phone"] = manifest.Cert{
 		CA:        "mesh",
 		Name:      "phone",
 		InPub:     true, // was in_pub
@@ -792,7 +792,7 @@ cert "phone" {
 	notAfter := testNow.Add(600 * time.Hour)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["phone"] = manifest.Host{
+	m.Certs["phone"] = manifest.Cert{
 		CA:        "mesh",
 		Name:      "phone",
 		InPub:     true,
@@ -830,7 +830,7 @@ cert "phone" {
 
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["phone"] = manifest.Host{
+	m.Certs["phone"] = manifest.Cert{
 		CA:        "mesh",
 		Name:      "phone",
 		InPub:     true,

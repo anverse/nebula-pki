@@ -11,13 +11,13 @@ exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
 stderr '^signed host "alpha"'
-stderr 'key:  out/hosts/alpha\.key\.enc'
+stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
 exists out/ca/test-ca.key.enc
 ! exists out/ca/test-ca.key
-exists out/hosts/alpha.key.enc
-! exists out/hosts/alpha.key
+exists out/certs/alpha.key.enc
+! exists out/certs/alpha.key
 
 # Switch to no-encryption config (encryption block removed).
 cp nebula.none.hcl nebula.hcl
@@ -36,12 +36,12 @@ stdout '2 key files rekeyed'
 # Plaintext key files present; encrypted files removed.
 exists out/ca/test-ca.key
 ! exists out/ca/test-ca.key.enc
-exists out/hosts/alpha.key
-! exists out/hosts/alpha.key.enc
+exists out/certs/alpha.key
+! exists out/certs/alpha.key.enc
 
 # Key files contain the plaintext PEM header.
 grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key
-grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key
+grep 'NEBULA X25519 PRIVATE KEY' out/certs/alpha.key
 
 # Manifest records the plain key paths with no encryption record.
 grep '"key_path": "out/ca/test-ca\.key"' out/nebula-pki.json

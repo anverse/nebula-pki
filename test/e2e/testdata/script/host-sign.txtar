@@ -5,32 +5,32 @@
 exec nebula-pki
 stderr '^generated CA "test-mesh" \(test-mesh\)$'
 stderr '^signed host "lighthouse"$'
-stderr '^  cert: out/hosts/lighthouse\.crt$'
-stderr '^  key:  out/hosts/lighthouse\.key$'
+stderr '^  cert: out/certs/lighthouse\.crt$'
+stderr '^  key:  out/certs/lighthouse\.key$'
 stderr '^signed host "server"$'
-stderr '^  cert: out/hosts/server\.crt$'
-stderr '^  key:  out/hosts/server\.key$'
+stderr '^  cert: out/certs/server\.crt$'
+stderr '^  key:  out/certs/server\.key$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
 # All artifacts exist.
 exists out/ca/test-mesh.crt
 exists out/ca/test-mesh.key
-exists out/hosts/lighthouse.crt
-exists out/hosts/lighthouse.key
-exists out/hosts/server.crt
-exists out/hosts/server.key
+exists out/certs/lighthouse.crt
+exists out/certs/lighthouse.key
+exists out/certs/server.crt
+exists out/certs/server.key
 exists out/nebula-pki.json
 
 # PEM material is present in each file.
-grep 'NEBULA CERTIFICATE' out/hosts/lighthouse.crt
-grep 'NEBULA X25519 PRIVATE KEY' out/hosts/lighthouse.key
-grep 'NEBULA CERTIFICATE' out/hosts/server.crt
-grep 'NEBULA X25519 PRIVATE KEY' out/hosts/server.key
+grep 'NEBULA CERTIFICATE' out/certs/lighthouse.crt
+grep 'NEBULA X25519 PRIVATE KEY' out/certs/lighthouse.key
+grep 'NEBULA CERTIFICATE' out/certs/server.crt
+grep 'NEBULA X25519 PRIVATE KEY' out/certs/server.key
 
 # Host keys must be X25519 encryption keys, not Ed25519 signing keys —
 # nebula rejects the latter when loading pki.key.
-! grep 'NEBULA ED25519 PRIVATE KEY' out/hosts/lighthouse.key
+! grep 'NEBULA ED25519 PRIVATE KEY' out/certs/lighthouse.key
 
 # Manifest records both hosts with CA fingerprint.
 grep '"lighthouse"' out/nebula-pki.json
@@ -40,10 +40,10 @@ grep '"ca_fingerprint"' out/nebula-pki.json
 # Snapshot all artifacts.
 cp out/ca/test-mesh.crt ca.crt.first
 cp out/ca/test-mesh.key ca.key.first
-cp out/hosts/lighthouse.crt lighthouse.crt.first
-cp out/hosts/lighthouse.key lighthouse.key.first
-cp out/hosts/server.crt server.crt.first
-cp out/hosts/server.key server.key.first
+cp out/certs/lighthouse.crt lighthouse.crt.first
+cp out/certs/lighthouse.key lighthouse.key.first
+cp out/certs/server.crt server.crt.first
+cp out/certs/server.key server.key.first
 cp out/nebula-pki.json manifest.first
 
 # Second run: everything up to date, nothing written.
@@ -55,10 +55,10 @@ stderr '^up to date; nothing to do$'
 # Byte-identical.
 cmp out/ca/test-mesh.crt ca.crt.first
 cmp out/ca/test-mesh.key ca.key.first
-cmp out/hosts/lighthouse.crt lighthouse.crt.first
-cmp out/hosts/lighthouse.key lighthouse.key.first
-cmp out/hosts/server.crt server.crt.first
-cmp out/hosts/server.key server.key.first
+cmp out/certs/lighthouse.crt lighthouse.crt.first
+cmp out/certs/lighthouse.key lighthouse.key.first
+cmp out/certs/server.crt server.crt.first
+cmp out/certs/server.key server.key.first
 cmp out/nebula-pki.json manifest.first
 
 -- nebula.hcl --

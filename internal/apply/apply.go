@@ -528,15 +528,15 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 		}
 
 		if ha.Op == plan.OpNoop {
-			if existing, ok := current.Hosts[h.Label]; ok {
-				next.Hosts[h.Label] = existing
+			if existing, ok := current.Certs[h.Label]; ok {
+				next.Certs[h.Label] = existing
 			}
 			continue
 		}
 
 		// OpSign: check for stale artifact paths before re-signing.
 		newArt := cfg.CertArtifactPath(*h)
-		if prev, ok := current.Hosts[h.Label]; ok {
+		if prev, ok := current.Certs[h.Label]; ok {
 			for _, oldArt := range prev.Artifacts {
 				if oldArt.CertPath != "" && oldArt.CertPath != newArt.CertPath {
 					if fsutil.Exists(cfg.Resolve(oldArt.CertPath)) {
@@ -624,7 +624,7 @@ func applyHosts(cfg *config.Config, enc crypto.Backend, opts Options, hostAction
 			renewBeforeStr = rb.String()
 		}
 
-		next.Hosts[h.Label] = manifest.Host{
+		next.Certs[h.Label] = manifest.Cert{
 			CA:             signingCA.Label,
 			Name:           result.Name,
 			Fingerprint:    result.Fingerprint,
@@ -987,7 +987,7 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 	// Hosts — iterate in config order for deterministic output.
 	for i := range cfg.Certs {
 		h := &cfg.Certs[i]
-		mh, ok := m.Hosts[h.Label]
+		mh, ok := m.Certs[h.Label]
 		if !ok || mh.NotAfter.IsZero() {
 			continue
 		}
@@ -1054,7 +1054,7 @@ func checkEncryptionMismatches(current *manifest.Manifest, enc crypto.Encryptor,
 			fmt.Fprintf(w, "warning: CA %q key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt\n", label)
 		}
 	}
-	for label, h := range current.Hosts {
+	for label, h := range current.Certs {
 		warned := false
 		for _, art := range h.Artifacts {
 			if warned {

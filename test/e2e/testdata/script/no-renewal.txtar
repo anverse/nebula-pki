@@ -14,14 +14,14 @@
 exec nebula-pki --dry-run --no-renewal
 stdout '^\+ write out/ca/test-mesh\.crt$'
 stdout '^\+ write out/ca/test-mesh\.key$'
-stdout '^\+ write out/hosts/alpha\.crt$'
-stdout '^\+ write out/hosts/alpha\.key$'
+stdout '^\+ write out/certs/alpha\.crt$'
+stdout '^\+ write out/certs/alpha\.key$'
 stdout '^\+ write out/nebula-pki\.json$'
 ! stderr .
 
 # No files were written.
 ! exists out/ca/test-mesh.crt
-! exists out/hosts/alpha.crt
+! exists out/certs/alpha.crt
 ! exists out/nebula-pki.json
 
 # ── Real run with --no-renewal signs new hosts normally ───────────────────────
@@ -33,12 +33,12 @@ stderr 'wrote manifest'
 
 exists out/ca/test-mesh.crt
 exists out/ca/test-mesh.key
-exists out/hosts/alpha.crt
-exists out/hosts/alpha.key
+exists out/certs/alpha.crt
+exists out/certs/alpha.key
 exists out/nebula-pki.json
 
 # Snapshot for idempotency check.
-cp out/hosts/alpha.crt alpha.first.crt
+cp out/certs/alpha.crt alpha.first.crt
 cp out/nebula-pki.json manifest.first.json
 
 # ── Idempotent second run with --no-renewal ───────────────────────────────────
@@ -50,7 +50,7 @@ stderr 'next deadline'
 ! stderr 'signed host'
 ! stdout .
 
-cmp out/hosts/alpha.crt alpha.first.crt
+cmp out/certs/alpha.crt alpha.first.crt
 cmp out/nebula-pki.json manifest.first.json
 
 # ── --dry-run --no-renewal on a reconciled tree → nothing to do ──────────────
@@ -66,10 +66,10 @@ stderr '^signed host "beta"$'
 stderr 'wrote manifest'
 ! stdout .
 
-exists out/hosts/beta.crt
+exists out/certs/beta.crt
 
 # alpha was not re-signed (already up to date, no window trigger).
-cmp out/hosts/alpha.crt alpha.first.crt
+cmp out/certs/alpha.crt alpha.first.crt
 
 -- nebula.hcl --
 ca "test-mesh" {

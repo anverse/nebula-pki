@@ -221,7 +221,7 @@ func TestReconcile_CorruptManifestAbortsBeforePlan(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(manReal), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(manReal, []byte(`{"schema_version": 1, "hosts": {`), 0o644); err != nil {
+	if err := os.WriteFile(manReal, []byte(`{"schema_version": 1, "certs": {`), 0o644); err != nil {
 		t.Fatalf("seed manifest: %v", err)
 	}
 
@@ -248,7 +248,7 @@ func TestReconcile_SchemaMismatchRejected(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(manReal), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(manReal, []byte(`{"schema_version": 2, "hosts": {}}`), 0o644); err != nil {
+	if err := os.WriteFile(manReal, []byte(`{"schema_version": 2, "certs": {}}`), 0o644); err != nil {
 		t.Fatalf("seed manifest: %v", err)
 	}
 	_, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
@@ -368,11 +368,11 @@ cert "beta"  { networks = ["10.0.0.2/16"] }
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if len(m.Hosts) != 2 {
-		t.Fatalf("manifest hosts = %d, want 2", len(m.Hosts))
+	if len(m.Certs) != 2 {
+		t.Fatalf("manifest hosts = %d, want 2", len(m.Certs))
 	}
 	for _, label := range []string{"alpha", "beta"} {
-		h, ok := m.Hosts[label]
+		h, ok := m.Certs[label]
 		if !ok {
 			t.Fatalf("manifest missing host %q", label)
 		}
@@ -394,9 +394,9 @@ cert "beta"  { networks = ["10.0.0.2/16"] }
 	if meshCA == nil {
 		t.Fatal("manifest missing CAs[mesh]")
 	}
-	if m.Hosts["alpha"].CAFingerprint != meshCA.Fingerprint {
+	if m.Certs["alpha"].CAFingerprint != meshCA.Fingerprint {
 		t.Errorf("host alpha ca_fingerprint %q != ca fingerprint %q",
-			m.Hosts["alpha"].CAFingerprint, meshCA.Fingerprint)
+			m.Certs["alpha"].CAFingerprint, meshCA.Fingerprint)
 	}
 }
 
@@ -561,7 +561,7 @@ cert "node" {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	node, ok := m.Hosts["node"]
+	node, ok := m.Certs["node"]
 	if !ok {
 		t.Fatal("manifest missing host node")
 	}
@@ -736,11 +736,11 @@ cert "node" {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if len(m.Hosts["node"].Artifacts) != 1 {
-		t.Fatalf("manifest artifacts = %d, want 1", len(m.Hosts["node"].Artifacts))
+	if len(m.Certs["node"].Artifacts) != 1 {
+		t.Fatalf("manifest artifacts = %d, want 1", len(m.Certs["node"].Artifacts))
 	}
-	if m.Hosts["node"].Artifacts[0].Dir != "dir-b" {
-		t.Errorf("artifact.Dir = %q, want dir-b", m.Hosts["node"].Artifacts[0].Dir)
+	if m.Certs["node"].Artifacts[0].Dir != "dir-b" {
+		t.Errorf("artifact.Dir = %q, want dir-b", m.Certs["node"].Artifacts[0].Dir)
 	}
 
 	rep3, err := Reconcile(cfg2, Options{Now: fixedNow.Add(2 * time.Hour), GeneratorVersion: genVersion})
@@ -981,7 +981,7 @@ cert "h2" {
 
 	// Each host's manifest record names the correct signing CA and its
 	// ca_fingerprint matches that CA's fingerprint.
-	h1 := m.Hosts["h1"]
+	h1 := m.Certs["h1"]
 	if h1.CA != "primary" {
 		t.Errorf("h1.CA = %q, want primary", h1.CA)
 	}
@@ -989,7 +989,7 @@ cert "h2" {
 		t.Errorf("h1.CAFingerprint = %q, want primary fingerprint %q", h1.CAFingerprint, primaryRec.Fingerprint)
 	}
 
-	h2 := m.Hosts["h2"]
+	h2 := m.Certs["h2"]
 	if h2.CA != "secondary" {
 		t.Errorf("h2.CA = %q, want secondary", h2.CA)
 	}
@@ -1062,7 +1062,7 @@ cert "h2" {
 	}
 
 	m1, _ := manifest.Load(cfg1.Resolve(cfg1.ManifestPath()))
-	h1FPBefore := m1.Hosts["h1"].CAFingerprint
+	h1FPBefore := m1.Certs["h1"].CAFingerprint
 
 	// Second run: move h1 to secondary by adding explicit `ca = "secondary"`.
 	cfg2 := loadHCL(`
@@ -1100,7 +1100,7 @@ cert "h2" {
 	}
 
 	m2, _ := manifest.Load(cfg2.Resolve(cfg2.ManifestPath()))
-	h1FPAfter := m2.Hosts["h1"].CAFingerprint
+	h1FPAfter := m2.Certs["h1"].CAFingerprint
 	secondaryFP := m2.CAs["secondary"].Fingerprint
 	if h1FPAfter != secondaryFP {
 		t.Errorf("h1.CAFingerprint = %q after re-sign, want secondary fingerprint %q", h1FPAfter, secondaryFP)
@@ -1401,7 +1401,7 @@ cert "phone" {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	mh := m.Hosts["phone"]
+	mh := m.Certs["phone"]
 	if !mh.InPub {
 		t.Error("manifest Host.InPub = false, want true")
 	}
@@ -1789,12 +1789,12 @@ func TestCheckEncryptionMismatches_NoWarnWhenCurrentHashEmpty(t *testing.T) {
 
 func TestCheckEncryptionMismatches_HostArtifact(t *testing.T) {
 	m := manifest.New()
-	m.Hosts["alpha"] = manifest.Host{
+	m.Certs["alpha"] = manifest.Cert{
 		Name: "alpha",
 		Artifacts: []manifest.Artifact{
 			{
-				CertPath:   "out/hosts/alpha.crt",
-				KeyPath:    "out/hosts/alpha.key.enc",
+				CertPath:   "out/certs/alpha.crt",
+				KeyPath:    "out/certs/alpha.key.enc",
 				Encryption: &manifest.EncryptionRecord{Backend: "sops", RecipientsHash: "oldoldold"},
 			},
 		},

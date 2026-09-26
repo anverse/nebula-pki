@@ -17,7 +17,7 @@ func TestLoadMissingFileReturnsEmpty(t *testing.T) {
 	if len(m.CAs) != 0 {
 		t.Error("CAs = non-empty for missing manifest, want empty map")
 	}
-	if m.Hosts == nil {
+	if m.Certs == nil {
 		t.Error("Hosts = nil, want initialised empty map")
 	}
 }
@@ -82,14 +82,14 @@ func TestCAsSerialiseAsObject(t *testing.T) {
 	if string(raw["cas"]) != "{}" {
 		t.Errorf("cas = %s, want {}", raw["cas"])
 	}
-	if string(raw["hosts"]) != "{}" {
-		t.Errorf("hosts = %s, want {}", raw["hosts"])
+	if string(raw["certs"]) != "{}" {
+		t.Errorf("hosts = %s, want {}", raw["certs"])
 	}
 }
 
 func TestLoadRejectsUnsupportedSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nebula-pki.json")
-	if err := os.WriteFile(path, []byte(`{"schema_version": 999, "hosts": {}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"schema_version": 999, "certs": {}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	if _, err := Load(path); err == nil {
@@ -104,7 +104,7 @@ func TestLoadRejectsUnsupportedSchema(t *testing.T) {
 // future-format file as v1.
 func TestLoadRejectsZeroSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nebula-pki.json")
-	if err := os.WriteFile(path, []byte(`{"hosts": {}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"certs": {}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	_, err := Load(path)
@@ -120,7 +120,7 @@ func TestLoadRejectsZeroSchema(t *testing.T) {
 // Unmarshal-fails branch.
 func TestLoadRejectsCorruptJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nebula-pki.json")
-	if err := os.WriteFile(path, []byte(`{"schema_version": 1, "hosts": {`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"schema_version": 1, "certs": {`), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	_, err := Load(path)
@@ -139,7 +139,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	orig := New()
 	orig.GeneratedAt = t0
 	orig.Generator.Version = "v0.0.3"
-	orig.Hosts = map[string]Host{
+	orig.Certs = map[string]Cert{
 		"alpha": {
 			CA:             "mesh",
 			Name:           "alpha.mesh",
@@ -152,7 +152,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 			NotAfter:       t0.Add(8760 * time.Hour),
 			CAFingerprint:  "ca-fp",
 			Artifacts: []Artifact{
-				{Dir: "out/hosts", CertPath: "out/hosts/alpha.mesh.crt", KeyPath: "out/hosts/alpha.mesh.key"},
+				{Dir: "out/hosts", CertPath: "out/certs/alpha.mesh.crt", KeyPath: "out/certs/alpha.mesh.key"},
 				{Dir: "out/shared", CertPath: "out/shared/alpha.mesh.crt", KeyPath: "out/shared/alpha.mesh.key"},
 			},
 		},
@@ -178,7 +178,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 				CertPath string `json:"cert_path"`
 				KeyPath  string `json:"key_path"`
 			} `json:"artifacts"`
-		} `json:"hosts"`
+		} `json:"certs"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("decode raw: %v", err)
@@ -202,7 +202,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	if len(alpha.Artifacts) != 2 {
 		t.Fatalf("artifacts: got %d, want 2", len(alpha.Artifacts))
 	}
-	if alpha.Artifacts[0].Dir != "out/hosts" || alpha.Artifacts[0].CertPath != "out/hosts/alpha.mesh.crt" {
+	if alpha.Artifacts[0].Dir != "out/hosts" || alpha.Artifacts[0].CertPath != "out/certs/alpha.mesh.crt" {
 		t.Errorf("artifact[0] = %+v", alpha.Artifacts[0])
 	}
 
@@ -214,7 +214,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	gotHost, ok := got.Hosts["alpha"]
+	gotHost, ok := got.Certs["alpha"]
 	if !ok {
 		t.Fatal("Load: hosts.alpha missing")
 	}
@@ -234,7 +234,7 @@ func TestHostsAndArtifactsRoundTrip(t *testing.T) {
 func TestHostOptionalFieldsOmitEmpty(t *testing.T) {
 	t0 := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
 	m := New()
-	m.Hosts["bare"] = Host{
+	m.Certs["bare"] = Cert{
 		CA:          "mesh",
 		Name:        "bare",
 		Fingerprint: "fp",
@@ -243,7 +243,7 @@ func TestHostOptionalFieldsOmitEmpty(t *testing.T) {
 		NotBefore:     t0,
 		NotAfter:      t0.Add(8760 * time.Hour),
 		CAFingerprint: "ca-fp",
-		Artifacts:     []Artifact{{CertPath: "out/hosts/bare.crt", KeyPath: "out/hosts/bare.key"}},
+		Artifacts:     []Artifact{{CertPath: "out/certs/bare.crt", KeyPath: "out/certs/bare.key"}},
 	}
 
 	data, err := Marshal(m)

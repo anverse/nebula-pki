@@ -11,13 +11,13 @@ env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQC
 exec nebula-pki
 stderr '^wrote manifest'
 
-exists out/hosts/alpha.key.enc
-! exists out/hosts/alpha.key
+exists out/certs/alpha.key.enc
+! exists out/certs/alpha.key
 
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/alpha.crt
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alpha.crt
 
 # Decrypt the host key the way an operator would, then hand it to nebula.
-exec sops --decrypt --input-type binary --output-type binary --output alpha.key out/hosts/alpha.key.enc
+exec sops --decrypt --input-type binary --output-type binary --output alpha.key out/certs/alpha.key.enc
 grep 'NEBULA X25519 PRIVATE KEY' alpha.key
 exec nebula -test -config alpha.yml
 
@@ -39,7 +39,7 @@ cert "alpha" {
 -- alpha.yml --
 pki:
   ca: out/ca/bundle.crt
-  cert: out/hosts/alpha.crt
+  cert: out/certs/alpha.crt
   key: alpha.key
 listen:
   host: 127.0.0.1

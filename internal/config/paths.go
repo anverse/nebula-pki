@@ -20,7 +20,7 @@ const bundleFile = "bundle.crt"
 
 // Cert artifact defaults.
 const (
-	hostsSubdir    = "hosts"
+	certsSubdir    = "certs"
 	defaultCertExt = ".crt"
 	defaultKeyExt  = ".key"
 )
@@ -112,7 +112,7 @@ func (c *Config) CACertFilename(ca CA) string {
 //
 // Path resolution (per ADR-020):
 //
-//	base = output_dir when set, else <storage.out_dir>/hosts
+//	base = output_dir when set, else <storage.out_dir>/certs
 //	cert = filepath.Join(base, out_crt)  when out_crt is set
 //	     = filepath.Join(base, <name>.crt) otherwise
 //	key  = filepath.Join(base, out_key)  when out_key is set
@@ -123,7 +123,7 @@ func (c *Config) CertArtifactPath(h Cert) ArtifactPath {
 		base = h.OutputDir
 		dir = h.OutputDir
 	} else {
-		base = filepath.Join(c.Storage.OutDir, hostsSubdir)
+		base = filepath.Join(c.Storage.OutDir, certsSubdir)
 	}
 
 	certCmp := h.Name + defaultCertExt

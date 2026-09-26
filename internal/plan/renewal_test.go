@@ -205,7 +205,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	m.CAs["current"] = &manifest.CA{Mode: "generate", Name: "old-mesh"}
 	m.CAs["next"] = &manifest.CA{Mode: "generate", Name: "new-mesh"}
 	// alpha was previously signed under "current"
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "current", NotAfter: time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "current", NotAfter: time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)}
 
 	ca0 := cfg.CAs[0]
 	ca1 := cfg.CAs[1]
@@ -286,7 +286,7 @@ func TestBuild_NoRenewal_CAMismatch_StillSigns(t *testing.T) {
 	// alpha was previously signed under a different CA label.
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "old-mesh", NotAfter: notAfter}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "old-mesh", NotAfter: notAfter}
 
 	ca := cfg.CAs[0]
 	exists := existsSet(
@@ -335,7 +335,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 func trackedHostManifest(cfg *config.Config, notAfter time.Time) *manifest.Manifest {
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m"}
-	m.Hosts["alpha"] = manifest.Host{
+	m.Certs["alpha"] = manifest.Cert{
 		Name:     "alpha",
 		CA:       "mesh",
 		NotAfter: notAfter,

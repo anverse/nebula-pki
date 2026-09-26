@@ -19,16 +19,16 @@ stderr '^wrote manifest'
 ! stdout .
 
 exists out/ca/bundle.crt
-exists out/hosts/alpha.crt
-exists out/hosts/beta.crt
+exists out/certs/alpha.crt
+exists out/certs/beta.crt
 
 # Manifest records renew_before for both hosts (inherited from CA).
 grep '"renew_before"' out/nebula-pki.json
 grep '"720h0m0s"' out/nebula-pki.json
 
 # Snapshot.
-cp out/hosts/alpha.crt alpha.ca-level.crt
-cp out/hosts/beta.crt  beta.ca-level.crt
+cp out/certs/alpha.crt alpha.ca-level.crt
+cp out/certs/beta.crt  beta.ca-level.crt
 cp out/nebula-pki.json manifest.ca-level.json
 
 # Second run is a noop: freshly-signed certs are far outside the 30-day window.
@@ -38,8 +38,8 @@ stderr 'next deadline'
 ! stderr 'signed host'
 ! stdout .
 
-cmp out/hosts/alpha.crt alpha.ca-level.crt
-cmp out/hosts/beta.crt  beta.ca-level.crt
+cmp out/certs/alpha.crt alpha.ca-level.crt
+cmp out/certs/beta.crt  beta.ca-level.crt
 cmp out/nebula-pki.json manifest.ca-level.json
 
 # ── Scenario 2: host-level renew_before overrides CA-level ──────────────────
@@ -55,8 +55,8 @@ grep '"48h0m0s"' out/nebula-pki.json
 grep '"720h0m0s"' out/nebula-pki.json
 
 # Snapshot.
-cp out/hosts/alpha.crt alpha.override.crt
-cp out/hosts/gamma.crt gamma.override.crt
+cp out/certs/alpha.crt alpha.override.crt
+cp out/certs/gamma.crt gamma.override.crt
 cp out/nebula-pki.json manifest.override.json
 
 # Second run is a noop.
@@ -65,8 +65,8 @@ stderr '^up to date; nothing to do$'
 ! stderr 'signed host'
 ! stdout .
 
-cmp out/hosts/alpha.crt alpha.override.crt
-cmp out/hosts/gamma.crt gamma.override.crt
+cmp out/certs/alpha.crt alpha.override.crt
+cmp out/certs/gamma.crt gamma.override.crt
 cmp out/nebula-pki.json manifest.override.json
 
 -- invalid-renew-before.hcl --

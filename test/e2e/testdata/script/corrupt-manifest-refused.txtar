@@ -19,4 +19,4 @@ ca "test-mesh" {
 }
 
 -- bad-manifest --
-{"schema_version": 1, "hosts": {
+{"schema_version": 1, "certs": {

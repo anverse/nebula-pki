@@ -14,10 +14,10 @@ stderr '^signed host "alice"$'
 stderr '^wrote manifest'
 
 # nebula-pki never sees or writes the device private key.
-! exists out/hosts/alice.key
+! exists out/certs/alice.key
 
 # The signed cert chains to the CA under the real nebula-cert.
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/alice.crt
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alice.crt
 
 # nebula accepts the signed cert together with the device-held private key,
 # including the private-key/certificate pairing check.
@@ -37,7 +37,7 @@ cert "alice" {
 -- alice.yml --
 pki:
   ca: out/ca/bundle.crt
-  cert: out/hosts/alice.crt
+  cert: out/certs/alice.crt
   key: device/alice.key
 listen:
   host: 127.0.0.1

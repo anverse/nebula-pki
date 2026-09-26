@@ -75,8 +75,8 @@ func startNebula(t *testing.T, ctx context.Context, nebulaPath, cfgPath string) 
 func nodeConfig(dir, name string, extra string) string {
 	return fmt.Sprintf(`pki:
   ca: %[1]s/out/ca/bundle.crt
-  cert: %[1]s/out/hosts/%[2]s.crt
-  key: %[1]s/out/hosts/%[2]s.key
+  cert: %[1]s/out/certs/%[2]s.crt
+  key: %[1]s/out/certs/%[2]s.key
 tun:
   disabled: true
 logging:

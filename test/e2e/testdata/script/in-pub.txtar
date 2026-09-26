@@ -26,22 +26,22 @@ gen-host-pub inbox/p256device.pub P256
 exec nebula-pki -c basic.hcl
 stderr '^generated CA'
 stderr '^signed host "alice"$'
-! stderr 'hosts/alice\.key'
+! stderr 'certs/alice\.key'
 stderr '^wrote manifest'
 ! stdout .
 
 # Only cert written — no key.
-exists out/hosts/alice.crt
-! exists out/hosts/alice.key
+exists out/certs/alice.crt
+! exists out/certs/alice.key
 
 # Manifest records in_pub = true.
 grep '"in_pub": true' out/nebula-pki.json
 
 # The host artifact must not list a key_path (omitempty drops it).
-! grep 'hosts/alice\.key' out/nebula-pki.json
+! grep 'certs/alice\.key' out/nebula-pki.json
 
 # ── Scenario 2: idempotency ──────────────────────────────────────────────────
-cp out/hosts/alice.crt alice.snap.crt
+cp out/certs/alice.crt alice.snap.crt
 cp out/nebula-pki.json manifest.snap.json
 
 exec nebula-pki -c basic.hcl
@@ -49,7 +49,7 @@ stderr '^up to date; nothing to do$'
 ! stderr 'signed host'
 ! stdout .
 
-cmp out/hosts/alice.crt alice.snap.crt
+cmp out/certs/alice.crt alice.snap.crt
 cmp out/nebula-pki.json manifest.snap.json
 
 # ── Scenario 3: check command ────────────────────────────────────────────────
@@ -83,12 +83,12 @@ stderr 'in_pub'
 
 # ── Scenario 7: --dry-run lists cert only ───────────────────────────────────
 exec nebula-pki --dry-run -c dry-run.hcl
-stdout '\+ write out/hosts/bob\.crt'
+stdout '\+ write out/certs/bob\.crt'
 ! stdout 'bob\.key'
 ! stdout 'bob\.pub'
 
 # Dry-run must not create the cert file.
-! exists out/hosts/bob.crt
+! exists out/certs/bob.crt
 
 # ── Scenario 8: in_pub host with renew_before configured is idempotent when cert is fresh ──
 # Clock-injection is not available in e2e scripts, so the renewal-window
@@ -101,8 +101,8 @@ stderr '^generated CA'
 stderr '^signed host "renew-phone"$'
 stderr '^wrote manifest'
 
-exists renew-out/hosts/renew-phone.crt
-! exists renew-out/hosts/renew-phone.key
+exists renew-out/certs/renew-phone.crt
+! exists renew-out/certs/renew-phone.key
 
 grep '"in_pub": true' renew-out/nebula-pki.json
 
@@ -114,18 +114,18 @@ stderr '^up to date; nothing to do$'
 # First sign as a regular host (generates key).
 exec nebula-pki -c stale-regular.hcl
 stderr '^signed host "laptop"$'
-exists stale-out/hosts/laptop.crt
-exists stale-out/hosts/laptop.key
+exists stale-out/certs/laptop.crt
+exists stale-out/certs/laptop.key
 
 # Re-run with in_pub version of the same host.
 exec nebula-pki -c stale-inpub.hcl
 stderr '^signed host "laptop"$'
-stderr 'stale-out/hosts/laptop\.key'
+stderr 'stale-out/certs/laptop\.key'
 stderr 'no longer managed'
 
-exists stale-out/hosts/laptop.crt
+exists stale-out/certs/laptop.crt
 # Key still exists on disk — we notice but do NOT delete (user confirms first).
-exists stale-out/hosts/laptop.key
+exists stale-out/certs/laptop.key
 
 -- basic.hcl --
 ca "mesh" {

@@ -9,17 +9,17 @@ exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key$'
 stderr '^signed host "alpha"'
-stderr 'key:  out/hosts/alpha\.key$'
+stderr 'key:  out/certs/alpha\.key$'
 ! stdout .
 
 exists out/ca/test-ca.key
 ! exists out/ca/test-ca.key.enc
-exists out/hosts/alpha.key
-! exists out/hosts/alpha.key.enc
+exists out/certs/alpha.key
+! exists out/certs/alpha.key.enc
 
 # Plaintext PEM header present in key files.
 grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key
-grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key
+grep 'NEBULA X25519 PRIVATE KEY' out/certs/alpha.key
 
 # Enable sops encryption.
 cp nebula.sops.hcl nebula.hcl
@@ -38,12 +38,12 @@ stdout '2 key files rekeyed'
 # Encrypted key files present; plaintext files removed.
 exists out/ca/test-ca.key.enc
 ! exists out/ca/test-ca.key
-exists out/hosts/alpha.key.enc
-! exists out/hosts/alpha.key
+exists out/certs/alpha.key.enc
+! exists out/certs/alpha.key
 
 # Encrypted files do not expose plaintext PEM headers.
 ! grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key.enc
-! grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key.enc
+! grep 'NEBULA X25519 PRIVATE KEY' out/certs/alpha.key.enc
 
 # Manifest records the encrypted key paths and sops backend.
 grep '"key_path": "out/ca/test-ca\.key\.enc"' out/nebula-pki.json

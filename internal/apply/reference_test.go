@@ -452,7 +452,7 @@ cert "alpha" {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if h, ok := m.Hosts["alpha"]; !ok {
+	if h, ok := m.Certs["alpha"]; !ok {
 		t.Fatal("manifest missing host alpha")
 	} else if h.CAFingerprint != seed.Fingerprint {
 		t.Errorf("host ca_fingerprint = %q, want %q", h.CAFingerprint, seed.Fingerprint)

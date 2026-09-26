@@ -7,23 +7,23 @@ stderr '^generated CA "test-mesh" \(test-mesh\)$'
 stderr '^  cert: out/ca/test-mesh\.crt$'
 stderr '^  key:  out/ca/test-mesh\.key$'
 stderr '^signed host "alpha"$'
-stderr '^  cert: out/hosts/alpha\.crt$'
-stderr '^  key:  out/hosts/alpha\.key$'
+stderr '^  cert: out/certs/alpha\.crt$'
+stderr '^  key:  out/certs/alpha\.key$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
 # CA and host artifacts exist.
 exists out/ca/test-mesh.crt
 exists out/ca/test-mesh.key
-exists out/hosts/alpha.crt
-exists out/hosts/alpha.key
+exists out/certs/alpha.crt
+exists out/certs/alpha.key
 exists out/nebula-pki.json
 
 # Real PEM material was written.
 grep 'NEBULA CERTIFICATE' out/ca/test-mesh.crt
 grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-mesh.key
-grep 'NEBULA CERTIFICATE' out/hosts/alpha.crt
-grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key
+grep 'NEBULA CERTIFICATE' out/certs/alpha.crt
+grep 'NEBULA X25519 PRIVATE KEY' out/certs/alpha.key
 
 # Manifest shape: schema, generator, CA record, host record, relative config path.
 grep '"schema_version": 1' out/nebula-pki.json

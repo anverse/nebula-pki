@@ -10,8 +10,8 @@ stderr '^signed host "alpha"$'
 # Snapshot every artifact.
 cp out/ca/test-mesh.crt ca.crt.first
 cp out/ca/test-mesh.key ca.key.first
-cp out/hosts/alpha.crt alpha.crt.first
-cp out/hosts/alpha.key alpha.key.first
+cp out/certs/alpha.crt alpha.crt.first
+cp out/certs/alpha.key alpha.key.first
 cp out/nebula-pki.json manifest.first
 
 # Second run must report "up to date" and touch nothing.
@@ -24,8 +24,8 @@ stderr '^up to date; nothing to do$'
 # All artifacts are byte-identical to the first run.
 cmp out/ca/test-mesh.crt ca.crt.first
 cmp out/ca/test-mesh.key ca.key.first
-cmp out/hosts/alpha.crt alpha.crt.first
-cmp out/hosts/alpha.key alpha.key.first
+cmp out/certs/alpha.crt alpha.crt.first
+cmp out/certs/alpha.key alpha.key.first
 cmp out/nebula-pki.json manifest.first
 
 -- nebula.hcl --

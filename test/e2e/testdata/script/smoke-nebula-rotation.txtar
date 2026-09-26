@@ -11,9 +11,9 @@ stderr '^wrote trust bundle'
 stderr '^wrote manifest'
 
 # Host signed by the new CA verifies against the bundle, not the old CA.
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/node.crt
-exec nebula-cert verify -ca out/ca/new.crt -crt out/hosts/node.crt
-! exec nebula-cert verify -ca out/ca/old.crt -crt out/hosts/node.crt
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/node.crt
+exec nebula-cert verify -ca out/ca/new.crt -crt out/certs/node.crt
+! exec nebula-cert verify -ca out/ca/old.crt -crt out/certs/node.crt
 
 # A node trusting the rotation bundle loads the new-CA host cert/key.
 exec nebula -test -config node.yml
@@ -36,8 +36,8 @@ cert "node" {
 -- node.yml --
 pki:
   ca: out/ca/bundle.crt
-  cert: out/hosts/node.crt
-  key: out/hosts/node.key
+  cert: out/certs/node.crt
+  key: out/certs/node.key
 listen:
   host: 127.0.0.1
   port: 0

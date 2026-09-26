@@ -12,7 +12,7 @@ exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
 stderr '^signed host "alpha"'
-stderr 'key:  out/hosts/alpha\.key\.enc'
+stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
 # No inline recipients → recipients_sha is omitted from the manifest.
@@ -20,7 +20,7 @@ stderr 'key:  out/hosts/alpha\.key\.enc'
 
 # Snapshot encrypted key files.
 cp out/ca/test-ca.key.enc  ca.key.enc.snap
-cp out/hosts/alpha.key.enc alpha.key.enc.snap
+cp out/certs/alpha.key.enc alpha.key.enc.snap
 
 # Without --force, no mismatch detected → nothing to rekey.
 exec nebula-pki rekey
@@ -34,7 +34,7 @@ stdout '2 key files rekeyed'
 
 # Ciphertext changed (sops produces new random ciphertext each time).
 ! cmp out/ca/test-ca.key.enc  ca.key.enc.snap
-! cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+! cmp out/certs/alpha.key.enc alpha.key.enc.snap
 
 # Run 2: noop, no warning.
 exec nebula-pki

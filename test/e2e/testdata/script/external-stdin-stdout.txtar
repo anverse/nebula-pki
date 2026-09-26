@@ -14,16 +14,16 @@ exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
 stderr '^signed host "alpha"'
-stderr 'key:  out/hosts/alpha\.key\.enc'
+stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
 # The key files exist and carry the .enc suffix.
 exists out/ca/test-ca.crt
 exists out/ca/test-ca.key.enc
-exists out/hosts/alpha.crt
-exists out/hosts/alpha.key.enc
+exists out/certs/alpha.crt
+exists out/certs/alpha.key.enc
 ! exists out/ca/test-ca.key
-! exists out/hosts/alpha.key
+! exists out/certs/alpha.key
 
 # Snapshot first-run artifacts.
 cp out/ca/test-ca.crt      ca.crt.snap
@@ -40,8 +40,8 @@ stderr '^signed host "beta"'
 cmp out/ca/test-ca.crt     ca.crt.snap
 cmp out/ca/test-ca.key.enc ca.key.enc.snap
 
-exists out/hosts/beta.crt
-exists out/hosts/beta.key.enc
+exists out/certs/beta.crt
+exists out/certs/beta.key.enc
 
 # Run 3: full noop.
 exec nebula-pki

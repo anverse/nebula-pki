@@ -15,7 +15,7 @@ exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
 stderr '^signed host "alpha"'
-stderr 'key:  out/hosts/alpha\.key\.enc'
+stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
 exists out/ca/test-ca.crt
@@ -36,8 +36,8 @@ stderr '^signed host "beta"'
 cmp out/ca/test-ca.crt     ca.crt.snap
 cmp out/ca/test-ca.key.enc ca.key.enc.snap
 
-exists out/hosts/beta.crt
-exists out/hosts/beta.key.enc
+exists out/certs/beta.crt
+exists out/certs/beta.key.enc
 
 # Run 3: full noop.
 exec nebula-pki

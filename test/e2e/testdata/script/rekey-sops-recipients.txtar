@@ -11,12 +11,12 @@ exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
 stderr '^signed host "alpha"'
-stderr 'key:  out/hosts/alpha\.key\.enc'
+stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
 # Snapshot encrypted key files before rekeying.
 cp out/ca/test-ca.key.enc   ca.key.enc.snap
-cp out/hosts/alpha.key.enc  alpha.key.enc.snap
+cp out/certs/alpha.key.enc  alpha.key.enc.snap
 
 # Switch config to key B as recipient. Recipients hash in manifest still reflects key A.
 cp nebula.v2.hcl nebula.hcl
@@ -36,7 +36,7 @@ stdout '2 key files rekeyed'
 
 # Ciphertext changed on disk.
 ! cmp out/ca/test-ca.key.enc  ca.key.enc.snap
-! cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+! cmp out/certs/alpha.key.enc alpha.key.enc.snap
 
 # Run 3 with key B config: noop, no mismatch warning.
 exec nebula-pki

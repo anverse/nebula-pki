@@ -116,8 +116,8 @@ cert "alpha" {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.Hosts["alpha"].RenewBefore != "720h0m0s" {
-		t.Errorf("RenewBefore = %q, want '720h0m0s'", m.Hosts["alpha"].RenewBefore)
+	if m.Certs["alpha"].RenewBefore != "720h0m0s" {
+		t.Errorf("RenewBefore = %q, want '720h0m0s'", m.Certs["alpha"].RenewBefore)
 	}
 }
 
@@ -138,8 +138,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.Hosts["alpha"].RenewBefore != "48h0m0s" {
-		t.Errorf("RenewBefore = %q, want '48h0m0s'", m.Hosts["alpha"].RenewBefore)
+	if m.Certs["alpha"].RenewBefore != "48h0m0s" {
+		t.Errorf("RenewBefore = %q, want '48h0m0s'", m.Certs["alpha"].RenewBefore)
 	}
 }
 
@@ -156,8 +156,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.Hosts["alpha"].RenewBefore != "" {
-		t.Errorf("RenewBefore = %q, want empty when not configured", m.Hosts["alpha"].RenewBefore)
+	if m.Certs["alpha"].RenewBefore != "" {
+		t.Errorf("RenewBefore = %q, want empty when not configured", m.Certs["alpha"].RenewBefore)
 	}
 }
 
@@ -189,7 +189,7 @@ cert "alpha" {
 	if err != nil {
 		t.Fatalf("manifest.Load after first run: %v", err)
 	}
-	notAfter1 := m1.Hosts["alpha"].NotAfter
+	notAfter1 := m1.Certs["alpha"].NotAfter
 
 	// Second run at T+10h: outside window (not_after=T+100h, window=T+50h).
 	rep2, err := Reconcile(cfg, Options{Now: baseTime.Add(10 * time.Hour), GeneratorVersion: genVersion})
@@ -212,7 +212,7 @@ cert "alpha" {
 	if err != nil {
 		t.Fatalf("manifest.Load after third run: %v", err)
 	}
-	notAfter3 := m3.Hosts["alpha"].NotAfter
+	notAfter3 := m3.Certs["alpha"].NotAfter
 	if !notAfter3.After(notAfter1) {
 		t.Errorf("not_after after re-sign (%v) is not later than original (%v)", notAfter3, notAfter1)
 	}
@@ -266,7 +266,7 @@ cert "alpha" {
 `)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{NotAfter: time.Date(2028, 1, 1, 0, 0, 0, 0, time.UTC)}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh", NotAfter: notAfter}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh", NotAfter: notAfter}
 
 	d := computeDeadlines(cfg, m, now)
 	if !d.NextDeadline.Equal(windowEntry) {
@@ -288,7 +288,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{NotAfter: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh", NotAfter: hostExpiry}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh", NotAfter: hostExpiry}
 
 	d := computeDeadlines(cfg, m, now)
 	// SoonItems should include alpha.
@@ -319,7 +319,7 @@ cert "alpha" {
 `)
 	m := manifest.New()
 	m.CAs["mesh"] = &manifest.CA{NotAfter: time.Date(2028, 1, 1, 0, 0, 0, 0, time.UTC)}
-	m.Hosts["alpha"] = manifest.Host{Name: "alpha", CA: "mesh", NotAfter: notAfter}
+	m.Certs["alpha"] = manifest.Cert{Name: "alpha", CA: "mesh", NotAfter: notAfter}
 
 	d := computeDeadlines(cfg, m, now)
 	found := false
@@ -393,7 +393,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatal("step1: Changed = false, want true")
 	}
 	m1, _ := manifest.Load(cfg1.Resolve(cfg1.ManifestPath()))
-	alphaFP1 := m1.Hosts["alpha"].CAFingerprint
+	alphaFP1 := m1.Certs["alpha"].CAFingerprint
 
 	// Step 2: add "next" CA (default stays on "current")
 	// We simulate this as a new config in the same dir.
@@ -427,7 +427,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("step2: bundle has %d fingerprints, want 2", len(m2.TrustBundle.CAFingerprints))
 	}
 	// alpha still signed under "current"
-	m2alpha := m2.Hosts["alpha"]
+	m2alpha := m2.Certs["alpha"]
 	if m2alpha.CA != "current" {
 		t.Errorf("step2: alpha.ca = %q, want 'current'", m2alpha.CA)
 	}
@@ -452,10 +452,10 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatal("step3: Changed = false, want true (hosts re-signed under 'next')")
 	}
 	m3, _ := manifest.Load(cfg3.Resolve(cfg3.ManifestPath()))
-	if m3.Hosts["alpha"].CA != "next" {
-		t.Errorf("step3: alpha.ca = %q, want 'next'", m3.Hosts["alpha"].CA)
+	if m3.Certs["alpha"].CA != "next" {
+		t.Errorf("step3: alpha.ca = %q, want 'next'", m3.Certs["alpha"].CA)
 	}
-	alphaFP3 := m3.Hosts["alpha"].CAFingerprint
+	alphaFP3 := m3.Certs["alpha"].CAFingerprint
 	if alphaFP3 == alphaFP1 {
 		t.Error("step3: alpha CA fingerprint unchanged, want new fingerprint (signed under 'next')")
 	}

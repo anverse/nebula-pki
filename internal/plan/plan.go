@@ -224,12 +224,12 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 
 	isInPub := h.InPub != ""
 
-	tracked := m != nil && m.Hosts[h.Label].Name != ""
-	caMatch := tracked && signingCA != nil && m.Hosts[h.Label].CA == signingCA.Label
+	tracked := m != nil && m.Certs[h.Label].Name != ""
+	caMatch := tracked && signingCA != nil && m.Certs[h.Label].CA == signingCA.Label
 	// Provenance must match: a host switching between regular signing and
 	// in_pub (or back) must be re-signed so the cert reflects the correct
 	// public key source and the manifest records the right shape.
-	provenanceMatch := tracked && m.Hosts[h.Label].InPub == isInPub
+	provenanceMatch := tracked && m.Certs[h.Label].InPub == isInPub
 
 	// in_pub hosts never write a key file; encryption does not apply to them.
 	suffix := ""
@@ -246,7 +246,7 @@ func planHost(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 
 	if tracked && caMatch && provenanceMatch && certOK && keyOK {
 		rb := cfg.ResolvedRenewBefore(*h)
-		mh := m.Hosts[h.Label]
+		mh := m.Certs[h.Label]
 		if noRenewal || !hostInRenewalWindow(rb, mh.NotAfter, now) {
 			return Action{Op: OpNoop, Kind: KindHost, Label: h.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("host %q up to date", h.Label)}
 		}

@@ -12,14 +12,14 @@ stderr '^wrote manifest'
 
 # Chain validation with the real nebula-cert: each host against its own CA
 # and against the mixed-curve trust bundle.
-exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/hosts/alpha.crt
-exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/hosts/beta.crt
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/alpha.crt
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/hosts/beta.crt
+exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/certs/alpha.crt
+exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/certs/beta.crt
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alpha.crt
+exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/beta.crt
 
 # Negative control: a host must not verify against the other CA alone.
-! exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/hosts/alpha.crt
-! exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/hosts/beta.crt
+! exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/certs/alpha.crt
+! exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/certs/beta.crt
 
 # nebula's config-test mode loads ca/cert/key and verifies the private key
 # pairs with the certificate public key.
@@ -52,8 +52,8 @@ cert "beta" {
 -- alpha.yml --
 pki:
   ca: out/ca/bundle.crt
-  cert: out/hosts/alpha.crt
-  key: out/hosts/alpha.key
+  cert: out/certs/alpha.crt
+  key: out/certs/alpha.key
 listen:
   host: 127.0.0.1
   port: 0
@@ -74,8 +74,8 @@ firewall:
 -- beta.yml --
 pki:
   ca: out/ca/bundle.crt
-  cert: out/hosts/beta.crt
-  key: out/hosts/beta.key
+  cert: out/certs/beta.crt
+  key: out/certs/beta.key
 listen:
   host: 127.0.0.1
   port: 0

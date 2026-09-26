@@ -136,9 +136,9 @@ func collectRekeyEntries(m *manifest.Manifest, newEnc crypto.Encryptor, force bo
 		})
 	}
 
-	hostLabels := sortedKeys(m.Hosts)
+	hostLabels := sortedKeys(m.Certs)
 	for _, label := range hostLabels {
-		h := m.Hosts[label]
+		h := m.Certs[label]
 		if h.InPub {
 			continue
 		}
@@ -245,10 +245,10 @@ func updateRekeyManifest(m *manifest.Manifest, e rekeyEntry, newLogPath string, 
 		ca.Encryption = newEncRec
 		return
 	}
-	h := m.Hosts[e.label]
+	h := m.Certs[e.label]
 	h.Artifacts[e.artIdx].KeyPath = newLogPath
 	h.Artifacts[e.artIdx].Encryption = newEncRec
-	m.Hosts[e.label] = h
+	m.Certs[e.label] = h
 }
 
 func keyBasePath(logPath string, enc *manifest.EncryptionRecord) string {

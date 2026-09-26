@@ -9,8 +9,8 @@ stderr '^generated CA "test-ca" \(test-ca\)$'
 stderr '^  cert: out/ca/test-ca\.crt$'
 stderr '^  key:  out/ca/test-ca\.key\.enc$'
 stderr '^signed host "alpha"$'
-stderr '^  cert: out/hosts/alpha\.crt$'
-stderr '^  key:  out/hosts/alpha\.key\.enc$'
+stderr '^  cert: out/certs/alpha\.crt$'
+stderr '^  key:  out/certs/alpha\.key\.enc$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
@@ -18,16 +18,16 @@ stderr '^wrote manifest: out/nebula-pki\.json$'
 exists out/ca/test-ca.crt
 exists out/ca/test-ca.key.enc
 ! exists out/ca/test-ca.key
-exists out/hosts/alpha.crt
-exists out/hosts/alpha.key.enc
-! exists out/hosts/alpha.key
+exists out/certs/alpha.crt
+exists out/certs/alpha.key.enc
+! exists out/certs/alpha.key
 exists out/nebula-pki.json
 
 # Certs are plaintext PEM; encrypted key files are not.
 grep 'NEBULA CERTIFICATE' out/ca/test-ca.crt
-grep 'NEBULA CERTIFICATE' out/hosts/alpha.crt
+grep 'NEBULA CERTIFICATE' out/certs/alpha.crt
 ! grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-ca.key.enc
-! grep 'NEBULA X25519 PRIVATE KEY' out/hosts/alpha.key.enc
+! grep 'NEBULA X25519 PRIVATE KEY' out/certs/alpha.key.enc
 
 # Manifest records the encrypted key paths and backend.
 grep '"key_path": "out/ca/test-ca\.key\.enc"' out/nebula-pki.json

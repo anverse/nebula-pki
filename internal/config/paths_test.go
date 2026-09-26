@@ -100,10 +100,10 @@ cert "node" { networks = ["10.0.0.1/16"] }
 	if got.Dir != "" {
 		t.Errorf("Dir = %q, want empty for default path", got.Dir)
 	}
-	if want := filepath.Join("out", "hosts", "node.crt"); got.CertPath != want {
+	if want := filepath.Join("out", "certs", "node.crt"); got.CertPath != want {
 		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
 	}
-	if want := filepath.Join("out", "hosts", "node.key"); got.KeyPath != want {
+	if want := filepath.Join("out", "certs", "node.key"); got.KeyPath != want {
 		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
 	}
 }
@@ -123,10 +123,10 @@ cert "node" {
 	if got.Dir != "" {
 		t.Errorf("Dir = %q, want empty for out_crt/out_key-only paths", got.Dir)
 	}
-	if want := filepath.Join("out", "hosts", "custom/node.crt"); got.CertPath != want {
+	if want := filepath.Join("out", "certs", "custom/node.crt"); got.CertPath != want {
 		t.Errorf("CertPath = %q, want %q", got.CertPath, want)
 	}
-	if want := filepath.Join("out", "hosts", "custom/node.key"); got.KeyPath != want {
+	if want := filepath.Join("out", "certs", "custom/node.key"); got.KeyPath != want {
 		t.Errorf("KeyPath = %q, want %q", got.KeyPath, want)
 	}
 }

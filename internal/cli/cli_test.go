@@ -261,8 +261,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if !strings.Contains(out, "+ write out/ca/mesh.crt") {
 		t.Errorf("stdout = %q, want it to contain '+ write out/ca/mesh.crt'", out)
 	}
-	if !strings.Contains(out, "+ write out/hosts/alpha.crt") {
-		t.Errorf("stdout = %q, want it to contain '+ write out/hosts/alpha.crt'", out)
+	if !strings.Contains(out, "+ write out/certs/alpha.crt") {
+		t.Errorf("stdout = %q, want it to contain '+ write out/certs/alpha.crt'", out)
 	}
 	if !strings.Contains(out, "+ write out/ca/bundle.crt") {
 		t.Errorf("stdout = %q, want it to contain '+ write out/ca/bundle.crt'", out)
@@ -418,15 +418,15 @@ func TestWriteReconcileSummary(t *testing.T) {
 				}},
 				SignedHosts: []apply.SignedHost{
 					{Label: "alpha", Artifacts: []apply.SignedArtifact{
-						{CertPath: "out/hosts/alpha.crt", KeyPath: "out/hosts/alpha.key"},
+						{CertPath: "out/certs/alpha.crt", KeyPath: "out/certs/alpha.key"},
 					}},
 				},
 			},
 			wantContain: []string{
 				`generated CA "mesh"`,
 				`signed host "alpha"`,
-				"cert: out/hosts/alpha.crt",
-				"key:  out/hosts/alpha.key",
+				"cert: out/certs/alpha.crt",
+				"key:  out/certs/alpha.key",
 				"wrote manifest: out/nebula-pki.json",
 			},
 			wantNot: []string{"up to date", "not yet reconciled"},
@@ -590,9 +590,9 @@ func patchManifestNotAfter(tb testing.TB, manReal, hostLabel string, notAfter ti
 	if err != nil {
 		tb.Fatalf("manifest.Load: %v", err)
 	}
-	h := m.Hosts[hostLabel]
+	h := m.Certs[hostLabel]
 	h.NotAfter = notAfter
-	m.Hosts[hostLabel] = h
+	m.Certs[hostLabel] = h
 	data, err := manifest.Marshal(m)
 	if err != nil {
 		tb.Fatalf("manifest.Marshal: %v", err)

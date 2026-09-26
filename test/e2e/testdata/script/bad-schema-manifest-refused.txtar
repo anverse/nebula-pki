@@ -29,11 +29,11 @@ ca "test-mesh" {
   "schema_version": 2,
   "generated_at": "2026-01-02T03:04:05Z",
   "generator": {"name": "nebula-pki", "version": "v9.9.9"},
-  "hosts": {}
+  "certs": {}
 }
 -- no-schema-manifest --
 {
   "generated_at": "2026-01-02T03:04:05Z",
   "generator": {"name": "nebula-pki", "version": "v0.0.3-test"},
-  "hosts": {}
+  "certs": {}
 }

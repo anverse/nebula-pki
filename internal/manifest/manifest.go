@@ -36,7 +36,7 @@ type Manifest struct {
 	ConfigPath    string          `json:"config_path"`
 	TrustBundle   *TrustBundle    `json:"trust_bundle,omitempty"`
 	CAs           map[string]*CA  `json:"cas"`
-	Hosts         map[string]Host `json:"hosts"`
+	Certs         map[string]Cert `json:"certs"`
 }
 
 // TrustBundle records the emitted CA trust bundle artifact.
@@ -99,8 +99,8 @@ type CA struct {
 	Links []CertLink `json:"links,omitempty"`
 }
 
-// Host is a signed host record.
-type Host struct {
+// Cert is a signed cert record.
+type Cert struct {
 	CA             string    `json:"ca"`
 	Name           string    `json:"name"`
 	Fingerprint    string    `json:"fingerprint"`
@@ -112,15 +112,15 @@ type Host struct {
 	NotBefore      time.Time `json:"not_before"`
 	NotAfter       time.Time `json:"not_after"`
 	CAFingerprint  string    `json:"ca_fingerprint"`
-	// InPub marks hosts signed via the air-gapped in_pub pattern (ADR-018).
+	// InPub marks certs signed via the air-gapped in_pub pattern (ADR-018).
 	// When true, only a certificate was written; no private key exists on
-	// the CA host. Omitted (false) for regular keypair-generating hosts.
+	// the CA host. Omitted (false) for regular keypair-generating certs.
 	InPub     bool       `json:"in_pub,omitempty"`
 	Artifacts []Artifact `json:"artifacts"`
 }
 
-// Artifact is one resolved destination for a host's cert/key pair.
-// KeyPath is omitted for in_pub hosts (air-gapped signing: cert only, no
+// Artifact is one resolved destination for a cert/key pair.
+// KeyPath is omitted for in_pub certs (air-gapped signing: cert only, no
 // key is ever written by the tool).
 type Artifact struct {
 	Dir      string `json:"dir,omitempty"`
@@ -137,7 +137,7 @@ func New() *Manifest {
 		SchemaVersion: SchemaVersion,
 		Generator:     Generator{Name: GeneratorName},
 		CAs:           map[string]*CA{},
-		Hosts:         map[string]Host{},
+		Certs:         map[string]Cert{},
 	}
 }
 
@@ -167,8 +167,8 @@ func Load(path string) (*Manifest, error) {
 	if m.CAs == nil {
 		m.CAs = map[string]*CA{}
 	}
-	if m.Hosts == nil {
-		m.Hosts = map[string]Host{}
+	if m.Certs == nil {
+		m.Certs = map[string]Cert{}
 	}
 	return &m, nil
 }

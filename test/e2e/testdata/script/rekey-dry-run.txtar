@@ -13,7 +13,7 @@ stderr '^signed host "alpha"'
 
 # Snapshot artifacts.
 cp out/ca/test-ca.key.enc  ca.key.enc.snap
-cp out/hosts/alpha.key.enc alpha.key.enc.snap
+cp out/certs/alpha.key.enc alpha.key.enc.snap
 cp out/nebula-pki.json     manifest.snap
 
 # Switch to key B — triggers mismatch.
@@ -28,7 +28,7 @@ stdout '2 key files would be rekeyed'
 
 # All artifacts unchanged.
 cmp out/ca/test-ca.key.enc  ca.key.enc.snap
-cmp out/hosts/alpha.key.enc alpha.key.enc.snap
+cmp out/certs/alpha.key.enc alpha.key.enc.snap
 cmp out/nebula-pki.json     manifest.snap
 
 # Mismatch warning still fires on next reconcile.
