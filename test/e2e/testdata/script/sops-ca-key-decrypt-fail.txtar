@@ -1,4 +1,4 @@
-# When the age private key is absent from the environment and a new host needs
+# When the age private key is absent from the environment and a new cert needs
 # signing, nebula-pki must fail with a clear "decrypt CA" error. Existing
 # artifacts must be left untouched.
 
@@ -6,10 +6,10 @@
 
 env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
 
-# Run 1: generate CA and sign host alpha. Both keys encrypted.
+# Run 1: generate CA and sign cert alpha. Both keys encrypted.
 exec nebula-pki
 stderr '^generated CA "test-ca"'
-stderr '^signed host "alpha"$'
+stderr '^signed cert "alpha"$'
 exists out/ca/test-ca.key.enc
 exists out/certs/alpha.key.enc
 
@@ -20,7 +20,7 @@ cp out/certs/alpha.crt     alpha.crt.snap
 cp out/certs/alpha.key.enc alpha.key.enc.snap
 cp out/nebula-pki.json     manifest.snap
 
-# Drop credentials and switch to config that adds host beta (needs CA signing).
+# Drop credentials and switch to config that adds cert beta (needs CA signing).
 env SOPS_AGE_KEY=
 cp nebula.v2.hcl nebula.hcl
 

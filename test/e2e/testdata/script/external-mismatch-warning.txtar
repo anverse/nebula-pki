@@ -7,27 +7,27 @@
 
 [!exec:cat] skip 'cat not in PATH'
 
-# Run 1: generate CA and sign host using encrypt_command = ["cat", "--v1"].
+# Run 1: generate CA and sign cert using encrypt_command = ["cat", "--v1"].
 exec nebula-pki
 stderr '^generated CA "test-ca"'
-stderr '^signed host "alpha"'
+stderr '^signed cert "alpha"'
 ! stdout .
 
 # Switch to a config with a different encrypt_command (recipients hash changes).
 cp nebula.v2.hcl nebula.hcl
 
 # Run 2: all artifacts are noop but encrypt_command changed — warning for CA
-# and host.
+# and cert.
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 stderr 'warning: CA "test-ca" key was encrypted with different recipients'
-stderr 'warning: host "alpha" key was encrypted with different recipients'
+stderr 'warning: cert "alpha" key was encrypted with different recipients'
 stderr 'nebula-pki rekey'
 ! stdout .
 
 # No files were rewritten.
 ! stderr 'generated'
-! stderr 'signed host'
+! stderr 'signed cert'
 ! stderr 'wrote manifest'
 
 -- nebula.hcl --

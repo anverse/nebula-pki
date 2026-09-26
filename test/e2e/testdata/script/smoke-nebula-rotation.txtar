@@ -1,5 +1,5 @@
 # Real-binary smoke test for CA rotation: while old and new CA coexist, a
-# host signed by the new CA must be accepted by a node that trusts the
+# cert signed by the new CA must be accepted by a node that trusts the
 # rotation-stage bundle (both CAs), and must NOT verify against the old CA
 # alone — exactly what deployed nodes experience mid-rotation.
 
@@ -10,12 +10,12 @@ exec nebula-pki
 stderr '^wrote trust bundle'
 stderr '^wrote manifest'
 
-# Host signed by the new CA verifies against the bundle, not the old CA.
+# Cert signed by the new CA verifies against the bundle, not the old CA.
 exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/node.crt
 exec nebula-cert verify -ca out/ca/new.crt -crt out/certs/node.crt
 ! exec nebula-cert verify -ca out/ca/old.crt -crt out/certs/node.crt
 
-# A node trusting the rotation bundle loads the new-CA host cert/key.
+# A node trusting the rotation bundle loads the new-CA cert/key.
 exec nebula -test -config node.yml
 
 -- nebula.hcl --

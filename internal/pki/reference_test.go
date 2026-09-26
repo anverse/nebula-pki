@@ -90,7 +90,7 @@ func TestLoadReferenceCA_CorruptKeyPEM(t *testing.T) {
 	}
 }
 
-// TestLoadReferenceCA_NotACA points the loader at a host (non-CA)
+// TestLoadReferenceCA_NotACA points the loader at a cert (non-CA)
 // certificate. The schema lets an operator typo any path into cert_file;
 // the loader must reject a leaf cert rather than later mis-signing under
 // a non-CA.
@@ -224,7 +224,7 @@ ca "m" {
 	}
 }
 
-// mintHostCert produces a non-CA (leaf) certificate signed by a throwaway
+// mintCertCert produces a non-CA (leaf) certificate signed by a throwaway
 // CA, plus its key PEM, for negative tests that need a real-but-not-CA
 // certificate.
 func mintCert(t *testing.T) (certPEM, keyPEM []byte) {
@@ -246,16 +246,16 @@ func mintCert(t *testing.T) (certPEM, keyPEM []byte) {
 
 	certPub, _, err := generateCertKeypair(caCurve)
 	if err != nil {
-		t.Fatalf("generate host keypair: %v", err)
+		t.Fatalf("generate cert keypair: %v", err)
 	}
 
 	certNet, err := netip.ParsePrefix("10.0.0.9/24")
 	if err != nil {
-		t.Fatalf("parse host network: %v", err)
+		t.Fatalf("parse cert network: %v", err)
 	}
 	tbs := &cert.TBSCertificate{
 		Version:   cert.Version2,
-		Name:      "a-host",
+		Name:      "a-cert",
 		Networks:  []netip.Prefix{certNet},
 		NotBefore: fixedTime,
 		NotAfter:  fixedTime.Add(time.Hour),
@@ -265,11 +265,11 @@ func mintCert(t *testing.T) (certPEM, keyPEM []byte) {
 	}
 	issued, err := tbs.Sign(caCert, caCurve, caKey)
 	if err != nil {
-		t.Fatalf("sign host cert: %v", err)
+		t.Fatalf("sign cert: %v", err)
 	}
 	crtPEM, err := issued.MarshalPEM()
 	if err != nil {
-		t.Fatalf("marshal host cert: %v", err)
+		t.Fatalf("marshal cert: %v", err)
 	}
 	return crtPEM, nil
 }

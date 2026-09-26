@@ -127,7 +127,7 @@ func TestSmoke_LighthouseHandshake(t *testing.T) {
 }
 
 func testLighthouseHandshake(t *testing.T, nebulaPath, curve string) {
-	// Generate a CA and two host cert/key pairs in-process, the same way
+	// Generate a CA and two cert/key pairs in-process, the same way
 	// `nebula-pki` does (apply.Reconcile is the CLI's whole write path).
 	dir := t.TempDir()
 	hclPath := filepath.Join(dir, "nebula.hcl")

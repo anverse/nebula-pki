@@ -6,7 +6,7 @@
 //
 // It supports two CA paths: GenerateCA mints a fresh self-signed CA, and
 // LoadReferenceCA reads and verifies an operator-supplied existing CA
-// without rewriting it. SignHost signs host certificates under a loaded
+// without rewriting it. SignCert signs certificates under a loaded
 // or generated CA.
 package pki
 
@@ -136,7 +136,7 @@ var ErrReferenceCAExpired = errors.New("reference CA is expired")
 // reference mode never rewrites the source files.
 //
 // Verification is deliberately strict so a misconfigured pair fails now,
-// at load time, rather than later when the first host is signed:
+// at load time, rather than later when the first cert is signed:
 //
 //   - the certificate must be a CA (IsCA);
 //   - its self-signature must verify against its own public key;
@@ -245,8 +245,8 @@ func publicFromSigningKey(curve cert.Curve, rawPriv []byte) ([]byte, error) {
 // generateKeypair returns the public key and the raw signing private key
 // for a CA, in the byte layouts the cert library's Sign and
 // MarshalSigningPrivateKeyToPEM expect (64-byte Ed25519 private key, or
-// the 32-byte P256 scalar via the ECDH encoding). Hosts use
-// generateHostKeypair instead: host keys are ECDH keys, not signing keys.
+// the 32-byte P256 scalar via the ECDH encoding). Certs use
+// generateCertKeypair instead: cert keys are ECDH keys, not signing keys.
 func generateKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 	switch curve {
 	case cert.Curve_CURVE25519:
@@ -274,8 +274,8 @@ func generateKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 	}
 }
 
-// generateHostKeypair returns the public key and raw private key for a
-// host (encryption) certificate, in the byte layouts nebula's
+// generateCertKeypair returns the public key and raw private key for a
+// non-CA (encryption) certificate, in the byte layouts nebula's
 // cert.UnmarshalPrivateKeyFromPEM and the Noise handshake expect: a
 // 32-byte X25519 scalar for CURVE25519, or the 32-byte P256 scalar via
 // the ECDH encoding. CAs use generateKeypair (signing keys) instead.
@@ -300,7 +300,7 @@ func generateCertKeypair(curve cert.Curve) (pub, rawPriv []byte, err error) {
 	}
 }
 
-// HostResult is the output of SignHost: the signed certificate and its
+// CertResult is the output of SignCert: the signed certificate and its
 // freshly generated private key, plus the metadata the manifest records.
 // Curve and Version are returned in their HCL spellings ("25519"/"P256",
 // 1/2) for consistency with CAResult and the manifest format.
@@ -317,7 +317,7 @@ type CertResult struct {
 	CAFingerprint string
 }
 
-// SignHost signs a host certificate under the given CA, returning the cert
+// SignCert signs a certificate under the given CA, returning the cert
 // PEM and a freshly generated private key PEM. The private key is an
 // X25519 (or P256 ECDH) encryption key in the format nebula's pki.key
 // loader expects, mirroring nebula-cert sign — not a signing key like the
@@ -325,20 +325,20 @@ type CertResult struct {
 // the curve and certificate version from the signing CA so callers do not
 // need to specify them.
 //
-// If h.HasDuration is true, the host cert expires at
-// min(now+h.Duration, CA.NotAfter): the host cert is silently capped to
+// If h.HasDuration is true, the cert expires at
+// min(now+h.Duration, CA.NotAfter): the cert is silently capped to
 // the CA's expiry so it never outlives its signing CA. Otherwise it
 // co-expires with the CA (mirrors nebula-cert sign's default behaviour
 // when no -duration flag is given).
 func SignCert(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*CertResult, error) {
 	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
 	if err != nil {
-		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)
+		return nil, fmt.Errorf("parse CA certificate for cert signing: %w", err)
 	}
 
 	rawKey, _, keyCurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(caKeyPEM)
 	if err != nil {
-		return nil, fmt.Errorf("parse CA key for host signing: %w", err)
+		return nil, fmt.Errorf("parse CA key for cert signing: %w", err)
 	}
 
 	curve := caCert.Curve()
@@ -354,7 +354,7 @@ func SignCert(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*CertRe
 
 	pub, rawPriv, err := generateCertKeypair(curve)
 	if err != nil {
-		return nil, fmt.Errorf("generate host keypair: %w", err)
+		return nil, fmt.Errorf("generate cert keypair: %w", err)
 	}
 
 	tbs := &cert.TBSCertificate{
@@ -372,25 +372,25 @@ func SignCert(caCertPEM, caKeyPEM []byte, h config.Cert, now time.Time) (*CertRe
 
 	c, err := tbs.Sign(caCert, keyCurve, rawKey)
 	if err != nil {
-		return nil, fmt.Errorf("sign host certificate %q: %w", h.Name, err)
+		return nil, fmt.Errorf("sign certificate %q: %w", h.Name, err)
 	}
 
 	certPEM, err := c.MarshalPEM()
 	if err != nil {
-		return nil, fmt.Errorf("marshal host certificate %q: %w", h.Name, err)
+		return nil, fmt.Errorf("marshal certificate %q: %w", h.Name, err)
 	}
 	keyPEM := cert.MarshalPrivateKeyToPEM(curve, rawPriv)
 	if keyPEM == nil {
-		return nil, fmt.Errorf("marshal host private key %q: unsupported curve %s", h.Name, curve)
+		return nil, fmt.Errorf("marshal cert private key %q: unsupported curve %s", h.Name, curve)
 	}
 
 	fp, err := c.Fingerprint()
 	if err != nil {
-		return nil, fmt.Errorf("compute host certificate fingerprint %q: %w", h.Name, err)
+		return nil, fmt.Errorf("compute certificate fingerprint %q: %w", h.Name, err)
 	}
 	caFP, err := caCert.Fingerprint()
 	if err != nil {
-		return nil, fmt.Errorf("compute CA fingerprint while signing host %q: %w", h.Name, err)
+		return nil, fmt.Errorf("compute CA fingerprint while signing cert %q: %w", h.Name, err)
 	}
 
 	return &CertResult{
@@ -420,42 +420,43 @@ func CurveString(cv cert.Curve) string {
 	}
 }
 
-// ParseHostPublicKeyPEM parses a PEM-encoded device public key (as produced
+// ParseCertPublicKeyPEM parses a PEM-encoded device public key (as produced
 // by nebula-cert keygen or a mobile app) and returns the raw key bytes and
-// the curve string ("25519" or "P256"). Used by SignHostFromPub and by the
+// the curve string ("25519" or "P256"). Used by SignCertFromPub and by the
 // check command to verify the curve before attempting a full reconcile.
 func ParseCertPublicKeyPEM(pubKeyPEM []byte) (rawPub []byte, curveStr string, err error) {
 	raw, _, curve, err := cert.UnmarshalPublicKeyFromPEM(pubKeyPEM)
 	if err != nil {
-		return nil, "", fmt.Errorf("parse host public key PEM: %w", err)
+		return nil, "", fmt.Errorf("parse cert public key PEM: %w", err)
 	}
 	return raw, CurveString(curve), nil
 }
 
-// SignHostFromPub signs a host certificate using a device-supplied public key
-// (the in_pub air-gapped pattern; see ADR-018). It is identical to SignHost
+// SignCertFromPub signs a certificate using a device-supplied public key
+// (the in_pub air-gapped pattern; see ADR-018). It is identical to SignCert
 // except that it accepts the device's PEM public key instead of generating a
-// fresh keypair, and it returns a HostResult with a nil KeyPEM because no
-// private key exists on the CA host. The curve of the supplied public key must
-// match the signing CA's curve; a mismatch is returned as an error.
+// fresh keypair, and it returns a CertResult with a nil KeyPEM because no
+// private key exists on the signing machine. The curve of the supplied
+// public key must match the signing CA's curve; a mismatch is returned as an
+// error.
 func SignCertFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Cert, now time.Time) (*CertResult, error) {
 	caCert, _, err := cert.UnmarshalCertificateFromPEM(caCertPEM)
 	if err != nil {
-		return nil, fmt.Errorf("parse CA certificate for host signing: %w", err)
+		return nil, fmt.Errorf("parse CA certificate for cert signing: %w", err)
 	}
 
 	rawKey, _, keyCurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(caKeyPEM)
 	if err != nil {
-		return nil, fmt.Errorf("parse CA key for host signing: %w", err)
+		return nil, fmt.Errorf("parse CA key for cert signing: %w", err)
 	}
 
 	rawPub, pubCurveStr, err := ParseCertPublicKeyPEM(pubKeyPEM)
 	if err != nil {
-		return nil, fmt.Errorf("host %q in_pub: %w", h.Name, err)
+		return nil, fmt.Errorf("cert %q in_pub: %w", h.Name, err)
 	}
 	if pubCurveStr != CurveString(caCert.Curve()) {
 		return nil, fmt.Errorf(
-			"host %q: in_pub curve %s does not match signing CA curve %s",
+			"cert %q: in_pub curve %s does not match signing CA curve %s",
 			h.Name, pubCurveStr, CurveString(caCert.Curve()),
 		)
 	}
@@ -486,26 +487,26 @@ func SignCertFromPub(caCertPEM, caKeyPEM, pubKeyPEM []byte, h config.Cert, now t
 
 	c, err := tbs.Sign(caCert, keyCurve, rawKey)
 	if err != nil {
-		return nil, fmt.Errorf("sign host certificate %q (in_pub): %w", h.Name, err)
+		return nil, fmt.Errorf("sign certificate %q (in_pub): %w", h.Name, err)
 	}
 
 	certPEM, err := c.MarshalPEM()
 	if err != nil {
-		return nil, fmt.Errorf("marshal host certificate %q: %w", h.Name, err)
+		return nil, fmt.Errorf("marshal certificate %q: %w", h.Name, err)
 	}
 
 	fp, err := c.Fingerprint()
 	if err != nil {
-		return nil, fmt.Errorf("compute host certificate fingerprint %q: %w", h.Name, err)
+		return nil, fmt.Errorf("compute certificate fingerprint %q: %w", h.Name, err)
 	}
 	caFP, err := caCert.Fingerprint()
 	if err != nil {
-		return nil, fmt.Errorf("compute CA fingerprint while signing host %q: %w", h.Name, err)
+		return nil, fmt.Errorf("compute CA fingerprint while signing cert %q: %w", h.Name, err)
 	}
 
 	return &CertResult{
 		CertPEM:       certPEM,
-		KeyPEM:        nil, // device holds the private key; never on the CA host
+		KeyPEM:        nil, // device holds the private key; never on the signing machine
 		Name:          c.Name(),
 		Fingerprint:   fp,
 		Curve:         CurveString(curve),

@@ -2,7 +2,7 @@
 
 exec nebula-pki
 stderr '^generated CA "mesh" \(mesh\)$'
-stderr '^signed host "node"$'
+stderr '^signed cert "node"$'
 stderr '^  cert: dir-a/node\.crt$'
 stderr '^  key:  dir-a/node\.key$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
@@ -28,7 +28,7 @@ cp out/nebula-pki.json manifest.first
 # Second run: everything up to date, nothing written.
 exec nebula-pki
 stderr '^up to date; nothing to do$'
-! stderr 'signed host'
+! stderr 'signed cert'
 ! stdout .
 
 # Byte-identical on the second run.

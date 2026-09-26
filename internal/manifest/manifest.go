@@ -114,7 +114,7 @@ type Cert struct {
 	CAFingerprint  string    `json:"ca_fingerprint"`
 	// InPub marks certs signed via the air-gapped in_pub pattern (ADR-018).
 	// When true, only a certificate was written; no private key exists on
-	// the CA host. Omitted (false) for regular keypair-generating certs.
+	// the signing machine. Omitted (false) for regular keypair-generating certs.
 	InPub     bool       `json:"in_pub,omitempty"`
 	Artifacts []Artifact `json:"artifacts"`
 }

@@ -179,7 +179,7 @@ cert "edge" {
 		t.Errorf("CAs[0].Duration = %v", cfg.CAs[0].Duration)
 	}
 	if len(cfg.Certs) != 1 {
-		t.Fatalf("expected 1 host, got %d", len(cfg.Certs))
+		t.Fatalf("expected 1 cert, got %d", len(cfg.Certs))
 	}
 	h := cfg.Certs[0]
 	if h.Label != "edge" || h.Name != "edge.mesh" {
@@ -219,7 +219,7 @@ func TestParse_ValidationRules(t *testing.T) {
 			wantErr: "missing required `ca` block",
 		},
 		{
-			name: "duplicate_host_label",
+			name: "duplicate_cert_label",
 			src: minimalGenerate + `
 cert "a" { networks = ["10.0.0.1/16"] }
 cert "a" { networks = ["10.0.0.2/16"] }
@@ -227,7 +227,7 @@ cert "a" { networks = ["10.0.0.2/16"] }
 			wantErr: "duplicate label",
 		},
 		{
-			name: "duplicate_host_name",
+			name: "duplicate_cert_name",
 			src: minimalGenerate + `
 cert "a" {
   name = "shared"
@@ -274,7 +274,7 @@ ca "ref" {
 			wantErr: "generate-only fields",
 		},
 		{
-			name: "host_group_not_in_ca_groups",
+			name: "cert_group_not_in_ca_groups",
 			src: `
 ca "m" {
   name   = "m"
@@ -288,7 +288,7 @@ cert "a" {
 			wantErr: "not permitted by ca",
 		},
 		{
-			name: "host_network_outside_ca_networks",
+			name: "cert_network_outside_ca_networks",
 			src: `
 ca "m" {
   name     = "m"
@@ -301,7 +301,7 @@ cert "a" {
 			wantErr: "not contained by any ca",
 		},
 		{
-			name: "host_unsafe_network_outside_ca",
+			name: "cert_unsafe_network_outside_ca",
 			src: `
 ca "m" {
   name            = "m"
@@ -370,7 +370,7 @@ ca "m" {
 			wantErr: "version must be",
 		},
 		{
-			name: "host_duration_exceeds_ca",
+			name: "cert_duration_exceeds_ca",
 			src: `
 ca "m" {
   name     = "m"
@@ -460,7 +460,7 @@ cert "h" { networks = ["10.0.0.1/16"] }
 			wantErr: "ambiguous",
 		},
 		{
-			name: "unknown_host_ca_ref",
+			name: "unknown_cert_ca_ref",
 			src: `
 ca "mesh" { name = "mesh" }
 cert "h" {
@@ -492,7 +492,7 @@ cert "h" {
 }
 
 // TestParse_MultiCAWithDefaultFlag verifies the multi-CA + default flag happy
-// path: two CAs, one marked default, hosts can omit explicit ca selection.
+// path: two CAs, one marked default, certs can omit explicit ca selection.
 func TestParse_MultiCAWithDefaultFlag(t *testing.T) {
 	src := `
 ca "primary" {
@@ -515,7 +515,7 @@ cert "h" { networks = ["10.0.0.1/16"] }
 	if cfg.CAs[1].Default {
 		t.Error("CAs[1].Default = true, want false")
 	}
-	// Host should resolve to the default CA.
+	// Cert should resolve to the default CA.
 	signing := cfg.SigningCA(cfg.Certs[0])
 	if signing == nil || signing.Label != "primary" {
 		t.Errorf("SigningCA = %v, want primary", signing)
@@ -543,7 +543,7 @@ ca "b" {
 	}
 }
 
-// TestParse_HostExplicitCARef verifies that a host can name its signing CA.
+// TestParse_CertExplicitCARef verifies that a cert can name its signing CA.
 func TestParse_CertExplicitCARef(t *testing.T) {
 	src := `
 ca "alpha" { name = "alpha" }
@@ -618,14 +618,14 @@ cert "c" {
 		t.Fatalf("Parse: %v", err)
 	}
 	if got, want := len(cfg.Certs), 3; got != want {
-		t.Fatalf("len(Hosts) = %d, want %d", got, want)
+		t.Fatalf("len(Certs) = %d, want %d", got, want)
 	}
 	for i, label := range []string{"a", "b", "c"} {
 		if got, want := cfg.Certs[i].Label, label; got != want {
-			t.Errorf("Hosts[%d].Label = %q, want %q", i, got, want)
+			t.Errorf("Certs[%d].Label = %q, want %q", i, got, want)
 		}
 		if got, want := cfg.Certs[i].Name, label; got != want {
-			t.Errorf("Hosts[%d].Name = %q (default to label), want %q", i, got, want)
+			t.Errorf("Certs[%d].Name = %q (default to label), want %q", i, got, want)
 		}
 	}
 }

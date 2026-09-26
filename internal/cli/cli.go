@@ -36,7 +36,7 @@ func New(stdout, stderr io.Writer) *cobra.Command {
 		Long: `nebula-pki reconciles the PKI for a Nebula network.
 
 On each run it reads nebula.hcl (or the path given by -c), generates or
-loads the CA, signs any host certificates that are new or missing, and
+loads the CA, signs any certificates that are new or missing, and
 records the result in a manifest. Runs are idempotent: an unchanged tree
 writes nothing.
 
@@ -58,7 +58,7 @@ without touching the filesystem.`,
 	root.Flags().BoolVar(&showVersion, "version", false, "print version and exit")
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "path to HCL configuration file")
 	root.Flags().BoolVar(&dryRun, "dry-run", false, "preview planned writes without modifying the filesystem")
-	root.Flags().BoolVar(&noRenewal, "no-renewal", false, "skip time-based renewal; config changes, new hosts, and CA rotation re-signs are unaffected")
+	root.Flags().BoolVar(&noRenewal, "no-renewal", false, "skip time-based renewal; config changes, new certs, and CA rotation re-signs are unaffected")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newCheckCmd(&configPath))
@@ -69,7 +69,7 @@ without touching the filesystem.`,
 
 // runReconcile is the default action: load the configuration and bring the
 // output tree in line with it. It reconciles the CA in both generate and
-// reference mode, and signs any host certificates that are new or missing.
+// reference mode, and signs any certificates that are new or missing.
 // When dryRun is true the plan is previewed on stdout without any writes.
 func runReconcile(cmd *cobra.Command, configPath string, dryRun, noRenewal bool) error {
 	cfg, err := config.Load(configPath)
@@ -118,7 +118,7 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		fmt.Fprintf(w, "deleted link %s\n", p)
 	}
 	for _, h := range rep.SignedCerts {
-		fmt.Fprintf(w, "signed host %q\n", h.Label)
+		fmt.Fprintf(w, "signed cert %q\n", h.Label)
 		for _, a := range h.Artifacts {
 			fmt.Fprintf(w, "  cert: %s\n", a.CertPath)
 			if a.KeyPath != "" {
@@ -206,7 +206,7 @@ func newVersionCmd() *cobra.Command {
 //
 //   - For each reference-mode CA: reads cert_file/key_file, verifies the
 //     pair is coherent, and reports the CA fingerprint.
-//   - For each host with in_pub: reads the device-supplied public key file
+//   - For each cert with in_pub: reads the device-supplied public key file
 //     and checks that its curve matches the signing CA. A curve mismatch
 //     here will always cause reconcile to fail, so surfacing it in `check`
 //     lets the operator catch it without touching the output tree.
@@ -231,11 +231,11 @@ func newCheckCmd(configPath *string) *cobra.Command {
 			// rule. The file reads below are about the referenced artifacts, not
 			// the config itself; failures here surface after this line.
 			fmt.Fprintf(cmd.OutOrStdout(),
-				"config valid: %s (cas=%d, hosts=%d)\n",
+				"config valid: %s (cas=%d, certs=%d)\n",
 				cfg.Path, len(cfg.CAs), len(cfg.Certs),
 			)
 
-			// caCurves collects the resolved curve for every CA so in_pub host
+			// caCurves collects the resolved curve for every CA so in_pub cert
 			// checks can compare against the correct signing CA's curve without
 			// re-reading the CA files.
 			caCurves := make(map[string]string, len(cfg.CAs))
@@ -272,7 +272,7 @@ func newCheckCmd(configPath *string) *cobra.Command {
 
 // checkReferenceCA reads and verifies one reference-mode CA, printing its
 // fingerprint on success. Returns the CA's curve string so the caller can
-// use it for in_pub host curve checks. An expired CA is a warning on stderr
+// use it for in_pub cert curve checks. An expired CA is a warning on stderr
 // but not a check failure; the files are a coherent CA the operator owns.
 func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) (curveStr string, err error) {
 	certReal := cfg.Resolve(cfg.CACertPathForCA(*ca))
@@ -303,7 +303,7 @@ func checkReferenceCA(cmd *cobra.Command, cfg *config.Config, ca *config.CA) (cu
 	return res.Curve, nil
 }
 
-// checkInPubHost reads a host's device-supplied public key and verifies that
+// checkInPubCert reads a cert's device-supplied public key and verifies that
 // its curve matches the signing CA's curve. A mismatch would always cause
 // reconcile to fail with a curve error, so surfacing it here lets the operator
 // know before any output-tree changes are attempted.
@@ -311,26 +311,26 @@ func checkInPubCert(cmd *cobra.Command, cfg *config.Config, h *config.Cert, caCu
 	pubReal := cfg.Resolve(h.InPub)
 	pubPEM, err := os.ReadFile(pubReal)
 	if err != nil {
-		return fmt.Errorf("host %q: read in_pub %s: %w", h.Label, h.InPub, err)
+		return fmt.Errorf("cert %q: read in_pub %s: %w", h.Label, h.InPub, err)
 	}
 
 	_, pubCurveStr, err := pki.ParseCertPublicKeyPEM(pubPEM)
 	if err != nil {
-		return fmt.Errorf("host %q: in_pub %s: %w", h.Label, h.InPub, err)
+		return fmt.Errorf("cert %q: in_pub %s: %w", h.Label, h.InPub, err)
 	}
 
 	signingCA := cfg.SigningCA(*h) // non-nil: config.validate() passed
 	expectedCurve := caCurves[signingCA.Label]
 	if pubCurveStr != expectedCurve {
 		return fmt.Errorf(
-			"host %q: in_pub %s has curve %s but signing CA %q uses curve %s; "+
+			"cert %q: in_pub %s has curve %s but signing CA %q uses curve %s; "+
 				"re-generate the device keypair with the correct curve or switch to a matching CA",
 			h.Label, h.InPub, pubCurveStr, signingCA.Label, expectedCurve,
 		)
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(),
-		"  host %q: in_pub %s (curve=%s) OK\n", h.Label, h.InPub, pubCurveStr,
+		"  cert %q: in_pub %s (curve=%s) OK\n", h.Label, h.InPub, pubCurveStr,
 	)
 	return nil
 }

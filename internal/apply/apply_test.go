@@ -91,7 +91,7 @@ func TestReconcile_FreshGeneratesCAAndManifest(t *testing.T) {
 		t.Fatal("Changed = false, want true on a fresh tree")
 	}
 	if len(rep.SignedCerts) != 0 {
-		t.Errorf("SignedHosts = %v, want none (no host blocks)", rep.SignedCerts)
+		t.Errorf("SignedCerts = %v, want none (no cert blocks)", rep.SignedCerts)
 	}
 	if len(rep.CAs) != 1 {
 		t.Fatalf("CAs = %d, want 1", len(rep.CAs))
@@ -329,7 +329,7 @@ storage {
 	}
 }
 
-// TestReconcile_SignsHostsAfterCA verifies that host certs are signed,
+// TestReconcile_SignsCertsAfterCA verifies that certs are signed,
 // written to disk, and recorded in the manifest on a fresh run.
 func TestReconcile_SignsCertsAfterCA(t *testing.T) {
 	cfg := writeConfig(t, `
@@ -346,20 +346,20 @@ cert "beta"  { networks = ["10.0.0.2/16"] }
 		t.Fatal("Changed = false, want true on first run")
 	}
 	if len(rep.SignedCerts) != 2 {
-		t.Fatalf("SignedHosts = %d, want 2", len(rep.SignedCerts))
+		t.Fatalf("SignedCerts = %d, want 2", len(rep.SignedCerts))
 	}
 	if rep.SignedCerts[0].Label != "alpha" || rep.SignedCerts[1].Label != "beta" {
-		t.Errorf("SignedHosts labels = %v, want [alpha beta]",
+		t.Errorf("SignedCerts labels = %v, want [alpha beta]",
 			[]string{rep.SignedCerts[0].Label, rep.SignedCerts[1].Label})
 	}
 
 	for _, h := range rep.SignedCerts {
 		for _, a := range h.Artifacts {
 			if _, err := os.Stat(cfg.Resolve(a.CertPath)); err != nil {
-				t.Errorf("host %q cert %q missing: %v", h.Label, a.CertPath, err)
+				t.Errorf("cert %q cert %q missing: %v", h.Label, a.CertPath, err)
 			}
 			if _, err := os.Stat(cfg.Resolve(a.KeyPath)); err != nil {
-				t.Errorf("host %q key %q missing: %v", h.Label, a.KeyPath, err)
+				t.Errorf("cert %q key %q missing: %v", h.Label, a.KeyPath, err)
 			}
 		}
 	}
@@ -369,24 +369,24 @@ cert "beta"  { networks = ["10.0.0.2/16"] }
 		t.Fatalf("manifest.Load: %v", err)
 	}
 	if len(m.Certs) != 2 {
-		t.Fatalf("manifest hosts = %d, want 2", len(m.Certs))
+		t.Fatalf("manifest certs = %d, want 2", len(m.Certs))
 	}
 	for _, label := range []string{"alpha", "beta"} {
 		h, ok := m.Certs[label]
 		if !ok {
-			t.Fatalf("manifest missing host %q", label)
+			t.Fatalf("manifest missing cert %q", label)
 		}
 		if h.CAFingerprint == "" {
-			t.Errorf("host %q: ca_fingerprint is empty", label)
+			t.Errorf("cert %q: ca_fingerprint is empty", label)
 		}
 		if h.Fingerprint == "" {
-			t.Errorf("host %q: fingerprint is empty", label)
+			t.Errorf("cert %q: fingerprint is empty", label)
 		}
 		if len(h.Artifacts) != 1 {
-			t.Errorf("host %q: artifacts = %d, want 1", label, len(h.Artifacts))
+			t.Errorf("cert %q: artifacts = %d, want 1", label, len(h.Artifacts))
 		}
 		if h.CA != "mesh" {
-			t.Errorf("host %q: ca = %q, want mesh", label, h.CA)
+			t.Errorf("cert %q: ca = %q, want mesh", label, h.CA)
 		}
 	}
 	// CA fingerprints must match.
@@ -395,16 +395,16 @@ cert "beta"  { networks = ["10.0.0.2/16"] }
 		t.Fatal("manifest missing CAs[mesh]")
 	}
 	if m.Certs["alpha"].CAFingerprint != meshCA.Fingerprint {
-		t.Errorf("host alpha ca_fingerprint %q != ca fingerprint %q",
+		t.Errorf("cert alpha ca_fingerprint %q != ca fingerprint %q",
 			m.Certs["alpha"].CAFingerprint, meshCA.Fingerprint)
 	}
 }
 
-// TestReconcile_HostKeyFileLoadableByNebula verifies the host key written
+// TestReconcile_CertKeyFileLoadableByNebula verifies the cert key written
 // to disk is an X25519 encryption key in the format nebula's pki.key
-// loader (cert.UnmarshalPrivateKeyFromPEM) accepts, and that the host
+// loader (cert.UnmarshalPrivateKeyFromPEM) accepts, and that the cert
 // cert embeds the matching public key. The CA key must keep its signing
-// banner. Regression test for host keys being written as Ed25519 signing
+// banner. Regression test for cert keys being written as Ed25519 signing
 // keys, which nebula rejects.
 func TestReconcile_CertKeyFileLoadableByNebula(t *testing.T) {
 	cfg := writeConfig(t, `
@@ -416,7 +416,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(rep.SignedCerts) != 1 || len(rep.SignedCerts[0].Artifacts) != 1 {
-		t.Fatalf("SignedHosts = %+v, want one host with one artifact", rep.SignedCerts)
+		t.Fatalf("SignedCerts = %+v, want one cert with one artifact", rep.SignedCerts)
 	}
 	art := rep.SignedCerts[0].Artifacts[0]
 
@@ -438,10 +438,10 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	}
 	issued, _, err := cert.UnmarshalCertificateFromPEM(mustRead(t, cfg.Resolve(art.CertPath)))
 	if err != nil {
-		t.Fatalf("unmarshal host cert: %v", err)
+		t.Fatalf("unmarshal cert: %v", err)
 	}
 	if !bytes.Equal(issued.PublicKey(), priv.PublicKey().Bytes()) {
-		t.Error("host cert public key does not match the public key derived from the key file")
+		t.Error("cert public key does not match the public key derived from the key file")
 	}
 
 	caKeyPEM := mustRead(t, cfg.Resolve(cfg.CAKeyPathForCA(cfg.CAs[0])))
@@ -450,7 +450,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	}
 }
 
-// TestReconcile_HostIdempotency verifies that a second reconcile writes nothing.
+// TestReconcile_CertIdempotency verifies that a second reconcile writes nothing.
 func TestReconcile_CertIdempotency(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
@@ -483,7 +483,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatal("Changed = true on second run, want false (full idempotency)")
 	}
 	if len(rep.SignedCerts) != 0 {
-		t.Errorf("SignedHosts non-empty on noop run: %v", rep.SignedCerts)
+		t.Errorf("SignedCerts non-empty on noop run: %v", rep.SignedCerts)
 	}
 
 	for path, before := range snapshots {
@@ -539,7 +539,7 @@ cert "node" {
 		t.Fatal("Changed = false, want true on first run")
 	}
 	if len(rep.SignedCerts) != 1 {
-		t.Fatalf("SignedHosts = %d, want 1", len(rep.SignedCerts))
+		t.Fatalf("SignedCerts = %d, want 1", len(rep.SignedCerts))
 	}
 	sh := rep.SignedCerts[0]
 	if sh.Label != "node" {
@@ -563,7 +563,7 @@ cert "node" {
 	}
 	node, ok := m.Certs["node"]
 	if !ok {
-		t.Fatal("manifest missing host node")
+		t.Fatal("manifest missing cert node")
 	}
 	if len(node.Artifacts) != 1 {
 		t.Fatalf("manifest artifacts = %d, want 1", len(node.Artifacts))
@@ -717,7 +717,7 @@ cert "node" {
 		t.Fatal("second run: Changed = false, want true (dir-b is new destination)")
 	}
 	if len(rep2.SignedCerts) != 1 {
-		t.Fatalf("second run: SignedHosts = %d, want 1", len(rep2.SignedCerts))
+		t.Fatalf("second run: SignedCerts = %d, want 1", len(rep2.SignedCerts))
 	}
 	if len(rep2.SignedCerts[0].Artifacts) != 1 {
 		t.Fatalf("second run: Artifacts = %d, want 1", len(rep2.SignedCerts[0].Artifacts))
@@ -771,7 +771,7 @@ cert "node" {
 		t.Fatal("Changed = false, want true on first run")
 	}
 	if len(rep.SignedCerts) != 1 {
-		t.Fatalf("SignedHosts = %d, want 1", len(rep.SignedCerts))
+		t.Fatalf("SignedCerts = %d, want 1", len(rep.SignedCerts))
 	}
 	a := rep.SignedCerts[0].Artifacts[0]
 
@@ -887,7 +887,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	}
 }
 
-// TestReconcile_DryRunCAOnly verifies the preview for a config with no hosts.
+// TestReconcile_DryRunCAOnly verifies the preview for a config with no certs.
 func TestReconcile_DryRunCAOnly(t *testing.T) {
 	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
 	ca0 := cfg.CAs[0]
@@ -910,15 +910,15 @@ func TestReconcile_DryRunCAOnly(t *testing.T) {
 			t.Errorf("dry-run output = %q, want it to contain %q", preview, want)
 		}
 	}
-	if strings.Contains(preview, "host") {
-		t.Errorf("dry-run output = %q, must not mention hosts for CA-only config", preview)
+	if strings.Contains(preview, "cert") {
+		t.Errorf("dry-run output = %q, must not mention certs for CA-only config", preview)
 	}
 }
 
 // --- Multi-CA reconcile ---------------------------------------------------
 
-// TestReconcile_MultiCA_TwoCAsHostsUnderEach verifies a two-CA config: both
-// CAs are generated, each host is signed under its designated CA (confirmed
+// TestReconcile_MultiCA_TwoCAsCertsUnderEach verifies a two-CA config: both
+// CAs are generated, each cert is signed under its designated CA (confirmed
 // via ca_fingerprint in the manifest), and a second run is a full noop.
 func TestReconcile_MultiCA_TwoCAsCertsUnderEach(t *testing.T) {
 	cfg := writeConfig(t, `
@@ -945,7 +945,7 @@ cert "h2" {
 		t.Fatalf("CAs = %d, want 2", len(rep.CAs))
 	}
 	if len(rep.SignedCerts) != 2 {
-		t.Fatalf("SignedHosts = %d, want 2", len(rep.SignedCerts))
+		t.Fatalf("SignedCerts = %d, want 2", len(rep.SignedCerts))
 	}
 
 	// Both CA pairs must exist on disk.
@@ -979,7 +979,7 @@ cert "h2" {
 		t.Error("primary and secondary share a fingerprint; CAs were not generated independently")
 	}
 
-	// Each host's manifest record names the correct signing CA and its
+	// Each cert's manifest record names the correct signing CA and its
 	// ca_fingerprint matches that CA's fingerprint.
 	h1 := m.Certs["h1"]
 	if h1.CA != "primary" {
@@ -1025,9 +1025,9 @@ cert "h2" {
 	}
 }
 
-// TestReconcile_MultiCA_HostResignsWhenCAChanges verifies that when a host's
+// TestReconcile_MultiCA_CertResignsWhenCAChanges verifies that when a cert's
 // signing CA label changes between runs (manifest records old CA, config now
-// points at a different one), the host is re-signed under the new CA.
+// points at a different one), the cert is re-signed under the new CA.
 func TestReconcile_MultiCA_CertResignsWhenCAChanges(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "nebula.hcl")
@@ -1093,10 +1093,10 @@ cert "h2" {
 		signedLabels[sh.Label] = true
 	}
 	if !signedLabels["h1"] {
-		t.Error("h1 not in SignedHosts, expected re-sign after CA change")
+		t.Error("h1 not in SignedCerts, expected re-sign after CA change")
 	}
 	if signedLabels["h2"] {
-		t.Error("h2 in SignedHosts, expected noop (CA unchanged)")
+		t.Error("h2 in SignedCerts, expected noop (CA unchanged)")
 	}
 
 	m2, _ := manifest.Load(cfg2.Resolve(cfg2.ManifestPath()))
@@ -1352,7 +1352,7 @@ func mustSeed(t *testing.T, path string) {
 // verify the cert embeds the same public key.
 func writeInPubFixture(t *testing.T, dir, filename string) []byte {
 	t.Helper()
-	// Generate an X25519 keypair (Nebula's CURVE25519 host keypair).
+	// Generate an X25519 keypair (Nebula's CURVE25519 cert keypair).
 	pub, _, err := generateKeypairForTest()
 	if err != nil {
 		t.Fatalf("generate keypair: %v", err)
@@ -1393,7 +1393,7 @@ cert "phone" {
 		t.Errorf("cert file missing: %v", err)
 	}
 	if _, err := os.Stat(keyReal); err == nil {
-		t.Error("key file exists; in_pub hosts must not write a private key")
+		t.Error("key file exists; in_pub certs must not write a private key")
 	}
 
 	// Manifest must record in_pub = true and omit key_path from artifacts.
@@ -1403,7 +1403,7 @@ cert "phone" {
 	}
 	mh := m.Certs["phone"]
 	if !mh.InPub {
-		t.Error("manifest Host.InPub = false, want true")
+		t.Error("manifest Cert.InPub = false, want true")
 	}
 	if len(mh.Artifacts) != 1 {
 		t.Fatalf("len(Artifacts) = %d, want 1", len(mh.Artifacts))
@@ -1412,7 +1412,7 @@ cert "phone" {
 		t.Error("Artifacts[0].CertPath is empty")
 	}
 	if mh.Artifacts[0].KeyPath != "" {
-		t.Errorf("Artifacts[0].KeyPath = %q, want empty for in_pub host", mh.Artifacts[0].KeyPath)
+		t.Errorf("Artifacts[0].KeyPath = %q, want empty for in_pub cert", mh.Artifacts[0].KeyPath)
 	}
 }
 
@@ -1439,7 +1439,7 @@ cert "phone" {
 		t.Fatalf("second Reconcile: %v", err)
 	}
 	if rep2.Changed {
-		t.Error("second run: Changed = true; in_pub host should be a noop on unchanged tree")
+		t.Error("second run: Changed = true; in_pub cert should be a noop on unchanged tree")
 	}
 }
 
@@ -1538,7 +1538,7 @@ cert "phone" {
 	// Key file must still not exist.
 	keyReal := cfg.Resolve(art.KeyPath)
 	if _, err := os.Stat(keyReal); err == nil {
-		t.Error("key file appeared after renewal; in_pub hosts must never write a key")
+		t.Error("key file appeared after renewal; in_pub certs must never write a key")
 	}
 }
 
@@ -1565,7 +1565,7 @@ cert "phone" {
 		t.Errorf("dry-run output %q does not list cert path %s", preview, art.CertPath)
 	}
 	if strings.Contains(preview, art.KeyPath) {
-		t.Errorf("dry-run output %q lists key path %s; in_pub hosts write no key", preview, art.KeyPath)
+		t.Errorf("dry-run output %q lists key path %s; in_pub certs write no key", preview, art.KeyPath)
 	}
 
 	// Dry-run must not create files.
@@ -1576,7 +1576,7 @@ cert "phone" {
 }
 
 func TestReconcile_InPub_StaleKeyFlaggedOnRegularToInPubTransition(t *testing.T) {
-	// First run: regular host (generates cert + key).
+	// First run: regular cert (generates cert + key).
 	regularSrc := `
 ca "mesh" { name = "mesh" }
 cert "phone" {
@@ -1805,8 +1805,8 @@ func TestCheckEncryptionMismatches_CertArtifact(t *testing.T) {
 	checkEncryptionMismatches(m, enc, &buf)
 
 	out := buf.String()
-	if !strings.Contains(out, `host "alpha"`) {
-		t.Errorf("want mismatch warning for host alpha, got: %q", out)
+	if !strings.Contains(out, `cert "alpha"`) {
+		t.Errorf("want mismatch warning for cert alpha, got: %q", out)
 	}
 }
 

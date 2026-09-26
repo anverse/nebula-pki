@@ -6,11 +6,11 @@
 
 env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
 
-# Run 1: generate CA and sign host with sops encryption.
+# Run 1: generate CA and sign cert with sops encryption.
 exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
-stderr '^signed host "alpha"'
+stderr '^signed cert "alpha"'
 stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 

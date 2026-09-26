@@ -18,7 +18,7 @@ func TestLoadMissingFileReturnsEmpty(t *testing.T) {
 		t.Error("CAs = non-empty for missing manifest, want empty map")
 	}
 	if m.Certs == nil {
-		t.Error("Hosts = nil, want initialised empty map")
+		t.Error("Certs = nil, want initialised empty map")
 	}
 }
 
@@ -83,7 +83,7 @@ func TestCAsSerialiseAsObject(t *testing.T) {
 		t.Errorf("cas = %s, want {}", raw["cas"])
 	}
 	if string(raw["certs"]) != "{}" {
-		t.Errorf("hosts = %s, want {}", raw["certs"])
+		t.Errorf("certs = %s, want {}", raw["certs"])
 	}
 }
 
@@ -132,7 +132,7 @@ func TestLoadRejectsCorruptJSON(t *testing.T) {
 	}
 }
 
-// TestHostsAndArtifactsRoundTrip pins the JSON shape of the host /
+// TestCertsAndArtifactsRoundTrip pins the JSON shape of the cert /
 // artifact records.
 func TestCertsAndArtifactsRoundTrip(t *testing.T) {
 	t0 := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
@@ -152,7 +152,7 @@ func TestCertsAndArtifactsRoundTrip(t *testing.T) {
 			NotAfter:       t0.Add(8760 * time.Hour),
 			CAFingerprint:  "ca-fp",
 			Artifacts: []Artifact{
-				{Dir: "out/hosts", CertPath: "out/certs/alpha.mesh.crt", KeyPath: "out/certs/alpha.mesh.key"},
+				{Dir: "out/certs", CertPath: "out/certs/alpha.mesh.crt", KeyPath: "out/certs/alpha.mesh.key"},
 				{Dir: "out/shared", CertPath: "out/shared/alpha.mesh.crt", KeyPath: "out/shared/alpha.mesh.key"},
 			},
 		},
@@ -185,24 +185,24 @@ func TestCertsAndArtifactsRoundTrip(t *testing.T) {
 	}
 	alpha, ok := raw.Certs["alpha"]
 	if !ok {
-		t.Fatal("hosts.alpha missing from JSON")
+		t.Fatal("certs.alpha missing from JSON")
 	}
 	if alpha.CA != "mesh" {
-		t.Errorf("hosts.alpha.ca = %q, want mesh", alpha.CA)
+		t.Errorf("certs.alpha.ca = %q, want mesh", alpha.CA)
 	}
 	if alpha.Name != "alpha.mesh" {
-		t.Errorf("hosts.alpha.name = %q, want alpha.mesh", alpha.Name)
+		t.Errorf("certs.alpha.name = %q, want alpha.mesh", alpha.Name)
 	}
 	if alpha.UnsafeNetworks[0] != "192.168.1.0/24" {
-		t.Errorf("hosts.alpha.unsafe_networks[0] = %q", alpha.UnsafeNetworks[0])
+		t.Errorf("certs.alpha.unsafe_networks[0] = %q", alpha.UnsafeNetworks[0])
 	}
 	if alpha.CAFingerprint != "ca-fp" {
-		t.Errorf("hosts.alpha.ca_fingerprint = %q", alpha.CAFingerprint)
+		t.Errorf("certs.alpha.ca_fingerprint = %q", alpha.CAFingerprint)
 	}
 	if len(alpha.Artifacts) != 2 {
 		t.Fatalf("artifacts: got %d, want 2", len(alpha.Artifacts))
 	}
-	if alpha.Artifacts[0].Dir != "out/hosts" || alpha.Artifacts[0].CertPath != "out/certs/alpha.mesh.crt" {
+	if alpha.Artifacts[0].Dir != "out/certs" || alpha.Artifacts[0].CertPath != "out/certs/alpha.mesh.crt" {
 		t.Errorf("artifact[0] = %+v", alpha.Artifacts[0])
 	}
 
@@ -216,7 +216,7 @@ func TestCertsAndArtifactsRoundTrip(t *testing.T) {
 	}
 	gotCert, ok := got.Certs["alpha"]
 	if !ok {
-		t.Fatal("Load: hosts.alpha missing")
+		t.Fatal("Load: certs.alpha missing")
 	}
 	if len(gotCert.Artifacts) != 2 {
 		t.Errorf("artifacts after load: got %d, want 2", len(gotCert.Artifacts))
@@ -229,8 +229,8 @@ func TestCertsAndArtifactsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestHostOptionalFieldsOmitEmpty pins the omitempty behaviour for
-// optional host fields (Groups, UnsafeNetworks).
+// TestCertOptionalFieldsOmitEmpty pins the omitempty behaviour for
+// optional cert fields (Groups, UnsafeNetworks).
 func TestCertOptionalFieldsOmitEmpty(t *testing.T) {
 	t0 := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
 	m := New()
@@ -271,7 +271,7 @@ func TestCertOptionalFieldsOmitEmpty(t *testing.T) {
 
 // TestArtifactDirOmitEmpty pins the omitempty behaviour for Artifact fields.
 func TestArtifactDirOmitEmpty(t *testing.T) {
-	normal := Artifact{Dir: "out/hosts", CertPath: "x.crt", KeyPath: "x.key"}
+	normal := Artifact{Dir: "out/certs", CertPath: "x.crt", KeyPath: "x.key"}
 	data, err := json.Marshal(normal)
 	if err != nil {
 		t.Fatalf("Marshal normal: %v", err)
@@ -298,7 +298,7 @@ func TestArtifactDirOmitEmpty(t *testing.T) {
 		t.Errorf("no-dir artifact must contain key_path: %s", data)
 	}
 
-	inPub := Artifact{Dir: "out/hosts", CertPath: "x.crt"}
+	inPub := Artifact{Dir: "out/certs", CertPath: "x.crt"}
 	data, err = json.Marshal(inPub)
 	if err != nil {
 		t.Fatalf("Marshal in_pub: %v", err)

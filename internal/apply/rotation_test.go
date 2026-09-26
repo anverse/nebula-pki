@@ -166,9 +166,9 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 // ---------------------------------------------------------------------------
 
 func TestReconcile_RenewalWindow_CertResigned(t *testing.T) {
-	// Sign a host with duration = 100h, renew_before = 50h.
+	// Sign a cert with duration = 100h, renew_before = 50h.
 	// On the first run at T=0 the cert is fresh.
-	// At T=60h (inside window) the host must be re-signed.
+	// At T=60h (inside window) the cert must be re-signed.
 	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	src := `
@@ -252,7 +252,7 @@ func TestComputeDeadlines_NoCerts_CAExpiryIsDeadline(t *testing.T) {
 }
 
 func TestComputeDeadlines_CertWithRenewBefore_WindowEntryIsDeadline(t *testing.T) {
-	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC) // host not_after
+	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC) // cert not_after
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	// renew_before = 720h (30 days) → window entry = notAfter - 30d
 	windowEntry := notAfter.Add(-720 * time.Hour)
@@ -278,7 +278,7 @@ cert "alpha" {
 }
 
 func TestComputeDeadlines_SoonItems_WithinWindow(t *testing.T) {
-	// Host expires in 30 days, within the 60-day soon window.
+	// Cert expires in 30 days, within the 60-day soon window.
 	now := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	certExpiry := now.Add(30 * 24 * time.Hour)
 
@@ -304,7 +304,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 }
 
 func TestComputeDeadlines_OverdueItem_PastWindowEntry(t *testing.T) {
-	// Host's window entry is in the past but it wasn't re-signed (e.g. noop run).
+	// Cert's window entry is in the past but it wasn't re-signed (e.g. noop run).
 	notAfter := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	windowEntry := notAfter.Add(-720 * time.Hour)
 	// now is 1 day after window entry
@@ -398,7 +398,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	// Step 2: add "next" CA (default stays on "current")
 	// We simulate this as a new config in the same dir.
 	// To keep this test self-contained, we write a separate config.
-	// Step 2 adds "next" with no default change; hosts stay on "current".
+	// Step 2 adds "next" with no default change; certs stay on "current".
 	src2 := `
 ca "current" {
   name    = "mesh-2026"
@@ -432,7 +432,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Errorf("step2: alpha.ca = %q, want 'current'", m2alpha.CA)
 	}
 
-	// Step 3: move default = true to "next" → hosts re-signed.
+	// Step 3: move default = true to "next" → certs re-signed.
 	src3 := `
 ca "current" {
   name = "mesh-2026"
@@ -449,7 +449,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("step3 Reconcile: %v", err)
 	}
 	if !rep3.Changed {
-		t.Fatal("step3: Changed = false, want true (hosts re-signed under 'next')")
+		t.Fatal("step3: Changed = false, want true (certs re-signed under 'next')")
 	}
 	m3, _ := manifest.Load(cfg3.Resolve(cfg3.ManifestPath()))
 	if m3.Certs["alpha"].CA != "next" {
@@ -508,7 +508,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 
 func TestWriteDryRunPlan_CAArchival(t *testing.T) {
 	// Walk through the rotation steps so that by step 4 (archive old CA) all
-	// hosts are already signed with the new CA and the plan has zero mutations.
+	// certs are already signed with the new CA and the plan has zero mutations.
 	// That is the exact scenario where the old code would print "up to date;
 	// nothing to do" despite the bundle needing a rewrite.
 
@@ -537,7 +537,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("step2 Reconcile: %v", err)
 	}
 
-	// Step 3: promote "next" to default; hosts are re-signed with "next".
+	// Step 3: promote "next" to default; certs are re-signed with "next".
 	cfg = reloadConfig(t, cfg, `
 ca "current" { name = "mesh-2026" }
 ca "next" {
@@ -550,7 +550,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("step3 Reconcile: %v", err)
 	}
 
-	// Step 4 config: archive "current". Hosts are already on "next", so the
+	// Step 4 config: archive "current". Certs are already on "next", so the
 	// plan has no mutations, yet the bundle must shrink from 2 to 1 CA.
 	cfgArchive := reloadConfig(t, cfg, `
 ca "current" {
@@ -577,7 +577,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("plan.Build: %v", err)
 	}
 	if p.Changes() {
-		t.Fatal("plan.Changes() = true, want false; hosts already signed with 'next', no CA to generate")
+		t.Fatal("plan.Changes() = true, want false; certs already signed with 'next', no CA to generate")
 	}
 
 	// Dry-run must list the bundle write because active CA count changed 2→1.

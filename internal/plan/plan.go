@@ -4,7 +4,7 @@
 // supply an existence probe) and never mutates anything.
 //
 // It plans one action per CA (generate or reference) and one action per
-// host (sign or noop). Host actions always follow all CA actions.
+// cert (sign or noop). Cert actions always follow all CA actions.
 package plan
 
 import (
@@ -31,7 +31,7 @@ const (
 	// (reference mode). It never writes the CA files themselves; apply
 	// reads them in place and records their metadata in the manifest.
 	OpReference Op = "reference"
-	// OpSign means a host certificate must be signed and written.
+	// OpSign means a certificate must be signed and written.
 	OpSign Op = "sign"
 	// OpCreateSymlink means a symlink must be created (or recreated with the
 	// correct target). Used for link_crt entries (ADR-021).
@@ -47,8 +47,8 @@ type Kind string
 const (
 	// KindCA is the certificate authority.
 	KindCA Kind = "ca"
-	// KindHost is a host certificate.
-	KindCert Kind = "host"
+	// KindCert is a certificate.
+	KindCert Kind = "cert"
 	// KindLink is a link_crt symlink.
 	KindLink Kind = "link"
 )
@@ -58,7 +58,7 @@ type Action struct {
 	Op   Op
 	Kind Kind
 	// Label is the config label for the artifact (CA label for KindCA,
-	// host label for KindHost, CA label for KindLink).
+	// cert label for KindCert, CA label for KindLink).
 	Label string
 	// Path is the primary logical artifact path, for display. Empty for
 	// no-ops.
@@ -67,7 +67,7 @@ type Action struct {
 	Desc string
 	// EncryptKey is true when the active storage encryption backend should
 	// encrypt the private key artifact for this action. Always false for
-	// in_pub hosts (no key is written) and for reference-mode CAs (the tool
+	// in_pub certs (no key is written) and for reference-mode CAs (the tool
 	// never writes reference CA files).
 	EncryptKey bool
 	// LinkTarget is the relative symlink target string computed via
@@ -79,7 +79,7 @@ type Action struct {
 }
 
 // Plan is the ordered set of actions a reconcile would perform.
-// CA actions appear before host actions.
+// CA actions appear before cert actions.
 type Plan struct {
 	Actions []Action
 }
@@ -108,7 +108,7 @@ func (p Plan) CAActions() []Action {
 	return cas
 }
 
-// HostActions returns all host actions from the plan, in config order.
+// CertActions returns all cert actions from the plan, in config order.
 func (p Plan) CertActions() []Action {
 	var certs []Action
 	for _, a := range p.Actions {
@@ -132,9 +132,9 @@ func (p Plan) LinkActions() []Action {
 
 // Options configures how Build constructs the reconcile plan.
 type Options struct {
-	// NoRenewal, when true, skips the hostInRenewalWindow check for every
-	// host. A host whose cert is within its renew_before window is treated
-	// as up-to-date for this run. All other re-sign triggers (new host,
+	// NoRenewal, when true, skips the certInRenewalWindow check for every
+	// cert. A cert that is within its renew_before window is treated
+	// as up-to-date for this run. All other re-sign triggers (new cert,
 	// missing artifact, CA label mismatch) are unaffected.
 	// The zero value (false) preserves the existing behaviour.
 	NoRenewal bool
@@ -189,7 +189,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 	return Plan{Actions: actions}, nil
 }
 
-// hostInRenewalWindow reports whether a host cert is within its renew_before
+// certInRenewalWindow reports whether a cert is within its renew_before
 // window as of now: true when now >= not_after - renewBefore. Returns false
 // when renewBefore is zero (no time-based renewal configured).
 func certInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) bool {
@@ -199,16 +199,16 @@ func certInRenewalWindow(renewBefore time.Duration, notAfter, now time.Time) boo
 	return !now.Before(notAfter.Add(-renewBefore))
 }
 
-// planHost decides the action for a single host. Host certs are not as
+// planCert decides the action for a single cert. Certs are not as
 // precious as CAs (they can always be re-signed), so partial pairs and
 // untracked files are resolved by re-signing rather than erroring.
 //
-// A host is a noop when ALL of the following hold (ADR-002 + ADR-017 + ADR-018):
+// A cert is a noop when ALL of the following hold (ADR-002 + ADR-017 + ADR-018):
 //  1. tracked in manifest
 //  2. signing CA label matches the manifest record
 //  3. provenance matches: both config and manifest agree on in_pub vs regular
 //  4. cert artifact is present on disk
-//  5. key artifact is present on disk (skipped for in_pub hosts; no key is written)
+//  5. key artifact is present on disk (skipped for in_pub certs; no key is written)
 //  6. the cert is NOT within its renew_before window, OR noRenewal is true
 //
 // Any failing condition → sign.
@@ -226,12 +226,12 @@ func planCert(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 
 	tracked := m != nil && m.Certs[h.Label].Name != ""
 	caMatch := tracked && signingCA != nil && m.Certs[h.Label].CA == signingCA.Label
-	// Provenance must match: a host switching between regular signing and
+	// Provenance must match: a cert switching between regular signing and
 	// in_pub (or back) must be re-signed so the cert reflects the correct
 	// public key source and the manifest records the right shape.
 	provenanceMatch := tracked && m.Certs[h.Label].InPub == isInPub
 
-	// in_pub hosts never write a key file; encryption does not apply to them.
+	// in_pub certs never write a key file; encryption does not apply to them.
 	suffix := ""
 	if !isInPub {
 		suffix = cfg.Storage.Encryption.KeySuffix()
@@ -239,7 +239,7 @@ func planCert(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 	encKeyPath := artifact.KeyPath + suffix // equals artifact.KeyPath when suffix is ""
 
 	certOK := exists(artifact.CertPath)
-	// in_pub hosts never write a key file; skip the key-existence check for them.
+	// in_pub certs never write a key file; skip the key-existence check for them.
 	keyOK := isInPub || exists(encKeyPath)
 
 	encryptKey := !isInPub && !cfg.Storage.Encryption.IsNone()
@@ -248,7 +248,7 @@ func planCert(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 		rb := cfg.ResolvedRenewBefore(*h)
 		mh := m.Certs[h.Label]
 		if noRenewal || !certInRenewalWindow(rb, mh.NotAfter, now) {
-			return Action{Op: OpNoop, Kind: KindCert, Label: h.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("host %q up to date", h.Label)}
+			return Action{Op: OpNoop, Kind: KindCert, Label: h.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("cert %q up to date", h.Label)}
 		}
 		// Inside renewal window and renewal is not suppressed; fall through to sign.
 	}
@@ -257,7 +257,7 @@ func planCert(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 		Kind:       KindCert,
 		Label:      h.Label,
 		Path:       artifact.CertPath,
-		Desc:       fmt.Sprintf("sign host %q", h.Label),
+		Desc:       fmt.Sprintf("sign cert %q", h.Label),
 		EncryptKey: encryptKey,
 	}
 }

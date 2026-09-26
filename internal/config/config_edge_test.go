@@ -224,7 +224,7 @@ ca "m" {
 }`,
 		},
 		{
-			name: "host_duration",
+			name: "cert_duration",
 			src: minimalGenerate + `
 cert "a" {
   networks = ["10.0.0.1/16"]
@@ -306,7 +306,7 @@ ca "ref" {
 	}
 }
 
-// --- Missing host networks --------------------------------------------------
+// --- Missing cert networks --------------------------------------------------
 
 func TestParse_CertWithoutNetworks(t *testing.T) {
 	src := minimalGenerate + `
@@ -387,8 +387,8 @@ ca "m" {
 
 // --- Multi-CA per-CA restriction scoping -----------------------------------
 
-// TestParse_HostValidatedAgainstItsSigningCA ensures that host restriction
-// checks use the host's signing CA, not some other CA in the config.
+// TestParse_CertValidatedAgainstItsSigningCA ensures that cert restriction
+// checks use the cert's signing CA, not some other CA in the config.
 func TestParse_CertValidatedAgainstItsSigningCA(t *testing.T) {
 	src := `
 ca "permissive" {

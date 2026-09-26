@@ -1,5 +1,5 @@
 # Two labelled CAs in one config: one marked default, one selected explicitly
-# per host. Verifies both CA pairs are generated, each host is signed under
+# per cert. Verifies both CA pairs are generated, each cert is signed under
 # its designated CA, the manifest uses the `cas` map for both entries, and
 # a second run is fully idempotent.
 
@@ -10,10 +10,10 @@ stderr '^  key:  out/ca/primary\.key$'
 stderr '^generated CA "secondary" \(secondary-mesh\)$'
 stderr '^  cert: out/ca/secondary\.crt$'
 stderr '^  key:  out/ca/secondary\.key$'
-stderr '^signed host "h1"$'
+stderr '^signed cert "h1"$'
 stderr '^  cert: out/certs/h1\.crt$'
 stderr '^  key:  out/certs/h1\.key$'
-stderr '^signed host "h2"$'
+stderr '^signed cert "h2"$'
 stderr '^  cert: out/certs/h2\.crt$'
 stderr '^  key:  out/certs/h2\.key$'
 stderr '^wrote trust bundle: out/ca/bundle\.crt$'
@@ -30,7 +30,7 @@ exists out/ca/secondary.key
 exists out/ca/bundle.crt
 grep 'NEBULA CERTIFICATE' out/ca/bundle.crt
 
-# Both host cert/key pairs must exist.
+# Both cert/key pairs must exist.
 exists out/certs/h1.crt
 exists out/certs/h1.key
 exists out/certs/h2.crt
@@ -45,7 +45,7 @@ grep 'NEBULA ED25519 PRIVATE KEY' out/ca/secondary.key
 grep 'NEBULA CERTIFICATE' out/certs/h1.crt
 grep 'NEBULA CERTIFICATE' out/certs/h2.crt
 
-# Manifest records both CAs in the `cas` map, each host's signing CA, and
+# Manifest records both CAs in the `cas` map, each cert's signing CA, and
 # the trust bundle with two fingerprints.
 grep '"primary"' out/nebula-pki.json
 grep '"secondary"' out/nebula-pki.json
@@ -73,7 +73,7 @@ cp out/nebula-pki.json manifest.first
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 ! stderr 'generated CA'
-! stderr 'signed host'
+! stderr 'signed cert'
 ! stdout .
 
 # All artifacts byte-identical.

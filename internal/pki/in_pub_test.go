@@ -9,7 +9,7 @@ import (
 	"github.com/slackhq/nebula/cert"
 )
 
-// makeHostPubPEM generates a fresh keypair for the given curve and returns the
+// makeCertPubPEM generates a fresh keypair for the given curve and returns the
 // PEM-encoded public key as the device would export it via nebula-cert keygen.
 // The returned privRaw can be used in subsequent assertions on the cert's
 // embedded public key.
@@ -17,7 +17,7 @@ func makeCertPubPEM(t *testing.T, curve cert.Curve) (pubPEM, pubRaw []byte) {
 	t.Helper()
 	pub, _, err := generateCertKeypair(curve)
 	if err != nil {
-		t.Fatalf("generateHostKeypair: %v", err)
+		t.Fatalf("generateCertKeypair: %v", err)
 	}
 	pem := cert.MarshalPublicKeyToPEM(curve, pub)
 	if pem == nil {
@@ -37,14 +37,14 @@ func makeCA(t *testing.T, src string) *CAResult {
 	return res
 }
 
-// --- ParseHostPublicKeyPEM --------------------------------------------------
+// --- ParseCertPublicKeyPEM --------------------------------------------------
 
 func TestParseCertPublicKeyPEM_Curve25519(t *testing.T) {
 	pubPEM, pubRaw := makeCertPubPEM(t, cert.Curve_CURVE25519)
 
 	got, curveStr, err := ParseCertPublicKeyPEM(pubPEM)
 	if err != nil {
-		t.Fatalf("ParseHostPublicKeyPEM: %v", err)
+		t.Fatalf("ParseCertPublicKeyPEM: %v", err)
 	}
 	if curveStr != "25519" {
 		t.Errorf("curveStr = %q, want 25519", curveStr)
@@ -59,7 +59,7 @@ func TestParseCertPublicKeyPEM_P256(t *testing.T) {
 
 	got, curveStr, err := ParseCertPublicKeyPEM(pubPEM)
 	if err != nil {
-		t.Fatalf("ParseHostPublicKeyPEM: %v", err)
+		t.Fatalf("ParseCertPublicKeyPEM: %v", err)
 	}
 	if curveStr != "P256" {
 		t.Errorf("curveStr = %q, want P256", curveStr)
@@ -77,15 +77,15 @@ func TestParseCertPublicKeyPEM_InvalidPEM(t *testing.T) {
 }
 
 func TestParseCertPublicKeyPEM_WrongType(t *testing.T) {
-	// A CA certificate PEM is not a host public key.
+	// A CA certificate PEM is not a cert public key.
 	ca := makeCA(t, `ca "m" { name = "m" }`)
 	_, _, err := ParseCertPublicKeyPEM(ca.CertPEM)
 	if err == nil {
-		t.Fatal("expected error when parsing a CA cert PEM as a host public key, got nil")
+		t.Fatal("expected error when parsing a CA cert PEM as a cert public key, got nil")
 	}
 }
 
-// --- SignHostFromPub ---------------------------------------------------------
+// --- SignCertFromPub ---------------------------------------------------------
 
 const inPubCertHCL = `
 ca "mesh" { name = "mesh" }
@@ -113,12 +113,12 @@ func TestSignCertFromPub_Curve25519(t *testing.T) {
 
 	res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
 	if err != nil {
-		t.Fatalf("SignHostFromPub: %v", err)
+		t.Fatalf("SignCertFromPub: %v", err)
 	}
 
 	// No private key must be returned.
 	if res.KeyPEM != nil {
-		t.Error("KeyPEM is non-nil; in_pub hosts must not produce a private key")
+		t.Error("KeyPEM is non-nil; in_pub certs must not produce a private key")
 	}
 
 	// Cert must parse and carry the expected metadata.
@@ -176,10 +176,10 @@ cert "device" {
 
 	res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, cfg.Certs[0], fixedTime)
 	if err != nil {
-		t.Fatalf("SignHostFromPub: %v", err)
+		t.Fatalf("SignCertFromPub: %v", err)
 	}
 	if res.KeyPEM != nil {
-		t.Error("KeyPEM is non-nil for in_pub host")
+		t.Error("KeyPEM is non-nil for in_pub cert")
 	}
 	c := parseCert(t, res.CertPEM)
 	if !bytes.Equal(c.PublicKey(), pubRaw) {
@@ -245,10 +245,10 @@ func TestSignCertFromPub_InvalidPEM(t *testing.T) {
 }
 
 func TestSignCertFromPub_ValidityCapAtCA(t *testing.T) {
-	// Host duration exceeds CA lifetime → cert notAfter capped at CA notAfter.
-	// We use a short CA (2h) and a host duration that fits within it (1h30m)
-	// for config validation, then manually build a host with an even shorter
-	// duration to test the capping path in SignHostFromPub.
+	// Cert duration exceeds CA lifetime → cert notAfter capped at CA notAfter.
+	// We use a short CA (2h) and a cert duration that fits within it (1h30m)
+	// for config validation, then manually build a cert with an even shorter
+	// duration to test the capping path in SignCertFromPub.
 	ca := makeCA(t, `
 ca "mesh" {
   name     = "mesh"
@@ -256,7 +256,7 @@ ca "mesh" {
 }`)
 	pubPEM, _ := makeCertPubPEM(t, cert.Curve_CURVE25519)
 
-	// Build a host config that is valid (duration < ca.duration) but pass a
+	// Build a cert config that is valid (duration < ca.duration) but pass a
 	// longer duration directly to the signing call to exercise the cap logic.
 	cfg, err := config.Parse("n.hcl", []byte(`
 ca "mesh" {
@@ -280,10 +280,10 @@ cert "phone" {
 
 	res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
 	if err != nil {
-		t.Fatalf("SignHostFromPub: %v", err)
+		t.Fatalf("SignCertFromPub: %v", err)
 	}
 	if res.NotAfter.After(ca.NotAfter) {
-		t.Errorf("host NotAfter %v exceeds CA NotAfter %v; cert must be capped", res.NotAfter, ca.NotAfter)
+		t.Errorf("cert NotAfter %v exceeds CA NotAfter %v; cert must be capped", res.NotAfter, ca.NotAfter)
 	}
 }
 
@@ -298,7 +298,7 @@ func TestSignCertFromPub_SamePubKeyProducesSameCertShape(t *testing.T) {
 	for i := range 2 {
 		res, err := SignCertFromPub(ca.CertPEM, ca.KeyPEM, pubPEM, h, fixedTime)
 		if err != nil {
-			t.Fatalf("call %d: SignHostFromPub: %v", i+1, err)
+			t.Fatalf("call %d: SignCertFromPub: %v", i+1, err)
 		}
 		c := parseCert(t, res.CertPEM)
 		if !bytes.Equal(c.PublicKey(), pubRaw) {

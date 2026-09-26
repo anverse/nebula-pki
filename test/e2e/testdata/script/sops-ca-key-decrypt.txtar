@@ -1,17 +1,17 @@
 # On a rerun where the CA is already encrypted on disk, nebula-pki decrypts
 # the CA key in-memory (no plaintext file written) and uses it to sign a new
-# host. sops is invoked only for the host that needs signing, not on no-op runs.
+# cert. sops is invoked only for the cert that needs signing, not on no-op runs.
 
 [!exec:sops] skip 'sops not in PATH'
 
 # Inject the age private key matching the public key used in the HCL below.
 env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
 
-# Run 1: generate CA and sign host alpha. Both keys are encrypted.
+# Run 1: generate CA and sign cert alpha. Both keys are encrypted.
 exec nebula-pki
 stderr '^generated CA "test-ca" \(test-ca\)$'
 stderr '^  key:  out/ca/test-ca\.key\.enc$'
-stderr '^signed host "alpha"$'
+stderr '^signed cert "alpha"$'
 stderr '^  key:  out/certs/alpha\.key\.enc$'
 ! stdout .
 
@@ -19,7 +19,7 @@ stderr '^  key:  out/certs/alpha\.key\.enc$'
 cp out/ca/test-ca.crt     ca.crt.snap
 cp out/ca/test-ca.key.enc ca.key.enc.snap
 
-# Switch to the v2 config that adds host beta.
+# Switch to the v2 config that adds cert beta.
 cp nebula.v2.hcl nebula.hcl
 
 # Run 2: CA is noop (key decrypted in-memory); only beta needs signing.
@@ -27,7 +27,7 @@ exec nebula-pki
 ! stderr 'generated CA'
 ! stderr 'not yet supported'
 ! stderr 'v0\.1\.2'
-stderr '^signed host "beta"$'
+stderr '^signed cert "beta"$'
 stderr '^  key:  out/certs/beta\.key\.enc$'
 ! stdout .
 

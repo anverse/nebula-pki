@@ -8,7 +8,7 @@ exec nebula-pki
 stderr '^generated CA "test-ca" \(test-ca\)$'
 stderr '^  cert: out/ca/test-ca\.crt$'
 stderr '^  key:  out/ca/test-ca\.key\.enc$'
-stderr '^signed host "alpha"$'
+stderr '^signed cert "alpha"$'
 stderr '^  cert: out/certs/alpha\.crt$'
 stderr '^  key:  out/certs/alpha\.key\.enc$'
 stderr '^wrote manifest: out/nebula-pki\.json$'

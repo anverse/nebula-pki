@@ -11,7 +11,7 @@ env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQC
 exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
-stderr '^signed host "alpha"'
+stderr '^signed cert "alpha"'
 stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
@@ -28,7 +28,7 @@ cp nebula.v2.hcl nebula.hcl
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 stderr 'warning: CA "test-ca" key was encrypted with different recipients'
-stderr 'warning: host "alpha" key was encrypted with different recipients'
+stderr 'warning: cert "alpha" key was encrypted with different recipients'
 stderr 'nebula-pki rekey'
 
 # Rekey: sops decrypts (via SOPS_AGE_KEY), external age re-encrypts.

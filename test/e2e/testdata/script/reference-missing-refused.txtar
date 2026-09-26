@@ -5,7 +5,7 @@
 # the missing CA file. The "config valid:" line is scoped to the
 # configuration; it does not claim the whole check passed.
 ! exec nebula-pki check -c reference.hcl
-stdout '^config valid: reference\.hcl \(cas=1, hosts=0\)$'
+stdout '^config valid: reference\.hcl \(cas=1, certs=0\)$'
 ! stdout 'verified:'
 stderr 'read referenced CA certificate'
 

@@ -8,7 +8,7 @@
 exec nebula-pki
 stderr '^generated CA "test-ca" \(test-ca\)$'
 stderr '  key:  out/ca/test-ca\.key\.enc'
-stderr '^signed host "alpha"$'
+stderr '^signed cert "alpha"$'
 stderr '  key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
@@ -23,7 +23,7 @@ cp out/nebula-pki.json manifest.first
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 ! stderr 'generated CA'
-! stderr 'signed host'
+! stderr 'signed cert'
 ! stdout .
 
 # Every artifact is byte-identical to the first run.

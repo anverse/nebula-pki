@@ -78,8 +78,8 @@ cert "a" {
 	if !strings.Contains(got, "cas=1") {
 		t.Errorf("stdout = %q, want it to mention cas=1", got)
 	}
-	if !strings.Contains(got, "hosts=1") {
-		t.Errorf("stdout = %q, want it to mention hosts=1", got)
+	if !strings.Contains(got, "certs=1") {
+		t.Errorf("stdout = %q, want it to mention certs=1", got)
 	}
 }
 
@@ -315,14 +315,14 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Errorf("stdout = %q, want 'up to date; nothing to do'", stdout.String())
 	}
 	// The deadline advisory is always printed to stderr (including on no-op
-	// dry-runs). After a fresh reconcile the host cert expires in ~1 year.
+	// dry-runs). After a fresh reconcile the cert expires in ~1 year.
 	if !strings.Contains(stderr.String(), "next deadline") {
 		t.Errorf("stderr = %q, want deadline advisory", stderr.String())
 	}
 }
 
 // TestReconcileProgressOnStderr verifies that normal reconcile progress
-// (generated CA, signed host, wrote manifest) goes to stderr and stdout
+// (generated CA, signed cert, wrote manifest) goes to stderr and stdout
 // stays empty, so the two streams can be redirected independently.
 func TestReconcileProgressOnStderr(t *testing.T) {
 	dir := t.TempDir()
@@ -347,8 +347,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if !strings.Contains(stderr.String(), "generated CA") {
 		t.Errorf("stderr = %q, want it to contain 'generated CA'", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "signed host") {
-		t.Errorf("stderr = %q, want it to contain 'signed host'", stderr.String())
+	if !strings.Contains(stderr.String(), "signed cert") {
+		t.Errorf("stderr = %q, want it to contain 'signed cert'", stderr.String())
 	}
 }
 
@@ -374,7 +374,7 @@ func seedRefCA(t *testing.T, dir, src string) string {
 }
 
 // TestWriteReconcileSummary documents the surface a user sees across the
-// key output shapes: changed with CA only, changed with signed hosts,
+// key output shapes: changed with CA only, changed with signed certs,
 // reference mode, and noop.
 func TestWriteReconcileSummary(t *testing.T) {
 	tests := []struct {
@@ -384,7 +384,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 		wantNot     []string
 	}{
 		{
-			name: "changed_no_hosts",
+			name: "changed_no_certs",
 			rep: apply.Report{
 				Changed:      true,
 				ManifestPath: "out/nebula-pki.json",
@@ -402,10 +402,10 @@ func TestWriteReconcileSummary(t *testing.T) {
 				"key:  out/ca/ca.key",
 				"wrote manifest: out/nebula-pki.json",
 			},
-			wantNot: []string{"signed host", "up to date"},
+			wantNot: []string{"signed cert", "up to date"},
 		},
 		{
-			name: "changed_with_signed_hosts",
+			name: "changed_with_signed_certs",
 			rep: apply.Report{
 				Changed:      true,
 				ManifestPath: "out/nebula-pki.json",
@@ -424,7 +424,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 			},
 			wantContain: []string{
 				`generated CA "mesh"`,
-				`signed host "alpha"`,
+				`signed cert "alpha"`,
 				"cert: out/certs/alpha.crt",
 				"key:  out/certs/alpha.key",
 				"wrote manifest: out/nebula-pki.json",
@@ -432,7 +432,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 			wantNot: []string{"up to date", "not yet reconciled"},
 		},
 		{
-			// Custom output_dir: host cert/key land in the configured directory.
+			// Custom output_dir: cert/key land in the configured directory.
 			name: "changed_output_dir",
 			rep: apply.Report{
 				Changed:      true,
@@ -451,7 +451,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 				},
 			},
 			wantContain: []string{
-				`signed host "node"`,
+				`signed cert "node"`,
 				"cert: dir-a/node.crt",
 				"key:  dir-a/node.key",
 				"wrote manifest: out/nebula-pki.json",
@@ -502,7 +502,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 				StaleArtifacts: []string{"dir-a/node.crt", "dir-a/node.key"},
 			},
 			wantContain: []string{
-				`signed host "node"`,
+				`signed cert "node"`,
 				"cert: dir-b/node.crt",
 				"notice: the following files are no longer managed",
 				"dir-a/node.crt",
@@ -518,7 +518,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 				ManifestPath: "out/nebula-pki.json",
 			},
 			wantContain: []string{"up to date; nothing to do"},
-			wantNot:     []string{"generated CA", "signed host"},
+			wantNot:     []string{"generated CA", "signed cert"},
 		},
 		{
 			// Trust bundle written: summary must include "wrote trust bundle" line
@@ -582,7 +582,7 @@ func TestWriteReconcileSummary(t *testing.T) {
 // --no-renewal flag integration tests
 // ---------------------------------------------------------------------------
 
-// patchManifestNotAfter loads the manifest at manReal, sets the named host's
+// patchManifestNotAfter loads the manifest at manReal, sets the named cert's
 // NotAfter to t, and writes it back.
 func patchManifestNotAfter(tb testing.TB, manReal, certLabel string, notAfter time.Time) {
 	tb.Helper()
@@ -602,8 +602,8 @@ func patchManifestNotAfter(tb testing.TB, manReal, certLabel string, notAfter ti
 	}
 }
 
-// TestNoRenewalFlag_NewHostStillSigns verifies that --no-renewal does not
-// prevent a genuinely new host from being signed.
+// TestNoRenewalFlag_NewCertStillSigns verifies that --no-renewal does not
+// prevent a genuinely new cert from being signed.
 func TestNoRenewalFlag_NewCertStillSigns(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "nebula.hcl")
@@ -643,10 +643,10 @@ cert "beta"  { networks = ["10.0.0.2/16"] }
 	}
 
 	stderrStr := stderr.String()
-	if !strings.Contains(stderrStr, `signed host "beta"`) {
-		t.Errorf("stderr = %q, want 'signed host \"beta\"'", stderrStr)
+	if !strings.Contains(stderrStr, `signed cert "beta"`) {
+		t.Errorf("stderr = %q, want 'signed cert \"beta\"'", stderrStr)
 	}
-	if strings.Contains(stderrStr, `signed host "alpha"`) {
+	if strings.Contains(stderrStr, `signed cert "alpha"`) {
 		t.Errorf("stderr = %q, must not re-sign alpha (already up to date)", stderrStr)
 	}
 	if stdout.String() != "" {
@@ -710,10 +710,10 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("read cert after: %v", err)
 	}
 	if !bytes.Equal(certBefore, certAfter) {
-		t.Error("host cert changed: --no-renewal should suppress window-based re-sign")
+		t.Error("cert changed: --no-renewal should suppress window-based re-sign")
 	}
-	if strings.Contains(stderr.String(), "signed host") {
-		t.Errorf("stderr = %q, must not contain 'signed host'", stderr.String())
+	if strings.Contains(stderr.String(), "signed cert") {
+		t.Errorf("stderr = %q, must not contain 'signed cert'", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "up to date; nothing to do") {
 		t.Errorf("stderr = %q, want 'up to date; nothing to do'", stderr.String())
@@ -760,7 +760,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if !strings.Contains(stderrStr, "overdue") {
 		t.Errorf("stderr = %q, want overdue deadline advisory even with --no-renewal", stderrStr)
 	}
-	if strings.Contains(stderrStr, "signed host") {
+	if strings.Contains(stderrStr, "signed cert") {
 		t.Errorf("stderr = %q, must not re-sign with --no-renewal", stderrStr)
 	}
 }

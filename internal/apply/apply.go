@@ -8,7 +8,7 @@
 // the tool small and auditable, and makes idempotency a property of plan
 // rather than of scattered I/O.
 //
-// It reconciles each CA in both modes and signs host certificates under
+// It reconciles each CA in both modes and signs certificates under
 // the appropriate CA. All artifact writes are atomic via fsutil.
 package apply
 
@@ -60,20 +60,20 @@ type Options struct {
 	// When nil, dry-run output is discarded.
 	Out io.Writer
 	// NoRenewal, when true, suppresses time-based renewal for this run:
-	// hosts inside their renew_before window are treated as up-to-date.
+	// certs inside their renew_before window are treated as up-to-date.
 	// All other re-sign triggers are unaffected. The deadline advisory is
 	// always computed and printed regardless of this flag.
 	NoRenewal bool
 }
 
-// SignedArtifact is the destination for a signed host's cert/key pair.
+// SignedArtifact is the destination for a signed cert/key pair.
 type SignedArtifact struct {
 	Dir      string
 	CertPath string
 	KeyPath  string
 }
 
-// SignedHost is a brief record of one host that was signed this run.
+// SignedCert is a brief record of one cert that was signed this run.
 type SignedCert struct {
 	Label     string
 	Artifacts []SignedArtifact
@@ -90,10 +90,10 @@ type CAReport struct {
 
 // DeadlineItem is one entry in the deadline report.
 type DeadlineItem struct {
-	Kind     string // "host" or "ca"
+	Kind     string // "cert" or "ca"
 	Label    string
 	Deadline time.Time // when the operator must act (renewal window entry or expiry)
-	Desc     string    // e.g. `host "x" enters renewal window` or `CA "y" expires`
+	Desc     string    // e.g. `cert "x" enters renewal window` or `CA "y" expires`
 }
 
 // DeadlineReport is the post-run advisory: the earliest date the operator
@@ -136,7 +136,7 @@ type Report struct {
 	// this run. False on a noop run.
 	TrustBundleWritten bool
 
-	// SignedHosts is the set of hosts that were signed this run, in config
+	// SignedCerts is the set of certs that were signed this run, in config
 	// order. Empty on a noop run.
 	SignedCerts []SignedCert
 
@@ -165,20 +165,20 @@ type LinkReport struct {
 	Target  string
 }
 
-// caPEMs holds the material for one CA, used to sign hosts.
+// caPEMs holds the material for one CA, used to sign certs.
 type caPEMs struct {
 	cert []byte
 	key  []byte
 	// encrypted is true when key holds sops ciphertext rather than plaintext.
-	// It is decrypted in-memory on first use (when a host needs signing);
-	// subsequent hosts under the same CA reuse the cached plaintext.
+	// It is decrypted in-memory on first use (when a cert needs signing);
+	// subsequent certs under the same CA reuse the cached plaintext.
 	encrypted bool
 }
 
 // Reconcile brings the output tree in line with cfg and returns a Report.
 //
 // It loads the manifest, builds a plan, executes each CA action in order,
-// then signs any hosts that need signing. In every mode an up-to-date tree
+// then signs any certs that need signing. In every mode an up-to-date tree
 // stays byte-identical across runs: nothing (not even the manifest) is
 // rewritten when the recorded state already matches (spec/adr/002).
 func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
@@ -344,7 +344,7 @@ func hasReferenceCA(cfg *config.Config) bool {
 }
 
 // reconcileOneCA executes one CA action and returns the CA metadata plus
-// the PEM bytes needed to sign hosts. It also populates next.CAs for the
+// the PEM bytes needed to sign certs. It also populates next.CAs for the
 // given CA label.
 func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc crypto.Encryptor, opts Options, current *manifest.Manifest, next *manifest.Manifest) (*pki.CAResult, caPEMs, error) {
 	certPath := cfg.CACertPathForCA(*ca)
@@ -369,11 +369,11 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc
 		mCA := caResultToManifest(ca, result, certPath, keyManifestPath)
 		mCA.Encryption = encRec
 		next.CAs[ca.Label] = mCA
-		// Return the in-memory plaintext key so hosts can be signed in this run.
+		// Return the in-memory plaintext key so certs can be signed in this run.
 		return result, caPEMs{cert: result.CertPEM, key: result.KeyPEM}, nil
 
 	case plan.OpNoop:
-		// CA is up to date; attempt to read from disk so we can sign hosts.
+		// CA is up to date; attempt to read from disk so we can sign certs.
 		certPEM, err := os.ReadFile(cfg.Resolve(certPath))
 		if err != nil {
 			return nil, caPEMs{}, fmt.Errorf("read CA %q certificate: %w", ca.Label, err)
@@ -390,8 +390,8 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc
 
 		if caAction.EncryptKey {
 			// The key is encrypted on disk. Hold the ciphertext here;
-			// applyHosts decrypts it in-memory on first use when a host
-			// needs signing. For all-noop runs (no host re-signs) the
+			// applyCerts decrypts it in-memory on first use when a cert
+			// needs signing. For all-noop runs (no cert re-signs) the
 			// ciphertext is never accessed.
 			encKeyPath := keyPath + enc.Suffix()
 			encKeyBytes, err := os.ReadFile(cfg.Resolve(encKeyPath))
@@ -409,7 +409,7 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc
 		// We need the result for the report's Name field; parse it minimally.
 		result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
 		if err != nil && !errors.Is(err, pki.ErrReferenceCAExpired) {
-			return nil, caPEMs{}, fmt.Errorf("read CA %q for host signing: %w", ca.Label, err)
+			return nil, caPEMs{}, fmt.Errorf("read CA %q for cert signing: %w", ca.Label, err)
 		}
 		return result, caPEMs{cert: certPEM, key: keyPEM}, nil
 
@@ -460,7 +460,7 @@ func caResultToManifest(ca *config.CA, result *pki.CAResult, certPath, keyPath s
 // survive when the process is killed before defer os.Remove fires (e.g.
 // SIGKILL, OOM, power loss). The sweep is best-effort: individual remove
 // errors are printed to warn but do not abort the reconcile.
-// Note: per-host output_dir values outside root are not swept.
+// Note: per-cert output_dir values outside root are not swept.
 func sweepPlaintextTemps(root string, warn io.Writer) {
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error { //nolint:errcheck
 		if err != nil || d.IsDir() {
@@ -507,10 +507,10 @@ func writeKeyFile(cfg *config.Config, enc crypto.Encryptor, basePath string, key
 	return diskPath, encRec, nil
 }
 
-// applyHosts executes host actions: signs hosts with OpSign, carries
+// applyCerts executes cert actions: signs certs with OpSign, carries
 // forward existing manifest entries for OpNoop. It writes cert and key
-// files for each signed host and populates next.Hosts. Returns the list
-// of newly signed hosts (in action order) and any logical paths from a
+// files for each signed cert and populates next.Certs. Returns the list
+// of newly signed certs (in action order) and any logical paths from a
 // previous run that are no longer written by the current configuration.
 func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certActions []plan.Action, caKeys map[string]caPEMs, current *manifest.Manifest, next *manifest.Manifest) ([]SignedCert, []string, error) {
 	var signed []SignedCert
@@ -524,7 +524,7 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 	for _, ha := range certActions {
 		h := certByLabel[ha.Label]
 		if h == nil {
-			return nil, nil, fmt.Errorf("host action references unknown label %q", ha.Label)
+			return nil, nil, fmt.Errorf("cert action references unknown label %q", ha.Label)
 		}
 
 		if ha.Op == plan.OpNoop {
@@ -546,11 +546,11 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 				// The new key path includes any active encryption suffix.
 				newKeyPath := newArt.KeyPath + enc.Suffix()
 				if h.InPub != "" {
-					newKeyPath = "" // in_pub hosts write no key
+					newKeyPath = "" // in_pub certs write no key
 				}
 				// oldArt.KeyPath already contains the suffix it was written with
 				// (the manifest records on-disk paths). Flag it stale when the
-				// path changed or the host switched to/from in_pub.
+				// path changed or the cert switched to/from in_pub.
 				if oldArt.KeyPath != "" && oldArt.KeyPath != newKeyPath {
 					if fsutil.Exists(cfg.Resolve(oldArt.KeyPath)) {
 						stale = append(stale, oldArt.KeyPath)
@@ -561,16 +561,16 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 
 		signingCA := cfg.SigningCA(*h)
 		if signingCA == nil {
-			return nil, nil, fmt.Errorf("host %q: cannot determine signing CA (should have been caught in validation)", h.Label)
+			return nil, nil, fmt.Errorf("cert %q: cannot determine signing CA (should have been caught in validation)", h.Label)
 		}
 		pems, ok := caKeys[signingCA.Label]
 		if !ok {
-			return nil, nil, fmt.Errorf("host %q: signing CA %q PEM not available", h.Label, signingCA.Label)
+			return nil, nil, fmt.Errorf("cert %q: signing CA %q PEM not available", h.Label, signingCA.Label)
 		}
 		if pems.encrypted {
 			plainKey, err := enc.Decrypt(pems.key)
 			if err != nil {
-				return nil, nil, fmt.Errorf("host %q: decrypt CA %q key: %w", h.Label, signingCA.Label, err)
+				return nil, nil, fmt.Errorf("cert %q: decrypt CA %q key: %w", h.Label, signingCA.Label, err)
 			}
 			pems.key = plainKey
 			pems.encrypted = false
@@ -583,7 +583,7 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 			// and sign it. No keypair is generated; no key file is written.
 			pubKeyPEM, err := os.ReadFile(cfg.Resolve(h.InPub))
 			if err != nil {
-				return nil, nil, fmt.Errorf("host %q: read in_pub %s: %w", h.Label, h.InPub, err)
+				return nil, nil, fmt.Errorf("cert %q: read in_pub %s: %w", h.Label, h.InPub, err)
 			}
 			result, err = pki.SignCertFromPub(pems.cert, pems.key, pubKeyPEM, *h, opts.Now)
 			if err != nil {
@@ -604,14 +604,14 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 		var artEncRec *manifest.EncryptionRecord
 		if result.KeyPEM != nil {
 			var err error
-			artKeyPath, artEncRec, err = writeKeyFile(cfg, enc, newArt.KeyPath, result.KeyPEM, fmt.Sprintf("host key %q", h.Label))
+			artKeyPath, artEncRec, err = writeKeyFile(cfg, enc, newArt.KeyPath, result.KeyPEM, fmt.Sprintf("cert key %q", h.Label))
 			if err != nil {
 				return nil, nil, err
 			}
 		}
 
 		if err := fsutil.WriteFile(cfg.Resolve(newArt.CertPath), result.CertPEM, certMode); err != nil {
-			return nil, nil, fmt.Errorf("write host certificate %q: %w", h.Label, err)
+			return nil, nil, fmt.Errorf("write certificate %q: %w", h.Label, err)
 		}
 
 		durationStr := ""
@@ -823,8 +823,8 @@ func prefixesToStrings(prefixes []netip.Prefix) []string {
 }
 
 // newManifest builds an empty candidate manifest with the metadata fields
-// filled in. CA and host records are populated by reconcileOneCA /
-// applyHosts.
+// filled in. CA and cert records are populated by reconcileOneCA /
+// applyCerts.
 func newManifest(cfg *config.Config, opts Options) *manifest.Manifest {
 	m := manifest.New()
 	m.GeneratedAt = opts.Now.UTC()
@@ -907,7 +907,7 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 			if h, ok := certByLabel[ha.Label]; ok {
 				art := cfg.CertArtifactPath(*h)
 				writes = append(writes, art.CertPath)
-				// in_pub hosts write only a certificate, no key file.
+				// in_pub certs write only a certificate, no key file.
 				if h.InPub == "" {
 					keyPath := art.KeyPath
 					if ha.EncryptKey {
@@ -964,11 +964,11 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 // section of the deadline report.
 const deadlineSoonWindow = 60 * 24 * time.Hour
 
-// computeDeadlines inspects m for every host and non-archived CA, then
+// computeDeadlines inspects m for every cert and non-archived CA, then
 // returns the earliest actionable deadline plus supplementary detail.
 //
-// For a host with renew_before: deadline = not_after − renew_before (the
-// moment the host enters its renewal window). For a host without renew_before,
+// For a cert with renew_before: deadline = not_after − renew_before (the
+// moment the cert enters its renewal window). For a cert without renew_before,
 // and for all CAs: deadline = not_after (expiry itself).
 //
 // The config is used to resolve the current renew_before value (which may
@@ -984,7 +984,7 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 		}
 	}
 
-	// Hosts — iterate in config order for deterministic output.
+	// Certs — iterate in config order for deterministic output.
 	for i := range cfg.Certs {
 		h := &cfg.Certs[i]
 		mh, ok := m.Certs[h.Label]
@@ -996,16 +996,16 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 		var desc string
 		if rb > 0 {
 			deadline = mh.NotAfter.Add(-rb)
-			desc = fmt.Sprintf("host %q enters renewal window", h.Label)
+			desc = fmt.Sprintf("cert %q enters renewal window", h.Label)
 		} else {
 			deadline = mh.NotAfter
-			desc = fmt.Sprintf("host %q expires", h.Label)
+			desc = fmt.Sprintf("cert %q expires", h.Label)
 		}
 
 		if !now.Before(deadline) {
-			rep.OverdueItems = append(rep.OverdueItems, DeadlineItem{Kind: "host", Label: h.Label, Deadline: deadline, Desc: desc})
+			rep.OverdueItems = append(rep.OverdueItems, DeadlineItem{Kind: "cert", Label: h.Label, Deadline: deadline, Desc: desc})
 		} else if deadline.Before(now.Add(deadlineSoonWindow)) {
-			rep.SoonItems = append(rep.SoonItems, DeadlineItem{Kind: "host", Label: h.Label, Deadline: deadline, Desc: desc})
+			rep.SoonItems = append(rep.SoonItems, DeadlineItem{Kind: "cert", Label: h.Label, Deadline: deadline, Desc: desc})
 		}
 		updateEarliest(deadline, desc)
 	}
@@ -1037,7 +1037,7 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 // checkEncryptionMismatches compares the recipients hash recorded in the
 // manifest against the hash of the current config's inline recipients. When
 // they differ (and both are non-empty), a warning is printed for each
-// affected CA or host artifact. No warning is emitted when either side uses
+// affected CA or cert artifact. No warning is emitted when either side uses
 // .sops.yaml-only mode (empty hash), since there is no stable fingerprint to
 // compare in that case.
 func checkEncryptionMismatches(current *manifest.Manifest, enc crypto.Encryptor, warn io.Writer) {
@@ -1064,7 +1064,7 @@ func checkEncryptionMismatches(current *manifest.Manifest, enc crypto.Encryptor,
 				continue
 			}
 			if art.Encryption.RecipientsHash != currentHash {
-				fmt.Fprintf(w, "warning: host %q key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt\n", label)
+				fmt.Fprintf(w, "warning: cert %q key was encrypted with different recipients; run 'nebula-pki rekey' to re-encrypt\n", label)
 				warned = true
 			}
 		}

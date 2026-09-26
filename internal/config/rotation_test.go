@@ -1,6 +1,6 @@
 package config
 
-// Tests for ca.archived, ca.renew_before, and host.renew_before.
+// Tests for ca.archived, ca.renew_before, and cert.renew_before.
 
 import (
 	"strings"
@@ -24,7 +24,7 @@ func TestCA_Archived_ParsedAndDefaultsFalse(t *testing.T) {
 
 func TestCA_Archived_TrueRoundTrips(t *testing.T) {
 	// Two CAs: "current" archived, "next" default (so there is a valid
-	// signing CA for any host).
+	// signing CA for any cert).
 	src := `
 ca "current" {
   name     = "old"
@@ -65,7 +65,7 @@ ca "mesh" {
 }
 
 func TestCA_Archived_CertSigningViaDefaultErrors(t *testing.T) {
-	// Only CA is archived; host would use it as the sole/default CA.
+	// Only CA is archived; cert would use it as the sole/default CA.
 	src := `
 ca "mesh" {
   name     = "m"
@@ -75,7 +75,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
-		t.Fatal("want error when sole CA is archived and a host needs signing, got nil")
+		t.Fatal("want error when sole CA is archived and a cert needs signing, got nil")
 	}
 	if !strings.Contains(err.Error(), "archived") {
 		t.Errorf("error = %q, want it to mention 'archived'", err.Error())
@@ -99,7 +99,7 @@ cert "alpha" {
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
-		t.Fatal("want error when host.ca references an archived CA, got nil")
+		t.Fatal("want error when cert.ca references an archived CA, got nil")
 	}
 	if !strings.Contains(err.Error(), "archived") {
 		t.Errorf("error = %q, want it to mention 'archived'", err.Error())
@@ -238,7 +238,7 @@ ca "mesh" {
 }
 
 // ---------------------------------------------------------------------------
-// host.renew_before
+// cert.renew_before
 // ---------------------------------------------------------------------------
 
 func TestCert_RenewBefore_Parsed(t *testing.T) {
@@ -272,7 +272,7 @@ cert "alpha" {
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
-		t.Fatal("want parse error for invalid host.renew_before, got nil")
+		t.Fatal("want parse error for invalid cert.renew_before, got nil")
 	}
 	if !strings.Contains(err.Error(), "renew_before") {
 		t.Errorf("error = %q, want it to mention 'renew_before'", err.Error())
@@ -290,7 +290,7 @@ cert "alpha" {
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
-		t.Fatal("want error when host.renew_before >= host.duration, got nil")
+		t.Fatal("want error when cert.renew_before >= cert.duration, got nil")
 	}
 	if !strings.Contains(err.Error(), "renew_before") {
 		t.Errorf("error = %q, want it to mention 'renew_before'", err.Error())
@@ -312,7 +312,7 @@ cert "alpha" {
 }
 
 func TestCert_RenewBefore_GeqCADuration_Inherited_Errors(t *testing.T) {
-	// host.renew_before 300h >= signing ca.duration 300h → error (no host duration set).
+	// cert.renew_before 300h >= signing ca.duration 300h → error (no cert duration set).
 	src := `
 ca "mesh" {
   name     = "m"
@@ -323,10 +323,10 @@ cert "alpha" {
   renew_before = "300h"
 }
 `
-	// host.renew_before 300h >= signing ca.duration 300h → error
+	// cert.renew_before 300h >= signing ca.duration 300h → error
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
-		t.Fatal("want error when host.renew_before >= ca.duration (no host duration), got nil")
+		t.Fatal("want error when cert.renew_before >= ca.duration (no cert duration), got nil")
 	}
 	if !strings.Contains(err.Error(), "renew_before") {
 		t.Errorf("error = %q, want it to mention 'renew_before'", err.Error())
@@ -334,7 +334,7 @@ cert "alpha" {
 }
 
 func TestCert_RenewBefore_InheritedFromCA_GeqCertDuration_Errors(t *testing.T) {
-	// CA renew_before 100h inherited by host; host.duration = 50h → churn.
+	// CA renew_before 100h inherited by cert; cert.duration = 50h → churn.
 	src := `
 ca "mesh" {
   name         = "m"
@@ -347,7 +347,7 @@ cert "alpha" {
 `
 	_, err := Parse("t.hcl", []byte(src))
 	if err == nil {
-		t.Fatal("want error when inherited ca.renew_before >= host.duration, got nil")
+		t.Fatal("want error when inherited ca.renew_before >= cert.duration, got nil")
 	}
 	if !strings.Contains(err.Error(), "renew_before") {
 		t.Errorf("error = %q, want it to mention 'renew_before'", err.Error())
@@ -390,7 +390,7 @@ cert "alpha" {
 		t.Fatalf("Parse: %v", err)
 	}
 	if got := cfg.ResolvedRenewBefore(cfg.Certs[0]); got != 48*time.Hour {
-		t.Errorf("ResolvedRenewBefore = %v, want 48h (host override)", got)
+		t.Errorf("ResolvedRenewBefore = %v, want 48h (cert override)", got)
 	}
 }
 

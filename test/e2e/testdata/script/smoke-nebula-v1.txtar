@@ -7,14 +7,14 @@
 exec nebula-pki
 stderr '^wrote manifest'
 
-# Chain validation with the real nebula-cert: each host against its own CA
+# Chain validation with the real nebula-cert: each cert against its own CA
 # and against the mixed-curve trust bundle.
 exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/certs/alpha.crt
 exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/certs/beta.crt
 exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alpha.crt
 exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/beta.crt
 
-# Negative control: a host must not verify against the other CA alone.
+# Negative control: a cert must not verify against the other CA alone.
 ! exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/certs/alpha.crt
 ! exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/certs/beta.crt
 

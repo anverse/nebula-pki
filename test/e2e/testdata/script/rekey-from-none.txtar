@@ -4,11 +4,11 @@
 
 [!exec:sops] skip 'sops not in PATH'
 
-# Run 1: generate CA and sign host without encryption.
+# Run 1: generate CA and sign cert without encryption.
 exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key$'
-stderr '^signed host "alpha"'
+stderr '^signed cert "alpha"'
 stderr 'key:  out/certs/alpha\.key$'
 ! stdout .
 
@@ -49,7 +49,7 @@ exists out/certs/alpha.key.enc
 grep '"key_path": "out/ca/test-ca\.key\.enc"' out/nebula-pki.json
 grep '"backend": "sops"' out/nebula-pki.json
 
-# Run 2: noop (manifest matches config; all hosts noop so CA key not decrypted).
+# Run 2: noop (manifest matches config; all certs noop so CA key not decrypted).
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 ! stderr 'warning:'

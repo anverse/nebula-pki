@@ -1,10 +1,10 @@
 # Reconciling an unchanged tree a second time must write nothing — not even
 # the manifest — so the committed output stays byte-identical across runs.
 
-# First run: CA and host cert are created.
+# First run: CA and cert are created.
 exec nebula-pki
 stderr '^generated CA "test-mesh" \(test-mesh\)$'
-stderr '^signed host "alpha"$'
+stderr '^signed cert "alpha"$'
 ! stdout .
 
 # Snapshot every artifact.
@@ -18,7 +18,7 @@ cp out/nebula-pki.json manifest.first
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 ! stderr 'generated CA'
-! stderr 'signed host'
+! stderr 'signed cert'
 ! stdout .
 
 # All artifacts are byte-identical to the first run.

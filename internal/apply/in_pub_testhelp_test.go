@@ -12,7 +12,7 @@ import (
 )
 
 // generateX25519 generates an X25519 keypair (what nebula-cert keygen
-// produces for CURVE25519 hosts) and returns the raw public and private
+// produces for CURVE25519 certs) and returns the raw public and private
 // key bytes.
 func generateX25519() (pub, priv []byte, err error) {
 	key, err := ecdh.X25519().GenerateKey(rand.Reader)

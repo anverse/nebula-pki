@@ -104,8 +104,8 @@ func runRekey(cmd *cobra.Command, configPath string, dryRun, force bool) error {
 // rekeyEntry is one key file candidate for rekeying.
 type rekeyEntry struct {
 	label      string
-	kind       string // "CA" or "host"
-	artIdx     int    // artifact index within host (-1 for CA)
+	kind       string // "CA" or "cert"
+	artIdx     int    // artifact index within cert (-1 for CA)
 	logPath    string // manifest-recorded logical path
 	encryption *manifest.EncryptionRecord
 }
@@ -154,7 +154,7 @@ func collectRekeyEntries(m *manifest.Manifest, newEnc crypto.Encryptor, force bo
 			}
 			entries = append(entries, rekeyEntry{
 				label:      label,
-				kind:       "host",
+				kind:       "cert",
 				artIdx:     i,
 				logPath:    art.KeyPath,
 				encryption: art.Encryption,

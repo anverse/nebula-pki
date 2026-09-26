@@ -1,4 +1,4 @@
-# Real-binary smoke test for sops-encrypted storage: the encrypted host key
+# Real-binary smoke test for sops-encrypted storage: the encrypted cert key
 # must decrypt back to exactly the material nebula accepts, proving the
 # encrypt/decrypt round-trip does not corrupt or reformat the key.
 
@@ -16,7 +16,7 @@ exists out/certs/alpha.key.enc
 
 exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alpha.crt
 
-# Decrypt the host key the way an operator would, then hand it to nebula.
+# Decrypt the cert key the way an operator would, then hand it to nebula.
 exec sops --decrypt --input-type binary --output-type binary --output alpha.key out/certs/alpha.key.enc
 grep 'NEBULA X25519 PRIVATE KEY' alpha.key
 exec nebula -test -config alpha.yml

@@ -34,7 +34,7 @@ func TestPrintDeadlineReport_Empty(t *testing.T) {
 func TestPrintDeadlineReport_NextOnly_FarFuture(t *testing.T) {
 	d := apply.DeadlineReport{
 		NextDeadline:     drFar,
-		NextDeadlineDesc: `host "alpha" expires`,
+		NextDeadlineDesc: `cert "alpha" expires`,
 	}
 	out := printDeadlineReportStr(d)
 	if !strings.Contains(out, "next deadline:") {
@@ -59,10 +59,10 @@ func TestPrintDeadlineReport_SoonItems_Dedup(t *testing.T) {
 	// a second item. The primary must not appear in "also expiring soon".
 	d := apply.DeadlineReport{
 		NextDeadline:     drSoon1,
-		NextDeadlineDesc: `host "alpha" expires`,
+		NextDeadlineDesc: `cert "alpha" expires`,
 		SoonItems: []apply.DeadlineItem{
-			{Deadline: drSoon1, Desc: `host "alpha" expires`}, // duplicate of primary
-			{Deadline: drSoon2, Desc: `host "beta" expires`},
+			{Deadline: drSoon1, Desc: `cert "alpha" expires`}, // duplicate of primary
+			{Deadline: drSoon2, Desc: `cert "beta" expires`},
 		},
 	}
 	out := printDeadlineReportStr(d)
@@ -80,11 +80,11 @@ func TestPrintDeadlineReport_SoonItems_Dedup(t *testing.T) {
 			soonLine = l
 		}
 	}
-	if strings.Contains(soonLine, `host "alpha" expires`) {
-		t.Errorf("primary deadline %q should not appear in 'also expiring soon' line: %q", `host "alpha" expires`, soonLine)
+	if strings.Contains(soonLine, `cert "alpha" expires`) {
+		t.Errorf("primary deadline %q should not appear in 'also expiring soon' line: %q", `cert "alpha" expires`, soonLine)
 	}
-	if !strings.Contains(soonLine, `host "beta" expires`) {
-		t.Errorf("second item %q should appear in 'also expiring soon' line: %q", `host "beta" expires`, soonLine)
+	if !strings.Contains(soonLine, `cert "beta" expires`) {
+		t.Errorf("second item %q should appear in 'also expiring soon' line: %q", `cert "beta" expires`, soonLine)
 	}
 }
 
@@ -92,9 +92,9 @@ func TestPrintDeadlineReport_SoonItems_NoneAfterDedup(t *testing.T) {
 	// SoonItems contains only the primary deadline; after dedup nothing remains.
 	d := apply.DeadlineReport{
 		NextDeadline:     drSoon1,
-		NextDeadlineDesc: `host "alpha" expires`,
+		NextDeadlineDesc: `cert "alpha" expires`,
 		SoonItems: []apply.DeadlineItem{
-			{Deadline: drSoon1, Desc: `host "alpha" expires`},
+			{Deadline: drSoon1, Desc: `cert "alpha" expires`},
 		},
 	}
 	out := printDeadlineReportStr(d)
@@ -128,15 +128,15 @@ func TestPrintDeadlineReport_OverduePlusMore(t *testing.T) {
 		NextDeadlineDesc: `CA "very-old" expires`,
 		OverdueItems: []apply.DeadlineItem{
 			{Deadline: drOverdue2, Desc: `CA "very-old" expires`},
-			{Deadline: drOverdue, Desc: `host "stale" expires`},
+			{Deadline: drOverdue, Desc: `cert "stale" expires`},
 		},
 	}
 	out := printDeadlineReportStr(d)
 	if !strings.HasPrefix(out, "overdue:") {
 		t.Errorf("output = %q; want 'overdue:' on first line", out)
 	}
-	if !strings.Contains(out, `overdue: host "stale" expires`) {
-		t.Errorf("output = %q; want secondary overdue line for host", out)
+	if !strings.Contains(out, `overdue: cert "stale" expires`) {
+		t.Errorf("output = %q; want secondary overdue line for cert", out)
 	}
 	// Primary must not appear twice.
 	if count := strings.Count(out, `CA "very-old" expires`); count != 1 {
@@ -153,7 +153,7 @@ func TestPrintDeadlineReport_OverduePlusSoon(t *testing.T) {
 			{Deadline: drOverdue, Desc: `CA "old" expires`},
 		},
 		SoonItems: []apply.DeadlineItem{
-			{Deadline: drSoon1, Desc: `host "alpha" expires`},
+			{Deadline: drSoon1, Desc: `cert "alpha" expires`},
 		},
 	}
 	out := printDeadlineReportStr(d)

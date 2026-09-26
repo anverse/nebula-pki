@@ -1,5 +1,5 @@
 # --dry-run with output_dir shows the custom destination path in the
-# preview, not the default out/hosts path.
+# preview, not the default out/certs path.
 
 # Fresh tree: preview lists the custom directory.
 exec nebula-pki --dry-run
@@ -8,7 +8,7 @@ stdout '^\+ write out/ca/test-mesh\.key$'
 stdout '^\+ write out/hetzner/lh-fra\.crt$'
 stdout '^\+ write out/hetzner/lh-fra\.key$'
 stdout '^\+ write out/nebula-pki\.json$'
-! stdout 'out/hosts'
+! stdout 'out/certs'
 ! stderr .
 
 # No files written.

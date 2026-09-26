@@ -123,7 +123,7 @@ ca "m" {
 }
 
 // TestGenerateCA_GroupsAndUnsafeNetworksRoundTrip pins the two constraint
-// fields that the manifest will eventually mirror back into host certs.
+// fields that the manifest will eventually mirror back into certs.
 func TestGenerateCA_GroupsAndUnsafeNetworksRoundTrip(t *testing.T) {
 	cfg := mustParseCA(t, `
 ca "m" {
@@ -202,9 +202,9 @@ func TestGenerateCA_DistinctNamesProduceDistinctCerts(t *testing.T) {
 	}
 }
 
-// --- SignHost tests -------------------------------------------------------
+// --- SignCert tests -------------------------------------------------------
 
-// mustSignHost is a helper that generates a CA then signs a host under it.
+// mustSignCert is a helper that generates a CA then signs a cert under it.
 func mustSignCert(t *testing.T, caSrc, certSrc string) (*CAResult, *CertResult) {
 	t.Helper()
 	caCfg := mustParseCA(t, caSrc)
@@ -214,11 +214,11 @@ func mustSignCert(t *testing.T, caSrc, certSrc string) (*CAResult, *CertResult) 
 	}
 	hCfg, err := config.Parse("nebula.hcl", []byte(certSrc))
 	if err != nil {
-		t.Fatalf("config.Parse host: %v", err)
+		t.Fatalf("config.Parse cert: %v", err)
 	}
 	hr, err := SignCert(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
-		t.Fatalf("SignHost: %v", err)
+		t.Fatalf("SignCert: %v", err)
 	}
 	return ca, hr
 }
@@ -228,20 +228,20 @@ func TestSignCert_CNAndNotACA(t *testing.T) {
 		`ca "mesh" { name = "mesh" }`,
 		`ca "mesh" { name = "mesh" }
 cert "h" {
-  name     = "my-host"
+  name     = "my-cert"
   networks = ["10.0.0.1/16"]
 }`)
 
-	if hr.Name != "my-host" {
-		t.Errorf("Name = %q, want my-host", hr.Name)
+	if hr.Name != "my-cert" {
+		t.Errorf("Name = %q, want my-cert", hr.Name)
 	}
 
 	c := parseCert(t, hr.CertPEM)
 	if c.IsCA() {
-		t.Error("IsCA() = true, want false for a host cert")
+		t.Error("IsCA() = true, want false for a cert")
 	}
-	if c.Name() != "my-host" {
-		t.Errorf("cert.Name() = %q, want my-host", c.Name())
+	if c.Name() != "my-cert" {
+		t.Errorf("cert.Name() = %q, want my-cert", c.Name())
 	}
 }
 
@@ -305,7 +305,7 @@ cert "h" { networks = ["10.0.0.1/16"] }`)
 		t.Errorf("NotAfter = %v, want %v (same as CA)", hr.NotAfter, wantNotAfter)
 	}
 	if !hr.NotAfter.Equal(ca.NotAfter) {
-		t.Errorf("host NotAfter %v != CA NotAfter %v", hr.NotAfter, ca.NotAfter)
+		t.Errorf("cert NotAfter %v != CA NotAfter %v", hr.NotAfter, ca.NotAfter)
 	}
 }
 
@@ -354,11 +354,11 @@ cert "h" {
 }`)
 
 	if hr.NotAfter.After(ca.NotAfter) {
-		t.Errorf("host NotAfter %v is after CA NotAfter %v; cert outlives CA",
+		t.Errorf("cert NotAfter %v is after CA NotAfter %v; cert outlives CA",
 			hr.NotAfter, ca.NotAfter)
 	}
 	if !hr.NotAfter.Equal(ca.NotAfter) {
-		t.Errorf("host NotAfter = %v, want %v (CA expiry, not now+100h)",
+		t.Errorf("cert NotAfter = %v, want %v (CA expiry, not now+100h)",
 			hr.NotAfter, ca.NotAfter)
 	}
 }
@@ -377,10 +377,10 @@ cert "h" {
 
 	want := fixedTime.Add(time.Hour)
 	if !hr.NotAfter.Equal(want) {
-		t.Errorf("host NotAfter = %v, want %v (now+1h)", hr.NotAfter, want)
+		t.Errorf("cert NotAfter = %v, want %v (now+1h)", hr.NotAfter, want)
 	}
 	if hr.NotAfter.After(ca.NotAfter) {
-		t.Errorf("host NotAfter %v unexpectedly exceeds CA NotAfter %v", hr.NotAfter, ca.NotAfter)
+		t.Errorf("cert NotAfter %v unexpectedly exceeds CA NotAfter %v", hr.NotAfter, ca.NotAfter)
 	}
 }
 
@@ -397,21 +397,21 @@ cert "h" { networks = ["10.0.0.1/16"] }
 
 	a, err := SignCert(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
-		t.Fatalf("SignHost a: %v", err)
+		t.Fatalf("SignCert a: %v", err)
 	}
 	b, err := SignCert(ca.CertPEM, ca.KeyPEM, hCfg.Certs[0], fixedTime)
 	if err != nil {
-		t.Fatalf("SignHost b: %v", err)
+		t.Fatalf("SignCert b: %v", err)
 	}
 	if a.Fingerprint == b.Fingerprint {
-		t.Error("two calls to SignHost share a fingerprint; key material is not unique")
+		t.Error("two calls to SignCert share a fingerprint; key material is not unique")
 	}
 }
 
-// TestSignHost_KeyIsEncryptionKey pins the host key format nebula itself
+// TestSignCert_KeyIsEncryptionKey pins the cert key format nebula itself
 // requires: pki.key is loaded with cert.UnmarshalPrivateKeyFromPEM, which
 // accepts only X25519/P256 encryption keys — not the Ed25519/ECDSA signing
-// keys a CA uses. Regression test for host keys being issued with the
+// keys a CA uses. Regression test for cert keys being issued with the
 // "NEBULA ED25519 PRIVATE KEY" banner, which nebula rejects with "bytes
 // did not contain a proper private key banner".
 func TestSignCert_KeyIsEncryptionKey(t *testing.T) {
@@ -473,7 +473,7 @@ cert "h" { networks = ["10.0.0.1/16"] }`)
 			}
 
 			if !c.CheckSignature(parseCert(t, ca.CertPEM).PublicKey()) {
-				t.Error("host cert signature does not verify against the CA")
+				t.Error("cert signature does not verify against the CA")
 			}
 		})
 	}
@@ -481,7 +481,7 @@ cert "h" { networks = ["10.0.0.1/16"] }`)
 
 // TestGenerateCA_KeyIsSigningKeyNotEncryptionKey guards the CA path
 // against the inverse regression: CA keys must keep the signing-key
-// banners and must not be loadable as host encryption keys.
+// banners and must not be loadable as cert encryption keys.
 func TestGenerateCA_KeyIsSigningKeyNotEncryptionKey(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -505,7 +505,7 @@ func TestGenerateCA_KeyIsSigningKeyNotEncryptionKey(t *testing.T) {
 				t.Errorf("CA key no longer parses as a signing key: %v", err)
 			}
 			if _, _, _, err := cert.UnmarshalPrivateKeyFromPEM(ca.KeyPEM); err == nil {
-				t.Error("CA key parses as a host encryption key; it must keep the signing banner")
+				t.Error("CA key parses as a cert encryption key; it must keep the signing banner")
 			}
 		})
 	}

@@ -10,11 +10,11 @@
 
 env SOPS_AGE_KEY=AGE-SECRET-KEY-1Y9PD7EAXE79XA5QEY04D7EM0X7A2F6UGQD3RAKENAYUPZQCH5ZFQ4DGP4N
 
-# Run 1: generate CA and sign host alpha using sops via external backend.
+# Run 1: generate CA and sign cert alpha using sops via external backend.
 exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
-stderr '^signed host "alpha"'
+stderr '^signed cert "alpha"'
 stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
@@ -26,11 +26,11 @@ exists out/ca/test-ca.key.enc
 cp out/ca/test-ca.crt      ca.crt.snap
 cp out/ca/test-ca.key.enc  ca.key.enc.snap
 
-# Run 2: add host beta. CA key decrypted via sops; beta signed.
+# Run 2: add cert beta. CA key decrypted via sops; beta signed.
 cp nebula.v2.hcl nebula.hcl
 exec nebula-pki
 ! stderr 'generated CA'
-stderr '^signed host "beta"'
+stderr '^signed cert "beta"'
 ! stdout .
 
 cmp out/ca/test-ca.crt     ca.crt.snap

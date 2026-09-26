@@ -1,4 +1,4 @@
-# --dry-run in reference mode prints host write lines on stdout, emits
+# --dry-run in reference mode prints cert write lines on stdout, emits
 # nothing to stderr, and does not touch the filesystem. The CA files are
 # never listed in the preview: reference mode reads them in place but
 # does not write them.
@@ -12,7 +12,7 @@ mkdir pki
 cp out/ca/gen.crt pki/ca.crt
 cp out/ca/gen.key pki/ca.key
 
-# --dry-run: new host alpha needs signing; CA lines must be absent.
+# --dry-run: new cert alpha needs signing; CA lines must be absent.
 exec nebula-pki --dry-run
 stdout '^\+ write out/certs/alpha\.crt$'
 stdout '^\+ write out/certs/alpha\.key$'
@@ -21,11 +21,11 @@ stdout '^\+ write refs/nebula-pki\.json$'
 ! stdout 'ca\.key'
 ! stderr .
 
-# No host cert or reference manifest written.
+# No cert or reference manifest written.
 ! exists out/certs/alpha.crt
 ! exists refs/nebula-pki.json
 
-# A real run materialises the host cert and manifest.
+# A real run materialises the cert and manifest.
 exec nebula-pki
 exists out/certs/alpha.crt
 exists refs/nebula-pki.json

@@ -25,20 +25,20 @@ func nebulaPkiMain() int {
 	return 0
 }
 
-// genHostPub is a testscript command that generates a device keypair and
+// genCertPub is a testscript command that generates a device keypair and
 // writes the public key PEM to the given path. This is TEST INFRASTRUCTURE
 // only; it is never shipped as a subcommand (see ADR-018 on why nebula-pki
 // does not include a keygen command).
 //
 // Usage in txtar scripts:
 //
-//	gen-host-pub [-key <key-path>] <output-path> [curve]
+//	gen-cert-pub [-key <key-path>] <output-path> [curve]
 //
 // curve is "25519" (default) or "P256". With -key, the device private key
 // PEM is also written, so smoke tests can assemble a full nebula config
 // for an in_pub-signed certificate.
 func genCertPub(ts *testscript.TestScript, neg bool, args []string) {
-	const usage = "gen-host-pub: usage: gen-host-pub [-key <key-path>] <output-path> [25519|P256]"
+	const usage = "gen-cert-pub: usage: gen-cert-pub [-key <key-path>] <output-path> [25519|P256]"
 
 	keyPath := ""
 	if len(args) >= 2 && args[0] == "-key" {
@@ -71,21 +71,21 @@ func genCertPub(ts *testscript.TestScript, neg bool, args []string) {
 
 	pubPEM := cert.MarshalPublicKeyToPEM(curve, pubRaw)
 	if pubPEM == nil {
-		ts.Fatalf("gen-host-pub: MarshalPublicKeyToPEM returned nil")
+		ts.Fatalf("gen-cert-pub: MarshalPublicKeyToPEM returned nil")
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-		ts.Fatalf("gen-host-pub: mkdir: %v", err)
+		ts.Fatalf("gen-cert-pub: mkdir: %v", err)
 	}
 	ts.Check(os.WriteFile(outPath, pubPEM, 0o600))
 
 	if keyPath != "" {
 		keyPEM := cert.MarshalPrivateKeyToPEM(curve, privRaw)
 		if keyPEM == nil {
-			ts.Fatalf("gen-host-pub: MarshalPrivateKeyToPEM returned nil")
+			ts.Fatalf("gen-cert-pub: MarshalPrivateKeyToPEM returned nil")
 		}
 		if err := os.MkdirAll(filepath.Dir(keyPath), 0o755); err != nil {
-			ts.Fatalf("gen-host-pub: mkdir: %v", err)
+			ts.Fatalf("gen-cert-pub: mkdir: %v", err)
 		}
 		ts.Check(os.WriteFile(keyPath, keyPEM, 0o600))
 	}

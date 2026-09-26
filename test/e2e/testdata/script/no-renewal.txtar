@@ -1,10 +1,10 @@
-# --no-renewal suppresses time-based renewal only. Config changes, new hosts,
+# --no-renewal suppresses time-based renewal only. Config changes, new certs,
 # missing artifacts, and CA rotation still trigger re-signs.
 #
 # The e2e binary uses real time, so clock-driven renewal suppression cannot be
 # simulated here — that coverage lives in unit tests (renewal_test.go) and
 # integration tests (cli_test.go). This file exercises the CLI surface:
-# the flag is accepted, new-host signing is unaffected, idempotency holds, and
+# the flag is accepted, new-cert signing is unaffected, idempotency holds, and
 # --dry-run combined with --no-renewal produces the correct preview.
 
 # ── --dry-run --no-renewal on a fresh tree shows planned writes ───────────────
@@ -24,10 +24,10 @@ stdout '^\+ write out/nebula-pki\.json$'
 ! exists out/certs/alpha.crt
 ! exists out/nebula-pki.json
 
-# ── Real run with --no-renewal signs new hosts normally ───────────────────────
+# ── Real run with --no-renewal signs new certs normally ───────────────────────
 exec nebula-pki --no-renewal
 stderr 'generated CA'
-stderr '^signed host "alpha"$'
+stderr '^signed cert "alpha"$'
 stderr 'wrote manifest'
 ! stdout .
 
@@ -47,7 +47,7 @@ cp out/nebula-pki.json manifest.first.json
 exec nebula-pki --no-renewal
 stderr '^up to date; nothing to do$'
 stderr 'next deadline'
-! stderr 'signed host'
+! stderr 'signed cert'
 ! stdout .
 
 cmp out/certs/alpha.crt alpha.first.crt
@@ -58,11 +58,11 @@ exec nebula-pki --dry-run --no-renewal
 stdout '^up to date; nothing to do$'
 stderr 'next deadline'
 
-# ── New host is signed even with --no-renewal ─────────────────────────────────
-cp two-hosts.hcl nebula.hcl
+# ── New cert is signed even with --no-renewal ─────────────────────────────────
+cp two-certs.hcl nebula.hcl
 exec nebula-pki --no-renewal
-! stderr 'signed host "alpha"'
-stderr '^signed host "beta"$'
+! stderr 'signed cert "alpha"'
+stderr '^signed cert "beta"$'
 stderr 'wrote manifest'
 ! stdout .
 
@@ -81,7 +81,7 @@ cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 
--- two-hosts.hcl --
+-- two-certs.hcl --
 ca "test-mesh" {
   name         = "test-mesh"
   renew_before = "720h"

@@ -222,7 +222,7 @@ func TestCollectRekeyEntries_SkipsInPubCert(t *testing.T) {
 	}})
 
 	if got := collectRekeyEntries(m, sopsEnc, true); len(got) != 0 {
-		t.Errorf("expected 0 entries for in_pub host, got %d", len(got))
+		t.Errorf("expected 0 entries for in_pub cert, got %d", len(got))
 	}
 }
 

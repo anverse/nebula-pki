@@ -1,11 +1,11 @@
 # `nebula-pki check` surfaces each spec validation rule as a non-zero exit
 # with a readable error.
 
-# Duplicate host labels.
+# Duplicate cert labels.
 ! exec nebula-pki check -c dup-label.hcl
 stderr 'duplicate label'
 
-# Two hosts share the same overlay address (first prefix .Addr()).
+# Two certs share the same overlay address (first prefix .Addr()).
 ! exec nebula-pki check -c dup-overlay.hcl
 stderr 'overlay address 10\.0\.0\.1 already used'
 

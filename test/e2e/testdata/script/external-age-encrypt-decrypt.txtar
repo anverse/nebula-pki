@@ -1,18 +1,18 @@
 # External backend using the age CLI. Demonstrates the {{.InPath}} + stdout
 # pattern: age reads from the temp input file and writes ciphertext to stdout.
 # On rerun the CA key is decrypted in-memory (no plaintext file written) and
-# used to sign a new host.
+# used to sign a new cert.
 #
 # Uses the same throwaway age keypair as the sops tests. The private key is
 # written to age.key in the test directory and passed via --identity.
 
 [!exec:age] skip 'age not in PATH'
 
-# Run 1: generate CA and sign host alpha. Both keys encrypted via age.
+# Run 1: generate CA and sign cert alpha. Both keys encrypted via age.
 exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
-stderr '^signed host "alpha"'
+stderr '^signed cert "alpha"'
 stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
@@ -29,11 +29,11 @@ exists out/certs/alpha.key.enc
 cp out/ca/test-ca.crt      ca.crt.snap
 cp out/ca/test-ca.key.enc  ca.key.enc.snap
 
-# Run 2: add host beta. CA key decrypted via age --decrypt; beta signed.
+# Run 2: add cert beta. CA key decrypted via age --decrypt; beta signed.
 cp nebula.v2.hcl nebula.hcl
 exec nebula-pki
 ! stderr 'generated CA'
-stderr '^signed host "beta"'
+stderr '^signed cert "beta"'
 stderr 'key:  out/certs/beta\.key\.enc'
 ! stdout .
 

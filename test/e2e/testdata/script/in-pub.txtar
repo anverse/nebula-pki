@@ -1,6 +1,6 @@
 # in_pub air-gapped signing — end-to-end scenarios (ADR-018).
 #
-# The test binary provides gen-host-pub, a test-only helper that generates a
+# The test binary provides gen-cert-pub, a test-only helper that generates a
 # device keypair and writes the public key PEM (what nebula-cert keygen or the
 # mobile app would produce). The private key never appears in this script —
 # that is the point of the air-gapped pattern.
@@ -13,19 +13,19 @@
 #   5. in_pub + out_key validation error at parse time.
 #   6. Missing in_pub file → error.
 #   7. --dry-run lists cert only (no key).
-#   8. in_pub host with renew_before is a noop when cert is fresh (renewal-window re-sign is unit-tested).
+#   8. in_pub cert with renew_before is a noop when cert is fresh (renewal-window re-sign is unit-tested).
 
 # ── Generate device public keys up-front ────────────────────────────────────
 # 25519 pubkey for alice's phone (used in most scenarios).
-gen-host-pub inbox/alice.pub
+gen-cert-pub inbox/alice.pub
 
 # P256 pubkey for a different device (used in curve-mismatch scenario).
-gen-host-pub inbox/p256device.pub P256
+gen-cert-pub inbox/p256device.pub P256
 
 # ── Scenario 1: basic in_pub sign ───────────────────────────────────────────
 exec nebula-pki -c basic.hcl
 stderr '^generated CA'
-stderr '^signed host "alice"$'
+stderr '^signed cert "alice"$'
 ! stderr 'certs/alice\.key'
 stderr '^wrote manifest'
 ! stdout .
@@ -37,7 +37,7 @@ exists out/certs/alice.crt
 # Manifest records in_pub = true.
 grep '"in_pub": true' out/nebula-pki.json
 
-# The host artifact must not list a key_path (omitempty drops it).
+# The cert artifact must not list a key_path (omitempty drops it).
 ! grep 'certs/alice\.key' out/nebula-pki.json
 
 # ── Scenario 2: idempotency ──────────────────────────────────────────────────
@@ -46,7 +46,7 @@ cp out/nebula-pki.json manifest.snap.json
 
 exec nebula-pki -c basic.hcl
 stderr '^up to date; nothing to do$'
-! stderr 'signed host'
+! stderr 'signed cert'
 ! stdout .
 
 cmp out/certs/alice.crt alice.snap.crt
@@ -55,7 +55,7 @@ cmp out/nebula-pki.json manifest.snap.json
 # ── Scenario 3: check command ────────────────────────────────────────────────
 exec nebula-pki check -c basic.hcl
 stdout 'config valid'
-stdout 'host "alice".*in_pub.*curve=25519.*OK'
+stdout 'cert "alice".*in_pub.*curve=25519.*OK'
 ! stdout 'error'
 ! stderr 'error'
 
@@ -90,7 +90,7 @@ stdout '\+ write out/certs/bob\.crt'
 # Dry-run must not create the cert file.
 ! exists out/certs/bob.crt
 
-# ── Scenario 8: in_pub host with renew_before configured is idempotent when cert is fresh ──
+# ── Scenario 8: in_pub cert with renew_before configured is idempotent when cert is fresh ──
 # Clock-injection is not available in e2e scripts, so the renewal-window
 # re-sign path (same public key, advanced notAfter) is covered by
 # TestReconcile_InPub_RenewalResignsWithSamePubKey in internal/apply.
@@ -98,7 +98,7 @@ stdout '\+ write out/certs/bob\.crt'
 # its renewal window) does not trigger a spurious re-sign.
 exec nebula-pki -c renew.hcl
 stderr '^generated CA'
-stderr '^signed host "renew-phone"$'
+stderr '^signed cert "renew-phone"$'
 stderr '^wrote manifest'
 
 exists renew-out/certs/renew-phone.crt
@@ -111,15 +111,15 @@ exec nebula-pki -c renew.hcl
 stderr '^up to date; nothing to do$'
 
 # ── Scenario 9: stale key notice when switching regular → in_pub ─────────────
-# First sign as a regular host (generates key).
+# First sign as a regular cert (generates key).
 exec nebula-pki -c stale-regular.hcl
-stderr '^signed host "laptop"$'
+stderr '^signed cert "laptop"$'
 exists stale-out/certs/laptop.crt
 exists stale-out/certs/laptop.key
 
-# Re-run with in_pub version of the same host.
+# Re-run with in_pub version of the same cert.
 exec nebula-pki -c stale-inpub.hcl
-stderr '^signed host "laptop"$'
+stderr '^signed cert "laptop"$'
 stderr 'stale-out/certs/laptop\.key'
 stderr 'no longer managed'
 
@@ -164,7 +164,7 @@ ca "mesh" {
   name = "test-mesh"
 }
 
-cert "ghost" {
+cert "gcert" {
   networks = ["10.0.0.4/16"]
   in_pub   = "inbox/no-such-file.pub"
 }

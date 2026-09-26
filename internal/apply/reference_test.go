@@ -401,7 +401,7 @@ ca "mesh" {
 	}
 }
 
-// TestReconcile_ReferenceWithHosts verifies that reference mode signs host
+// TestReconcile_ReferenceWithCerts verifies that reference mode signs cert
 // certs using the operator-supplied CA (the CA files themselves are never
 // rewritten) and that a second run is byte-identical.
 func TestReconcile_ReferenceWithCerts(t *testing.T) {
@@ -431,31 +431,31 @@ cert "alpha" {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if !rep.Changed {
-		t.Fatal("Changed = false on first reference+host run, want true")
+		t.Fatal("Changed = false on first reference+cert run, want true")
 	}
 	if len(rep.SignedCerts) != 1 || rep.SignedCerts[0].Label != "alpha" {
-		t.Errorf("SignedHosts = %v, want [{alpha ...}]", rep.SignedCerts)
+		t.Errorf("SignedCerts = %v, want [{alpha ...}]", rep.SignedCerts)
 	}
 
-	// Host cert and key must exist.
+	// Cert and key must exist.
 	crtReal := cfg.Resolve(rep.SignedCerts[0].Artifacts[0].CertPath)
 	keyReal := cfg.Resolve(rep.SignedCerts[0].Artifacts[0].KeyPath)
 	if _, err := os.Stat(crtReal); err != nil {
-		t.Errorf("host cert missing: %v", err)
+		t.Errorf("cert missing: %v", err)
 	}
 	if _, err := os.Stat(keyReal); err != nil {
-		t.Errorf("host key missing: %v", err)
+		t.Errorf("cert key missing: %v", err)
 	}
 
-	// Manifest host record must carry the CA fingerprint.
+	// Manifest cert record must carry the CA fingerprint.
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
 	if h, ok := m.Certs["alpha"]; !ok {
-		t.Fatal("manifest missing host alpha")
+		t.Fatal("manifest missing cert alpha")
 	} else if h.CAFingerprint != seed.Fingerprint {
-		t.Errorf("host ca_fingerprint = %q, want %q", h.CAFingerprint, seed.Fingerprint)
+		t.Errorf("cert ca_fingerprint = %q, want %q", h.CAFingerprint, seed.Fingerprint)
 	}
 
 	// Second run must be a noop; files and manifest byte-identical.
@@ -468,16 +468,16 @@ cert "alpha" {
 		t.Fatalf("second Reconcile: %v", err)
 	}
 	if rep2.Changed {
-		t.Fatal("Changed = true on second reference+host run, want false")
+		t.Fatal("Changed = true on second reference+cert run, want false")
 	}
 	if !bytes.Equal(mustRead(t, cfg.Resolve(cfg.ManifestPath())), manBefore) {
-		t.Error("manifest changed on idempotent reference+host rerun")
+		t.Error("manifest changed on idempotent reference+cert rerun")
 	}
 	if !bytes.Equal(mustRead(t, crtReal), certBefore) {
-		t.Error("host cert changed on idempotent reference+host rerun")
+		t.Error("cert changed on idempotent reference+cert rerun")
 	}
 	if !bytes.Equal(mustRead(t, keyReal), keyBefore) {
-		t.Error("host key changed on idempotent reference+host rerun")
+		t.Error("cert key changed on idempotent reference+cert rerun")
 	}
 }
 

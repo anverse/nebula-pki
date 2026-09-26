@@ -7,11 +7,11 @@
 
 [!exec:openssl] skip 'openssl not in PATH'
 
-# Run 1: generate CA and sign host alpha. Keys encrypted via AES-256-CBC.
+# Run 1: generate CA and sign cert alpha. Keys encrypted via AES-256-CBC.
 exec nebula-pki
 stderr '^generated CA "test-ca"'
 stderr 'key:  out/ca/test-ca\.key\.enc'
-stderr '^signed host "alpha"'
+stderr '^signed cert "alpha"'
 stderr 'key:  out/certs/alpha\.key\.enc'
 ! stdout .
 
@@ -28,11 +28,11 @@ exists out/certs/alpha.key.enc
 cp out/ca/test-ca.crt      ca.crt.snap
 cp out/ca/test-ca.key.enc  ca.key.enc.snap
 
-# Run 2: add host beta. CA key decrypted via openssl; beta signed.
+# Run 2: add cert beta. CA key decrypted via openssl; beta signed.
 cp nebula.v2.hcl nebula.hcl
 exec nebula-pki
 ! stderr 'generated CA'
-stderr '^signed host "beta"'
+stderr '^signed cert "beta"'
 stderr 'key:  out/certs/beta\.key\.enc'
 ! stdout .
 

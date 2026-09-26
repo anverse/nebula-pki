@@ -1,18 +1,18 @@
-# `nebula-pki` with no args reconciles the CA and host certs declared in
+# `nebula-pki` with no args reconciles the CA and certs declared in
 # ./nebula.hcl. This script covers the basic generate-mode path: a fresh
-# tree gets a CA and one host cert on the first run.
+# tree gets a CA and one cert on the first run.
 
 exec nebula-pki
 stderr '^generated CA "test-mesh" \(test-mesh\)$'
 stderr '^  cert: out/ca/test-mesh\.crt$'
 stderr '^  key:  out/ca/test-mesh\.key$'
-stderr '^signed host "alpha"$'
+stderr '^signed cert "alpha"$'
 stderr '^  cert: out/certs/alpha\.crt$'
 stderr '^  key:  out/certs/alpha\.key$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
-# CA and host artifacts exist.
+# CA and cert artifacts exist.
 exists out/ca/test-mesh.crt
 exists out/ca/test-mesh.key
 exists out/certs/alpha.crt
@@ -25,7 +25,7 @@ grep 'NEBULA ED25519 PRIVATE KEY' out/ca/test-mesh.key
 grep 'NEBULA CERTIFICATE' out/certs/alpha.crt
 grep 'NEBULA X25519 PRIVATE KEY' out/certs/alpha.key
 
-# Manifest shape: schema, generator, CA record, host record, relative config path.
+# Manifest shape: schema, generator, CA record, cert record, relative config path.
 grep '"schema_version": 1' out/nebula-pki.json
 grep '"name": "nebula-pki"' out/nebula-pki.json
 grep '"version": "v0\.0\.1-test"' out/nebula-pki.json
