@@ -25,10 +25,11 @@ and collides with how Nebula itself uses the word "host". This ADR renames the b
 
 ## Decision
 
-Rename the block to **`cert`**. This is a **pre-1.0 hard-switch breaking rename** with no
-new behaviour: `host` becomes a parse error naming the rewrite, per the
-[ADR-007](./007-schema-evolution.md) pre-1.0 amendment. It ships as **its own release,
-first** in the schema-change sequence (see "Release sequencing").
+Rename the block to **`cert`**. This is a **hard-switch breaking rename** under the
+[ADR-007](./007-schema-evolution.md) experimental-stage amendment (2026-09-26): only `cert` is
+accepted; a leftover `host` block fails with the generic HCL "Unsupported block type" error
+and no targeted rewrite message. It ships as **its own release, first** in the schema-change
+sequence (see "Release sequencing").
 
 ```hcl
 cert "app_01" {
@@ -40,6 +41,38 @@ cert "app_01" {
 
 (The `ca` field still takes a string label at this point; it becomes a `ca.<label>`
 reference in [ADR-025](./025-ca-references.md), which ships next.)
+
+### Scope of the rename (decided 2026-09-26)
+
+The rename is not limited to the HCL keyword. The goal is that no "host" naming for the
+per-certificate concept survives anywhere — config, manifest, on-disk layout, code, CLI
+output, or spec. Because the tool is still experimental ([ADR-007](./007-schema-evolution.md)
+2026-09-26 amendment), none of this carries a migration path.
+
+1. **Manifest:** the top-level `hosts` map is renamed to **`certs`** (`certs.<label>.name`,
+   `certs.<label>.ca`, `certs.<label>.artifacts`, …). The key is still the block label.
+   **No `schema_version` bump** and no read-side migration: a manifest written by ≤ v0.1.6
+   is not carried forward; regenerate `out/`.
+2. **Default output directory:** `<storage.out_dir>/hosts/` becomes
+   **`<storage.out_dir>/certs/`** for certs without an `output_dir`. Existing trees are not
+   moved; a re-run against an old tree signs fresh certs into `certs/`.
+3. **Codebase:** every identifier that names the per-certificate concept is renamed
+   (`config.Cert`, `Config.Certs`, `CertArtifactPath`, `plan.KindCert`, `manifest.Cert`,
+   `pki.SignCert`/`SignCertFromPub`/`CertResult`, `apply.SignedCerts`, …). "Host" survives
+   only where it means a Nebula **node** or the machine the tool runs on (e.g. "the CA
+   host", "every host trusts the bundle").
+4. **CLI output:** all user-visible strings follow — `signed cert "x"`, `check`'s
+   `certs=N`, dry-run `sign cert "x"`, validation/apply errors `cert "x": …`, the deadline
+   report, rekey output, and help text.
+5. **No special parse error** for the old `host` keyword (see Decision above).
+6. **ADR files are renamed** where their filename or title carries the old block name, and
+   every link across the repo is updated: ADR-009 → `009-cert-label-vs-cert-name.md`,
+   ADR-017 → `017-cert-renewal-threshold.md`, ADR-020 → `020-output-dir-per-cert.md`. This
+   ADR keeps its filename, since it records the rename itself.
+7. **ADR body sweep:** every ADR is rewritten to speak of `cert` blocks, `cert.*` fields,
+   the `certs` manifest map, and `out/certs/`, so a reader going through the ADRs in order
+   never meets a `host` block that no longer exists. Where rewriting would change the
+   historical meaning of a decision, the text is rephrased and linked to this ADR instead.
 
 ## Naming rationale
 
@@ -96,9 +129,10 @@ blocks agree with the product name, `host` blocks fight it.
 ### The one real cost (and its mitigation)
 
 Nebula's community reflex is "host," so some users will momentarily look for a `host` block.
-Mitigation is house style anyway: the parse error on `host` names the rewrite, plus one docs
-line ("one `cert` block per node"). That turns a one-time "huh" into a one-time lesson that
-*reinforces* the scope boundary — a net positive, not a lingering tax.
+Mitigation: one docs line ("one `cert` block per node"). That turns a one-time "huh" into a
+one-time lesson that *reinforces* the scope boundary — a net positive, not a lingering tax.
+(A targeted parse error naming the rewrite was originally planned; it was dropped under the
+experimental-stage posture, see Decision.)
 
 ## Release sequencing
 
@@ -119,20 +153,29 @@ iteration plan.
 
 ## Affected surfaces (ripple)
 
-- [ADR-009](./009-host-identifier-vs-cert-name.md) — reframe "host identifier vs certificate
-  name" as "cert block label (HCL identifier) vs cert CN (`name`)". The character-rule and
-  rate-of-change rationale is unchanged; only the narrative (the label is now the cert's
-  local handle, not a host's).
-- [ADR-011](./011-output-blocks-are-directories.md), [ADR-020](./020-output-dir-per-host.md)
-  — `host.output_dir`/`out_crt`/`out_key` wording and the per-node directory framing.
-- [ADR-015](./015-multiple-cas-per-config.md) — `host.ca` selection wording.
-- [ADR-018](./018-in-pub-air-gapped-signing.md) — `host.in_pub`.
-- [ADR-002](./002-state-and-artifact-layout.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md)
-  — `host.ca` mentions in prose.
-- `spec/hcl-schema.md` + `spec/hcl-schema.formal.json` — block name and every field path.
-- `internal/config` — the `host` block decode (`rawHost`/`Host`), validation messages. The
-  manifest per-cert key semantics are unchanged: the block **label** stays the manifest key.
-- `readme.md` and every example/testdata `.txtar` using a `host` block.
+- **ADRs:** every ADR mentioning the `host` block, `host.*` fields, the `hosts` manifest map,
+  or `out/hosts/` gets the body sweep (see scope item 7) and loses its "Terminology
+  (amended by ADR-024)" notice. The largest changes:
+  - [ADR-009](./009-host-identifier-vs-cert-name.md) is reframed as "cert block label (HCL
+    identifier) vs cert CN (`name`)" and renamed to `009-cert-label-vs-cert-name.md`. The
+    character-rule and rate-of-change rationale is unchanged; only the narrative changes
+    (the label is the cert's local handle, not a host's).
+  - [ADR-017](./017-host-renewal-threshold.md) is renamed to `017-cert-renewal-threshold.md`
+    and [ADR-020](./020-output-dir-per-host.md) to `020-output-dir-per-cert.md`.
+  - [ADR-002](./002-state-and-artifact-layout.md) gets the manifest example and field list
+    (`certs.*`) plus the `out/certs/` layout.
+  - [ADR-011](./011-output-blocks-are-directories.md), [ADR-015](./015-multiple-cas-per-config.md),
+    [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-018](./018-in-pub-air-gapped-signing.md)
+    get field-path and prose updates.
+- **Spec:** `spec/readme.md`, `spec/hcl-schema.md`, `spec/hcl-schema.formal.json` (block
+  name, `$defs`, every field path, validation rules), and the milestone docs' links.
+- **Code:** `internal/config` (decode, validation messages, `certsSubdir = "certs"`),
+  `internal/manifest` (`Certs map[string]Cert` with `json:"certs"`), `internal/plan`,
+  `internal/pki`, `internal/apply`, and `internal/cli` (including `rekey`), with all
+  user-visible strings.
+- **Tests:** unit tests, every e2e `.txtar` (HCL, `out/hosts/` paths, output assertions),
+  and the smoke-test harness.
+- **Docs:** `readme.md`, `AGENTS.md`, and all `examples/`.
 
 ## Consequences
 
@@ -146,8 +189,10 @@ iteration plan.
 
 ### Negative
 
-- **Breaking**: every existing `host` block must be rewritten to `cert` (parse error names
-  the rewrite). Accepted per the ADR-007 pre-1.0 amendment.
+- **Breaking, with no migration path**: every existing `host` block must be rewritten to
+  `cert`, the manifest's `hosts` map becomes `certs` (no `schema_version` bump), and default
+  artifacts move from `out/hosts/` to `out/certs/`, so existing `out/` trees must be
+  regenerated. Accepted under the ADR-007 experimental-stage amendment.
 - Momentary friction for Nebula users conditioned on "host" (mitigated as above).
 - Broad but shallow churn across ADRs, schema, examples, and testdata.
 
