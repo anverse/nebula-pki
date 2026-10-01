@@ -28,7 +28,7 @@ The HCL configuration carries **no** top-level `version` or `nebula_pki` block i
 - Renamed fields: support both names for at least one release with a deprecation warning, then remove.
 - Removed fields / changed semantics: this is the trigger to introduce schema versioning.
 
-> **Amendment (2026-07-19).** The trigger above applies **post-1.0**. While the tool is pre-1.0 with a single operator, removals may ship directly in a `v0.1.x` release without the schema block, provided the parse error for the removed form names the exact rewrite. First applied by [ADR-024](./024-rename-host-to-cert.md) (`host` block keyword), [ADR-025](./025-ca-references.md) (string `cert.ca`), and [ADR-026](./026-trust-bundle-block.md) (`archived`, `storage.trust_bundle_file`).
+> **Amendment (2026-07-19).** The trigger above applies **post-1.0**. While the tool is pre-1.0 with a single operator, removals may ship directly in a `v0.1.x` release without the schema block, provided the parse error for the removed form names the exact rewrite. Originally planned for [ADR-024](./024-rename-host-to-cert.md), [ADR-025](./025-ca-references.md) and [ADR-026](./026-trust-bundle-block.md); all three ship under the experimental-stage amendment below instead.
 
 > **Amendment (2026-09-26) — experimental stage.** Until the tool is used in production (expected around v0.2), nebula-pki is **experimental**: its purpose in this phase is finding the best naming and shape, so breaking changes ship freely with **no migration path**. Specifically, while experimental:
 >
@@ -36,7 +36,7 @@ The HCL configuration carries **no** top-level `version` or `nebula_pki` block i
 > - Manifest field renames and on-disk layout changes ship **without** a `schema_version` bump and without read-side migration of older manifests. An existing `out/` tree may need to be regenerated from scratch.
 > - Changelog / readme upgrade notes are optional.
 >
-> The 2026-07-19 policy (rewrite-naming parse errors) and the compatibility policy above resume once the tool is declared production-ready. First applied by [ADR-024](./024-rename-host-to-cert.md) (`host`→`cert`, manifest `hosts`→`certs`, `out/hosts/`→`out/certs/`).
+> The 2026-07-19 policy (rewrite-naming parse errors) and the compatibility policy above resume once the tool is declared production-ready. Applied by [ADR-024](./024-rename-host-to-cert.md) (`host`→`cert`, manifest `hosts`→`certs`, `out/hosts/`→`out/certs/`), [ADR-025](./025-ca-references.md) (string `cert.ca`), and [ADR-026](./026-trust-bundle-block.md) (`archived`, `storage.trust_bundle_file`, implicit bundle).
 
 ### When a breaking change becomes necessary
 

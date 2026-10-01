@@ -31,20 +31,21 @@ cert "app_01" {
 }
 ```
 
-The first field to use it is `cert.ca` (**hard switch**, see Migration).
+The first field to use it is `cert.ca` (hard switch, see below).
 
 ### Hard switch for `cert.ca`
 
-String labels in `cert.ca` become a **parse error** in the release that ships this ADR. There
-is no dual-accept window. The error message names the fix explicitly:
+Only references are accepted in `cert.ca` from the release that ships this ADR. There is no
+dual-accept window and no migration path: a quoted string is rejected like any other
+expression that is not a `ca.<label>` traversal, with the same validation error:
 
 ```
-cert "app_01": ca must be a CA reference like ca.next (string labels are no longer supported; write ca = ca.next instead of ca = "next")
+cert "app_01": ca must be a CA reference of the form ca.<label>
 ```
 
-Rationale: pre-1.0, single-operator tool; a dual-accept window would mean two syntaxes in
-every example and test for one release cycle with no user base that benefits. See the
-migration policy note in [ADR-007](./007-schema-evolution.md).
+Rationale: the tool is still experimental ([ADR-007](./007-schema-evolution.md) 2026-09-26
+amendment), so breaking changes ship without migration aids; a dual-accept window would mean
+two syntaxes in every example and test with no user base that benefits.
 
 ### Implementation
 
@@ -54,8 +55,8 @@ No evaluation context is introduced. The field is decoded as a raw `hcl.Expressi
 1. `hcl.ExprList(expr)` splits list fields into element expressions (for any list-valued
    reference field).
 2. `hcl.AbsTraversalForExpr(expr)` extracts the traversal; anything that is not a bare
-   traversal (a quoted string, a function call, an index) is rejected with the targeted error
-   above.
+   traversal (a quoted string, a function call, an index) is rejected with the validation
+   error above.
 3. The traversal must have exactly two steps: root `ca`, then one attribute step — the label.
    Any other root or shape is an error (`unknown reference root "cert"; only ca.<label> references are supported`).
 4. The label is resolved against declared `ca` blocks post-decode, exactly as string labels
@@ -110,9 +111,8 @@ None of these ship with this ADR.
 
 ### Negative
 
-- **Breaking change**: existing configs using `ca = "next"` fail to parse until edited.
-  Accepted deliberately (pre-1.0, single operator); the error message contains the exact
-  rewrite.
+- **Breaking change, no migration path**: existing configs using `ca = "next"` fail to
+  parse until edited. Accepted under the ADR-007 experimental-stage amendment.
 - HCL attribute-vs-block ambiguity requires `cert.ca` to move from `*string` to
   `hcl.Expression` in the raw decode struct; unit tests covering the raw schema shape need
   updating.
@@ -122,5 +122,5 @@ None of these ship with this ADR.
 - [ADR-024](./024-rename-host-to-cert.md) — the `cert` block whose `ca` field uses this syntax.
 - [ADR-015](./015-multiple-cas-per-config.md) — labelled `ca` blocks and `cert.ca` (string form, superseded by this ADR for the syntax).
 - [ADR-026](./026-trust-bundle-block.md) — next iteration; its `ca_refs` members list reuses this syntax (and the reserved-root convention).
-- [ADR-007](./007-schema-evolution.md) — breaking-change policy; see the pre-1.0 amendment.
+- [ADR-007](./007-schema-evolution.md) — breaking-change policy; see the experimental-stage amendment.
 - Upstream prior art: Terraform `depends_on` traversal decoding (`hcl.AbsTraversalForExpr`).

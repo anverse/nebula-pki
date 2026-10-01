@@ -88,9 +88,9 @@ The bundle is **fully declarative**: a config with no `trust_bundle` block emits
 - A setup that wants no bundle points `pki.ca` at a CA cert directly (or fans one out with a `ca` block's own `link_crt`).
 - A setup that wants a stable bundle path — recommended for anything that may ever rotate — declares a `trust_bundle` from day one, even single-member: `trust_bundle "main" { ca_refs = [ca.current] }`. The path then never changes when a second CA joins during rotation.
 
-`storage.trust_bundle_file` is **removed** (parse error naming the rewrite: `move to trust_bundle "<label>" { path = ... }`): the bundle's path belongs to the block that declares it; a `storage`-level override would be a second home for the same setting.
+`storage.trust_bundle_file` is **removed** (no longer accepted; HCL's generic "Unsupported argument" error applies): the bundle's path belongs to the block that declares it; a `storage`-level override would be a second home for the same setting.
 
-**Trade-off vs ADR-016.** A config that relied on the implicit bundle stops emitting `bundle.crt` until a `trust_bundle` block is added. Accepted deliberately (declarative-over-implicit); the mitigation is to declare the bundle up front, which also keeps the `pki.ca` path stable across a future rotation. Unlike the `archived` / `trust_bundle_file` removals this is a **behaviour** change, not a removed keyword, so the migration is a changelog/docs note, not a parse error.
+**Trade-off vs ADR-016.** A config that relied on the implicit bundle stops emitting `bundle.crt` until a `trust_bundle` block is added. Accepted deliberately (declarative-over-implicit); the mitigation is to declare the bundle up front, which also keeps the `pki.ca` path stable across a future rotation. This is a **behaviour** change rather than a removed keyword, and like the removals it ships without a migration path ([ADR-007](./007-schema-evolution.md) experimental-stage amendment).
 
 ### 3. Signing validation replaces the `archived` guard
 
@@ -106,7 +106,6 @@ The signing rule applies **only when a `trust_bundle` is declared**: then every 
 Additional validation:
 
 - `default = true` on a CA not listed in the declared bundle → error (replaces the old `archived && default` conflict check).
-- `storage.trust_bundle_file` → parse error naming the `trust_bundle.path` rewrite (see §2).
 - **`link_crt` symlink-path uniqueness (symmetric).** Each `link_crt` list (on any `ca` block and on the `trust_bundle`) must have non-empty entries and no duplicate directories within itself. Across **all** of them, the set of resolved symlink paths — `<directory>/<symlink-filename>` — must be pairwise distinct. A CA cert symlink and the bundle symlink *may* share a directory when their filenames differ (e.g. `current.crt` and `bundle.crt` both in `out/hetzner`), but no two sources may write the same `<dir>/<filename>`. This is checked symmetrically and catches CA-vs-CA, CA-vs-`trust_bundle`, and `trust_bundle`-vs-CA collisions alike (e.g. a `ca` whose `out_crt` basename is `bundle.crt` colliding with the bundle's default filename in a shared directory).
 
 ### 4. `trust_bundle` `link_crt`
@@ -135,7 +134,7 @@ This closes the fan-out gap: an output directory listed in both a CA's (or no CA
 
 - The `trust_bundle` record exists only when a `trust_bundle` block is declared; it carries `label` (the block's label) and `links` (same `{path, target}` shape as the manifest's per-CA `cas.<label>.links`). A config with no `trust_bundle` block has **no** `trust_bundle` key in the manifest.
 - The CA record's `archived` field is **removed**. The archived state is derivable: a CA present in the manifest whose fingerprint is absent from `trust_bundle.ca_fingerprints` is not trusted.
-- **No manifest `schema_version` bump**: `links` and `label` are additive; `archived` was `omitempty` and present only in mid-rotation manifests. Consumers that read it (none known) fall back to the fingerprint derivation. The `trust_bundle` record also changes from *always present* (ADR-016 always-emit) to present only when a block is declared — a consumer contract change under [ADR-007](./007-schema-evolution.md)'s manifest-versioning stance. Shipped **without** a bump anyway: pre-1.0, experimental, no known consumers; the manifest `schema_version` bump is deferred to the first production/1.0 manifest change, when this and any other accumulated shape changes are versioned together.
+- **No manifest `schema_version` bump**: `links` and `label` are additive; `archived` was `omitempty` and present only in mid-rotation manifests. Consumers that read it (none known) fall back to the fingerprint derivation. The `trust_bundle` record also changes from *always present* (ADR-016 always-emit) to present only when a block is declared — a consumer contract change under [ADR-007](./007-schema-evolution.md)'s manifest-versioning stance. Shipped **without** a bump under the [ADR-007](./007-schema-evolution.md) experimental-stage amendment; the manifest `schema_version` bump is deferred to the first manifest change after the tool is declared production-ready, when accumulated shape changes are versioned together.
 
 ### The rotation dance, revised
 
@@ -149,9 +148,9 @@ This closes the fan-out gap: an output directory listed in both a CA's (or no CA
 
 Declaring the `trust_bundle` at step 0 (not only when membership first diverges) keeps `pki.ca` pointed at one stable path across the whole rotation. Every trust-set change is then an edit to one visible list in one block, reviewable as a one-line diff.
 
-## Deviation from ADR-007
+## Relation to ADR-007
 
-[ADR-007](./007-schema-evolution.md) names field removal as the trigger for introducing the `nebula_pki { schema = N }` block. Removing `archived` and `storage.trust_bundle_file`, and dropping the implicit always-emitted bundle, ship **without** schema versioning, immediately, in a `v0.1.x` release. Decision: pre-1.0, the tool has a single operator and no downstream config base; a dual-model window or a schema-version mechanism would cost more than the break. Parse errors for the removed *forms* name the exact rewrite; the implicit-bundle removal is a *behaviour* change carried by a changelog/docs note (there is no syntax to rewrite). ADR-007's trigger is re-affirmed for post-1.0; an amendment note is recorded there (this is the third pre-1.0 application, after ADR-024 and ADR-025).
+[ADR-007](./007-schema-evolution.md) names field removal as the trigger for introducing the `nebula_pki { schema = N }` block. Removing `archived` and `storage.trust_bundle_file`, and dropping the implicit always-emitted bundle, ship **without** schema versioning and without a migration path, under ADR-007's experimental-stage amendment: the tool is not yet used in production, so the removed fields simply stop parsing (generic HCL errors, no targeted rewrite messages) and configs relying on the implicit bundle stop emitting it until a `trust_bundle` block is declared.
 
 ## Consequences
 
@@ -166,8 +165,8 @@ Declaring the `trust_bundle` at step 0 (not only when membership first diverges)
 
 ### Negative
 
-- **Breaking**: configs using `archived = true` or `storage.trust_bundle_file` fail to parse (each error names its rewrite). Accepted per the ADR-007 deviation above.
-- **Breaking behaviour change vs ADR-016**: the implicit, always-emitted bundle is gone — a config with no `trust_bundle` block emits no `bundle.crt`. Configs that relied on it must declare a `trust_bundle` (mitigated by declaring one up front, which also keeps the `pki.ca` path stable). No parse error (nothing to rewrite); the migration is a docs/changelog note.
+- **Breaking, no migration path**: configs using `archived` or `storage.trust_bundle_file` fail to parse with the generic HCL error. Accepted under the ADR-007 experimental-stage amendment (see above).
+- **Breaking behaviour change vs ADR-016**: the implicit, always-emitted bundle is gone — a config with no `trust_bundle` block emits no `bundle.crt`. Configs that relied on it must declare a `trust_bundle` (declaring one up front also keeps the `pki.ca` path stable).
 - Any config that wants a bundle now carries a `trust_bundle` block — a little boilerplate for the single-CA case, accepted as the cost of being declarative.
 - `default` remains a flag on `ca` blocks, so the rotation flip still touches two blocks (remove from one, add to the other) — considered and accepted; moving it into the `trust_bundle` block was rejected to keep the bundle purely on the trust axis.
 - One more block type in the schema and one more manifest field surface.
@@ -180,7 +179,7 @@ Would make the `trust_bundle` block a single "rotation control panel" and struct
 
 ### B. Keep `archived` alongside the `trust_bundle` block
 
-Two mechanisms for the same state, forever documented and tested. Rejected for a hard removal (see Deviation from ADR-007).
+Two mechanisms for the same state, forever documented and tested. Rejected for a hard removal (see Relation to ADR-007).
 
 ### C. `link_bundle` on `storage` instead of a `trust_bundle` block
 
@@ -205,5 +204,5 @@ Retaining the fallback would also mean two membership models coexisting (implici
 - [ADR-025](./025-ca-references.md) — `ca.<label>` reference syntax used by `ca_refs`, and the reserved-root convention behind the field name.
 - [ADR-024](./024-rename-host-to-cert.md) — the `cert` block used in examples here.
 - [ADR-021](./021-ca-cert-links.md) — `link_crt` semantics reused for the bundle.
-- [ADR-007](./007-schema-evolution.md) — breaking-change policy; pre-1.0 deviation recorded here.
+- [ADR-007](./007-schema-evolution.md) — breaking-change policy; see the experimental-stage amendment.
 - [Milestone v0.2](../milestones/v0.2.md) — iteration plan.
