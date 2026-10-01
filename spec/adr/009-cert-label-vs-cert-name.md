@@ -4,7 +4,7 @@
 
 accepted
 
-> Written when the per-certificate block was still called `cert`; reframed for the `cert` block by [ADR-024](./024-rename-host-to-cert.md). The decision itself is unchanged.
+> Written when the per-certificate block was still called `host`; reframed for the `cert` block by [ADR-024](./024-rename-host-to-cert.md). The decision itself is unchanged.
 
 ## Context
 

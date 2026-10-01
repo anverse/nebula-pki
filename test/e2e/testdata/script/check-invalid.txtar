@@ -21,6 +21,11 @@ stderr 'missing required `ca` block'
 ! exec nebula-pki check -c ref-with-gen.hcl
 stderr 'generate-only fields'
 
+# Pre-rename `host` block is not accepted (ADR-024; generic HCL error, no rewrite hint).
+! exec nebula-pki check -c legacy-host.hcl
+stderr 'Unsupported block type'
+stderr 'Blocks of type "host" are not expected here'
+
 -- dup-label.hcl --
 ca "m" { name = "m" }
 cert "a" { networks = ["10.0.0.1/16"] }
@@ -48,3 +53,7 @@ ca "ref" {
   key_file  = "ca.key"
   duration  = "1h"
 }
+
+-- legacy-host.hcl --
+ca "m" { name = "m" }
+host "a" { networks = ["10.0.0.1/16"] }

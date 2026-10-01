@@ -32,7 +32,9 @@ grep 'NEBULA X25519 PRIVATE KEY' out/certs/server.key
 # nebula rejects the latter when loading pki.key.
 ! grep 'NEBULA ED25519 PRIVATE KEY' out/certs/lighthouse.key
 
-# Manifest records both certs with CA fingerprint.
+# Manifest records both certs under the top-level `certs` map with CA fingerprint.
+grep '^  "certs": \{' out/nebula-pki.json
+! grep '"hosts"' out/nebula-pki.json
 grep '"lighthouse"' out/nebula-pki.json
 grep '"server"' out/nebula-pki.json
 grep '"ca_fingerprint"' out/nebula-pki.json
