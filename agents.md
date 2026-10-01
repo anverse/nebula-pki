@@ -6,8 +6,8 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 
 - Wraps `nebula-cert` (slackhq/nebula).
 - HCL fields mirror `nebula-cert ca` and `nebula-cert sign` flags 1:1 with underscores.
-- Adds: declarative config, per-cert `output_dir` for custom certificate placement, optional at-rest encryption, a JSON manifest.
-- One or more CAs per HCL file: a single unlabelled `ca {}`, or multiple labelled `ca "<label>" {}` blocks for rotation and multi-CA Nebula networks ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
+- Adds: declarative config, per-cert `output_dir` for custom certificate placement, optional at-rest encryption of private keys (`sops` or any external command), a JSON manifest.
+- One or more labelled `ca "<label>" {}` blocks per HCL file, for rotation and multi-CA Nebula networks ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
 - Emits a CA trust bundle for `pki.ca` and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-cert-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
 - Does not render `config.yaml`, does not push files (including during rotation), does not implement lighthouse/blocklist/firewall.
 
@@ -16,10 +16,15 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 ## CLI
 
 ```sh
-nebula-pki                # reconcile out/ with nebula.hcl
-nebula-pki --dry-run      # preview only; write nothing
-nebula-pki check          # parse + validate config; no I/O against out/. In CA reference mode, reads ca.cert_file / ca.key_file.
-nebula-pki -c <path>      # alternate config path (default: ./nebula.hcl)
+nebula-pki                    # reconcile out/ with nebula.hcl
+nebula-pki --dry-run          # preview only; write nothing
+nebula-pki --no-renewal       # skip time-based renewal; other re-sign triggers still apply
+nebula-pki check              # parse + validate config; no I/O against out/. Reads referenced CA files and in_pub keys.
+nebula-pki rekey              # re-encrypt managed private keys with the current encryption config
+nebula-pki rekey --dry-run    # preview rekey; write nothing
+nebula-pki rekey --force      # re-encrypt every managed key, mismatch or not
+nebula-pki --version          # print version (also: nebula-pki version)
+nebula-pki -c <path>          # alternate config path (default: ./nebula.hcl)
 ```
 
 Exit codes: `0` on success or clean dry-run; `1` on validation/runtime error; `2` on usage error.
@@ -68,7 +73,7 @@ ca "shared-root" {
 
 In reference mode, generate-only fields (`name`, `duration`, `curve`, `version`, `encrypt`, `argon_*`, `out_*`) are rejected. The tool only reads the CA files; it never rewrites them.
 
-On a run, nebula-pki loads the referenced pair and verifies it before recording anything: the certificate must be a CA (`IsCA`), its self-signature must verify, the key's curve must match the certificate, and the key must correspond to the certificate's public key. A missing `cert_file`/`key_file` is a hard error. An **expired** referenced CA is recorded anyway with a warning on stderr; the operator owns the CA in reference mode. The manifest records `ca.mode = "reference"` with the CA's fingerprint, validity window, and the referenced paths; `out/ca/` is never written. `nebula-pki check` additionally reads the referenced files and prints the CA fingerprint.
+On a run, nebula-pki loads the referenced pair and verifies it before recording anything: the certificate must be a CA (`IsCA`), its self-signature must verify, the key's curve must match the certificate, and the key must correspond to the certificate's public key. A missing `cert_file`/`key_file` is a hard error. An **expired** referenced CA is recorded anyway with a warning on stderr; the operator owns the CA in reference mode. The manifest records `cas.<label>.mode = "reference"` with the CA's fingerprint, validity window, and the referenced paths; `out/ca/` is never written. `nebula-pki check` additionally reads the referenced files and prints the CA fingerprint.
 
 Reference-mode reconcile is idempotent: a second run against an unchanged referenced CA writes nothing (the manifest stays byte-identical). Pointing `cert_file`/`key_file` at a different CA updates the manifest's recorded fingerprint on the next run.
 
@@ -96,8 +101,9 @@ ca "label" {
   networks          = ["10.42.0.0/16"]
   unsafe_networks   = ["192.168.0.0/16"]
 
-  # Key encryption: not yet implemented, planned for v0.2
-  encrypt           = true
+  # Passphrase-encrypted CA key (nebula-cert -encrypt): parsed, but
+  # encrypt = true is rejected at runtime. Use storage.encryption instead.
+  encrypt           = false
   argon_memory      = 2097152
   argon_iterations  = 1
   argon_parallelism = 4
@@ -105,7 +111,10 @@ ca "label" {
   # Output path overrides
   out_crt           = "out/ca/ca.crt"
   out_key           = "out/ca/ca.key"
-  out_qr            = "out/ca/ca.png"
+  out_qr            = "out/ca/ca.png"           # parsed; no QR file is written yet
+
+  # Relative symlinks to this CA's cert, one per directory (ADR-021)
+  link_crt          = ["out/hetzner", "out/aws"]
 }
 ```
 
@@ -124,7 +133,7 @@ cert "router" {
   in_pub          = "./pre-generated/router.pub"
   out_crt         = "out/router.crt"
   out_key         = "out/router.key"
-  out_qr          = "out/router.png"
+  out_qr          = "out/router.png"           # parsed; no QR file is written yet
 }
 ```
 
@@ -143,7 +152,7 @@ key_path  = Join(base, out_key)     if out_key set
 
 ## Encryption backends
 
-> **Not yet implemented.** The `encryption` block is parsed but rejected at runtime with a clear error message. These backends ship in v0.2. The schema documented here is final and stable.
+Only private key files are encrypted; certificates, the trust bundle, and the manifest stay plaintext. Encrypted keys get `output_suffix` appended (default `.enc`). When the configured recipients (sops) or `encrypt_command` (external) change, every run warns until `nebula-pki rekey` re-encrypts the existing keys. Full reference in [`spec/hcl-schema.md`](./spec/hcl-schema.md); rationale in [ADR-003](./spec/adr/003-encryption-strategy.md).
 
 ### `none` (default)
 
@@ -151,9 +160,9 @@ key_path  = Join(base, out_key)     if out_key set
 storage { encryption "none" {} }   # equivalent to omitting the block
 ```
 
-### `sops` (built-in, in-process)
+### `sops`
 
-Behaves like the `sops` CLI. Every field is optional and maps 1:1 to a sops CLI flag (`age`→`--age`, `pgp`→`--pgp`, `kms`→`--kms`, `gcp_kms`→`--gcp-kms`, `azure_kv`→`--azure-kv`, `hc_vault_transit`→`--hc-vault-transit`, `shamir_threshold`→`--shamir-secret-sharing-threshold`, `config`→`--config`). When all key-type fields are empty, the sops library performs its standard upward search for `.sops.yaml` and applies whichever `creation_rules` match the output path.
+Shells out to the `sops` binary, which must be in `PATH` whenever this backend is active (encrypting new keys and decrypting an encrypted CA key to sign). Every field is optional and maps 1:1 to a sops CLI flag (`age`→`--age`, `pgp`→`--pgp`, `kms`→`--kms`, `gcp_kms`→`--gcp-kms`, `azure_kv`→`--azure-kv`, `hc_vault_transit`→`--hc-vault-transit`, `shamir_threshold`→`--shamir-secret-sharing-threshold`, `config`→`--config`). When all key-type fields are empty, the sops library performs its standard upward search for `.sops.yaml` and applies whichever `creation_rules` match the output path.
 
 ```hcl
 # Inline recipients — overrides .sops.yaml for files written here.
@@ -178,21 +187,21 @@ storage {
 }
 ```
 
-Uses the sops Go library; no `sops` binary required. Decrypt with the regular `sops` CLI, which resolves the same `.sops.yaml` rules.
+Decrypt manually with the regular `sops` CLI, which resolves the same `.sops.yaml` rules.
 
 ### `external` (any command)
 
 ```hcl
 storage {
   encryption "external" {
-    encrypt_command = ["age", "-e", "-r", "age1abc...", "-o", "{{.Out}}", "{{.In}}"]
-    decrypt_command = ["age", "-d", "-o", "{{.Out}}", "{{.In}}"]
+    encrypt_command = ["age", "-e", "-r", "age1abc...", "-o", "{{.OutPath}}", "{{.InPath}}"]
+    decrypt_command = ["age", "-d", "-i", "age.key", "{{.InPath}}"]
     output_suffix   = ".age"
   }
 }
 ```
 
-The tool writes plaintext to a temp file, substitutes placeholders, runs the command, then deletes the temp file. `decrypt_command` is optional but recommended for future workflows that need to read encrypted material back.
+Both commands are required. `{{.InPath}}` is replaced by a temp file holding the input (plaintext for encrypt, ciphertext for decrypt); without it, the input is piped via stdin. In `encrypt_command`, `{{.OutPath}}` is where the command must write ciphertext; without it, ciphertext is read from stdout. Decrypt output is always read from stdout. See [ADR-023](./spec/adr/023-external-backend-protocol.md).
 
 ## Custom output directory (`output_dir`)
 
@@ -206,59 +215,32 @@ cert "lh_fra" {
 
 `output_dir` is a single **directory**. Filenames default to `<cert.name>.crt` / `.key`; override with `out_crt` / `out_key` (path components joined onto the directory). When omitted, files land in `<storage.out_dir>/certs`. See [ADR-020](./spec/adr/020-output-dir-per-cert.md).
 
-## File layout
+## Output layout
 
 ```
-nebula/
-  readme.md             # user-facing intro
-  agents.md             # this file
-  nebula.hcl            # your configuration
-  spec/                 # authoritative specification
-    readme.md
-    hcl-schema.md
-    hcl-schema.formal.json
-    adr/
-      001-tooling-approach.md
-      002-state-and-artifact-layout.md
-      003-encryption-strategy.md
-      004-revocation-strategy.md
-      005-hcl-schema-decision.md
-      006-storage-backend-extensibility.md
-      007-schema-evolution.md
-      008-cli-surface.md
-      009-cert-label-vs-cert-name.md
-      010-single-ca-per-config.md
-      011-output-blocks-are-directories.md
-      012-upstream-nebula-coupling.md
-      013-atomic-artifact-writes.md
-      014-flake-version-sync.md
-      015-multiple-cas-per-config.md
-      016-ca-rotation-and-trust-bundles.md
-      017-cert-renewal-threshold.md
-      018-in-pub-air-gapped-signing.md
-      019-manifest-compactness.md
-      020-output-dir-per-cert.md
-      021-ca-cert-links.md
-      022-taskfile-as-ci-entrypoint.md
-      023-external-backend-protocol.md
-      024-rename-host-to-cert.md
-      025-ca-references.md
-      026-trust-bundle-block.md
-  out/                  # generated; safe to commit when encryption is on
-    nebula-pki.json     # manifest; rename via storage.manifest_file
-    ca/
-    certs/              # default location for certs without an `output_dir`
-    <custom-dir>/       # any directory set via cert.output_dir
+out/                    # storage.out_dir; safe to commit when encryption is on
+  nebula-pki.json       # manifest; rename via storage.manifest_file
+  ca/
+    <label>.crt
+    <label>.key         # <label>.key.enc when encryption is on
+    bundle.crt          # trust bundle; path via storage.trust_bundle_file
+  certs/                # default location for certs without an `output_dir`
+<custom-dir>/           # any directory set via cert.output_dir
 ```
+
+The specification lives in [`spec/`](./spec/readme.md): `hcl-schema.md`, `hcl-schema.formal.json`, and the architecture decisions under [`spec/adr/`](./spec/adr/).
 
 ## Manifest
 
 `out/nebula-pki.json` is the single source of truth across runs. Schema highlights:
 
 - `schema_version` — integer, currently `1`.
-- `ca.mode` — `"generate"` or `"reference"`; includes fingerprint, validity, paths.
-- `certs` — map keyed by cert label; each entry carries cert name, fingerprint, validity, the literal HCL `duration`, groups, networks, and `artifacts` (one entry per resolved destination directory with concrete `crt_path` and `key_path`).
-- `encryption` — public backend identifier and parameters (no secret material).
+- `generated_at`, `generator`, `config_path` — provenance of the run.
+- `trust_bundle` — bundle path and the fingerprints of the CAs it contains.
+- `cas` — map keyed by CA label; each record carries `mode` (`"generate"` or `"reference"`), name, fingerprint, curve, version, validity, paths, `default`, and, when set, `archived`, `links`, and an `encryption` record.
+- `certs` — map keyed by cert label; each record carries cert name, signing CA, fingerprint, validity, the literal HCL `duration`, groups, networks, and exactly one `artifacts` entry with `cert_path`, `key_path` (absent for `in_pub` certs), and an `encryption` record when the key is encrypted.
+
+Encryption records hold only public backend details (backend name, recipients hash, suffix), never secret material.
 
 Full schema in [`spec/adr/002-state-and-artifact-layout.md`](./spec/adr/002-state-and-artifact-layout.md).
 
@@ -270,12 +252,6 @@ The HCL has **no version field today**. If a breaking change becomes necessary l
 - Configs without it continue to parse as `schema = 1`.
 
 The manifest already carries an explicit `schema_version` field from day one — downstream tooling parsing the manifest needs an unambiguous signal. See [`spec/adr/007-schema-evolution.md`](./spec/adr/007-schema-evolution.md).
-
-## Status
-
-Current release: **v0.0.11** (`in_pub` air-gapped signing). Installable via Homebrew and Nix. The implementation tracks [`spec/`](./spec/readme.md). Version, supported platforms, and the pinned upstream Nebula version are surfaced via `nebula-pki --version` and the manifest's `generator.nebula_library_version` field. See [ADR-012](./spec/adr/012-upstream-nebula-coupling.md) for the upstream coupling policy.
-
-**Not yet implemented**: `storage.encryption` (any backend). The parser accepts the block and reports a clear error. Encryption ships in v0.2.
 
 ## Validation rules (selected)
 
