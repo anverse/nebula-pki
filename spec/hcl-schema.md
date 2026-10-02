@@ -13,7 +13,8 @@ The CLI is a thin declarative wrapper around `nebula-cert ca` and `nebula-cert s
 | Block | Cardinality | Purpose |
 |---|---|---|
 | `ca` | 1..N | Certificate authority — either generated or referenced from existing files. Every `ca` block must carry a label: `ca "<label>" {}`. One or more labelled CAs enable CA rotation and multi-CA Nebula networks in a single file. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
-| `storage` | 0..1 | Default output directory, trust-bundle path, and encryption backend. |
+| `trust_bundle` | 0..1 | The CA trust bundle for `pki.ca`: explicit membership via `ca_refs`, its path, and its own `link_crt` fan-out. Without this block no bundle is written. See [ADR-026](./adr/026-trust-bundle-block.md). |
+| `storage` | 0..1 | Default output directory, manifest path, and encryption backend. |
 | `cert` | 0..N | A certificate to sign — typically one `cert` block per Nebula node. Maps 1:1 to `nebula-cert sign`. Selects a signing CA via `cert.ca` when more than one CA exists. Each cert and its key are written to the cert's `output_dir` (defaults to `<storage.out_dir>/certs`). |
 
 There is **no** `network`, `group`, `blocklist_entry`, or `is_lighthouse` block. Networks are declared per-cert (Nebula `-networks` is per-cert), groups are free-form non-empty UTF-8 strings on each cert (commas and surrounding whitespace forbidden — see validation rules), and lighthouse behaviour is decided in the runtime `config.yaml` that downstream projects render.
@@ -47,17 +48,18 @@ Each CA has two mutually exclusive modes:
 | `argon_iterations` | number | no | `1` | `-argon-iterations` | |
 | `argon_parallelism` | number | no | `4` | `-argon-parallelism` | |
 | `renew_before` | duration | no | unset | — | Default renewal threshold for certs signed by this CA. A cert is re-signed when within this window of expiry. Overridden by `cert.renew_before`. See [ADR-017](./adr/017-cert-renewal-threshold.md). |
-| `archived` | bool | no | `false` | — | When `true`, this CA's certificate is excluded from the emitted trust bundle and the CA may not sign certs. Its manifest record is kept (archiving never deletes history). Used to stage the final step of a rotation. See [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). |
 | `out_crt` | string | no | `<storage.out_dir>/ca/<label>.crt` | `-out-crt` | Path for CA cert. Generate mode only. |
 | `out_key` | string | no | `<storage.out_dir>/ca/<label>.key` | `-out-key` | Path for CA private key. Generate mode only. |
 | `out_qr` | string | no | unset | `-out-qr` | Optional PNG QR. Generate mode only. |
 | `cert_file` | string | no (yes for reference mode) | — | `-ca-crt` (on sign) | Path to an existing CA cert. Activates reference mode. |
 | `key_file` | string | no (yes for reference mode) | — | `-ca-key` (on sign) | Path to an existing CA key. Activates reference mode. |
-| `link_crt` | list(string) | no | `[]` | — | Directories where a relative symlink to this CA's cert should be placed. Each entry is a directory path; the symlink filename is `<label>.crt` (or `basename(out_crt)` when set). Symlink targets are relative (safe to commit to git). Parent directories are created if absent. Correct symlinks are no-ops; broken or wrong-target symlinks are recreated; a regular file at the path is an error. Stale links (directory removed from `link_crt`) are deleted; if a regular file now occupies the path, a notice is printed and the file is left alone. See [ADR-021](./adr/021-ca-cert-links.md). |
+| `link_crt` | list(string) | no | `[]` | — | Directories where a relative symlink to this CA's cert should be placed. Each entry is a directory path; the symlink filename is `<label>.crt` (or `basename(out_crt)` when set). Symlink targets are relative (safe to commit to git). Parent directories are created if absent. Correct symlinks are no-ops; broken or wrong-target symlinks are recreated; a regular file at the path is an error. Stale links (directory removed from `link_crt`, or the whole `ca` block deleted) are deleted; if a regular file now occupies the path, a notice is printed and the file is left alone. No two `link_crt` sources (any `ca` block or the `trust_bundle`) may write the same symlink path. See [ADR-021](./adr/021-ca-cert-links.md). |
 
 **Mode selection:** if either `cert_file` or `key_file` is set, both must be set, and reference mode is active for that CA. Otherwise generate mode is active.
 
 **Generate-only fields** (`name` aside): `duration`, `version`, `curve`, `encrypt`, `argon_*`, `out_crt`, `out_key`, `out_qr`. Setting any of them in reference mode is an error. `link_crt` is allowed in both modes.
+
+**Deleting a `ca` block.** Its `link_crt` symlinks are deleted and its manifest record is dropped. Its certificate and key files are **not** deleted: they stay on disk and the run prints a notice that they are no longer managed.
 
 #### Signing-CA selection
 
@@ -68,7 +70,7 @@ Each cert resolves to exactly one signing CA:
 3. else if exactly one CA is declared, that CA (no ambiguity);
 4. else it is a validation error (ambiguous — name a CA or mark one default).
 
-This mirrors Terraform's provider model: one CA is the default (here via `default = true`), the rest are aliases a cert selects with `cert.ca`, and a cert that names nothing gets the default. Per-CA `groups` / `networks` / `unsafe_networks` restrictions are validated against each cert **relative to the CA that signs it**. See [ADR-015](./adr/015-multiple-cas-per-config.md). For the rotation workflow built on this, see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md) and the [rotation example](#ca-rotation-example) below.
+This mirrors Terraform's provider model: one CA is the default (here via `default = true`), the rest are aliases a cert selects with `cert.ca`, and a cert that names nothing gets the default. When a `trust_bundle` is declared, the resolved signing CA (and any CA marked `default = true`) must be one of its `ca_refs`. Per-CA `groups` / `networks` / `unsafe_networks` restrictions are validated against each cert **relative to the CA that signs it**. See [ADR-015](./adr/015-multiple-cas-per-config.md). For the rotation workflow built on this, see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md) and the [rotation example](#ca-rotation-example) below.
 
 #### `link_crt` example
 
@@ -119,6 +121,45 @@ ca "mesh" {
 #          out/aws/ca.crt     → ../../ca/ca.crt
 ```
 
+### `trust_bundle`
+
+Declares the CA trust bundle: a concatenated PEM of the member CA certificates, suitable for `pki.ca` in each node's `config.yaml`. It contains no key material. The block label is required: `trust_bundle "<label>" {}`. At most one `trust_bundle` block is allowed. See [ADR-026](./adr/026-trust-bundle-block.md).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `ca_refs` | list(CA reference) | yes | — | The member CAs, as `ca.<label>` references, e.g. `[ca.current, ca.next]`. Non-empty, no duplicates, every reference must name a declared CA. The bundle holds the certificates in this order. |
+| `path` | string | no | `<storage.out_dir>/ca/bundle.crt` | Path for the bundle file. Relative paths resolve against the config file's directory. |
+| `link_crt` | list(string) | no | `[]` | Directories where a relative symlink to the bundle is placed. The symlink filename is the basename of `path` (`bundle.crt` by default). Same semantics as `ca.link_crt`. |
+
+**No block, no bundle.** Without a `trust_bundle` block no bundle file is written and the manifest has no `trust_bundle` record; there is no implicit bundle. Point `pki.ca` at a CA certificate directly in that case, or declare a `trust_bundle` from the start (even with a single member) when the network may ever rotate, so `pki.ca` keeps one stable path.
+
+**Membership.** A declared CA that is not in `ca_refs` is still generated or read, and its manifest record is kept, but it is not trusted and may not sign certs: the resolved signing CA of every cert, and any CA marked `default = true`, must be a member.
+
+**Label and path.** The bundle's identity is its `path`; the label is only recorded. Renaming the label updates the manifest and rewrites no file or symlink. When the block is removed or `path` changes, the old bundle file stays on disk with a notice that it is no longer managed, and the bundle's symlinks are deleted.
+
+**Reference errors** (an element that is not a `ca.<label>` reference, an undeclared CA, a duplicate, an empty list) carry the offending expression's source range, like `cert.ca` errors.
+
+```hcl
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/hetzner", "out/aws"]
+}
+
+ca "current" {
+  name = "mesh-2026"
+}
+
+cert "lh_fra" {
+  networks   = ["10.42.0.1/16"]
+  output_dir = "out/hetzner"
+}
+# creates: out/ca/bundle.crt
+#          out/hetzner/bundle.crt → ../ca/bundle.crt
+#          out/aws/bundle.crt     → ../ca/bundle.crt
+```
+
+`ca.link_crt` and `trust_bundle.link_crt` may name the same directory as long as the symlink filenames differ (`current.crt` and `bundle.crt`); two sources writing the same `<dir>/<filename>` is a validation error. Prefer the bundle's `link_crt` for `pki.ca`: its content stays correct before, during, and after a rotation, while a single CA's symlink does not.
+
 ### `storage`
 
 Defaults applied to every cert that does not override paths via `output` or `out_crt` / `out_key`. Also picks the encryption backend.
@@ -127,7 +168,6 @@ Defaults applied to every cert that does not override paths via `output` or `out
 |---|---|---|---|---|
 | `out_dir` | string | no | `"out"` | Root directory for default-path artifacts. Relative paths resolve against the config file's directory. |
 | `manifest_file` | string | no | `<out_dir>/nebula-pki.json` | Path for the manifest JSON. Relative paths resolve against the config file's directory; absolute paths are honoured. Override when sharing a working directory between multiple HCL configs. |
-| `trust_bundle_file` | string | no | `<out_dir>/ca/bundle.crt` | Path for the emitted CA trust bundle — a concatenated PEM of every active (non-`archived`) CA certificate, suitable for `pki.ca` in each node's `config.yaml`. Always written, even with a single CA. Contains no key material. Membership is implicit (every non-archived CA); an explicit/multiple-bundle `bundle` block may be added additively later — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md). |
 | `encryption` | block | no | `encryption "none" {}` | Encryption backend. |
 
 The block label (`"none"`, `"sops"`, `"external"`) selects the backend. In the formal JSON Schema the label is projected as a `label` field, matching the `output` block convention.
@@ -224,6 +264,11 @@ When `in_pub` is set, no `.key` is written — only the `.crt` (and `.png`, if `
 ## Complete example
 
 ```hcl
+trust_bundle "main" {
+  ca_refs  = [ca.wiech-mesh]
+  link_crt = ["out/hetzner", "out/aws"]
+}
+
 ca "wiech-mesh" {
   name     = "wiech-mesh"
   duration = "26280h"   # 3 years
@@ -286,11 +331,15 @@ cert "new_app" {
 
 ## CA rotation example
 
-A worked rotation across a CA expiry, using two labelled CAs in one file. Each stage is a small edit to the same `nebula.hcl` followed by `nebula-pki`. The tool emits the artifacts; the operator distributes them and reloads certs (the tool never pushes — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md)).
+A worked rotation across a CA expiry, using two labelled CAs in one file. Each stage is a small edit to the same `nebula.hcl` followed by `nebula-pki`. The tool emits the artifacts; the operator distributes them and reloads certs (the tool never pushes — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md)). Every trust change is an edit to `trust_bundle.ca_refs`; see [ADR-026](./adr/026-trust-bundle-block.md).
 
-**Stage 0 — steady state, one CA.**
+**Stage 0 — steady state, one CA.** Declare the `trust_bundle` from the start so `pki.ca` keeps one stable path through the whole rotation.
 
 ```hcl
+trust_bundle "main" {
+  ca_refs = [ca.current]
+}
+
 ca "current" {
   name     = "mesh-2026"
   duration = "8760h"
@@ -302,9 +351,13 @@ cert "app_01" { networks = ["10.42.1.10/16"] }   # only one CA, no cert.ca neede
 
 `out/ca/bundle.crt` contains just `current`.
 
-**Stage 1 — add the new CA.** The bundle now carries both; ship `bundle.crt` to every node and reload (nodes now *trust* both CAs; certs still signed by `current`). Mark `current` as the default so existing certs keep being signed by it without per-cert edits.
+**Stage 1 — add the new CA and trust it.** Add `ca "next"` and list it in `ca_refs`. The bundle now carries both; ship `bundle.crt` to every node and reload (nodes now *trust* both CAs; certs still signed by `current`). Mark `current` as the default so existing certs keep being signed by it without per-cert edits.
 
 ```hcl
+trust_bundle "main" {
+  ca_refs = [ca.current, ca.next]
+}
+
 ca "current" {
   name     = "mesh-2026"
   duration = "8760h"
@@ -338,16 +391,15 @@ ca "next" {
 }
 ```
 
-**Stage 3 — archive the old CA.** Drop `current` from the bundle; ship the slimmer `bundle.crt` and reload. Delete the block (and key) once satisfied.
+**Stage 3 — stop trusting the old CA.** Remove `current` from `ca_refs`; ship the slimmer `bundle.crt` and reload. `current` keeps its manifest record but may no longer sign: a cert or default still pointing at it is a validation error.
 
 ```hcl
-ca "current" {
-  name     = "mesh-2026"
-  duration = "8760h"
-  networks = ["10.42.0.0/16"]
-  archived = true                 # excluded from bundle; may not sign
+trust_bundle "main" {
+  ca_refs = [ca.next]
 }
 ```
+
+**Stage 4 — retire the old CA.** Delete the `ca "current"` block once satisfied. Its manifest record is dropped and its symlinks are deleted; its cert and key files stay on disk with a notice, for you to remove. A forgotten `ca.current` reference anywhere fails the parse.
 
 ## Air-gapped (`in_pub`) example
 
@@ -422,9 +474,11 @@ out/
     lh-fra.key.enc
     app_01.crt
     app_01.key.enc
+    bundle.crt → ../ca/bundle.crt
   aws/
     app_02.crt
     app_02.key.enc
+    bundle.crt → ../ca/bundle.crt
   certs/
     router-edge.crt
     router-edge.key.enc
@@ -484,9 +538,22 @@ CA and multi-CA:
 - `cert.ca` is not a reference of the form `ca.<label>` (a quoted string, the index form `ca["<label>"]`, a bare `ca`, extra steps, or another root such as `cert.x`).
 - `cert.ca` references a CA label that is not declared.
 - A cert's signing CA is ambiguous: the file has >1 CA, the cert has no `cert.ca`, and no CA is marked `default = true`.
-- A cert is signed by an `archived = true` CA (archived CAs may not sign).
 - `ca` is in reference mode but only one of `cert_file` / `key_file` is set.
 - `ca` is in reference mode and sets generate-only fields (`name`, `duration`, `curve`, `version`, `out_*`, `argon_*`, `encrypt`).
+
+Trust bundle:
+
+- More than one `trust_bundle` block is declared.
+- A `trust_bundle` label is not a valid identifier (`^[A-Za-z_][A-Za-z0-9_-]*$`).
+- `trust_bundle.ca_refs` is missing, empty, or not a list.
+- A `ca_refs` element is not a reference of the form `ca.<label>`, references an undeclared CA, or repeats a member.
+- A `trust_bundle` is declared and a cert's resolved signing CA is not in its `ca_refs`.
+- A `trust_bundle` is declared and the CA marked `default = true` is not in its `ca_refs`.
+
+Symlinks:
+
+- A `link_crt` entry (on a `ca` or the `trust_bundle`) is empty or repeats a directory of the same list.
+- Two `link_crt` sources (any `ca` block or the `trust_bundle`) write the same symlink path `<dir>/<filename>`. Directories are compared after cleaning, so `out/x/` and `out/x` are the same.
 
 Certs:
 
@@ -512,7 +579,7 @@ Groups and storage:
 
 ## References between blocks
 
-The schema has exactly one kind of cross-block reference: a cert names its signing CA with a **reference** `cert.ca = ca.<label>` (with the CA marked `default = true` as the fallback when `cert.ca` is omitted). The reference is an HCL traversal read as syntax, never evaluated: the schema does not use `hcl.EvalContext`, so `ca.next` cannot leak into string interpolation. Only the attribute form is accepted, and every reference error carries the expression's source range. See [ADR-025](./adr/025-ca-references.md) and [ADR-005](./adr/005-hcl-schema-decision.md).
+The schema has one kind of cross-block reference, `ca.<label>`, used in two places: a cert names its signing CA with `cert.ca = ca.<label>` (with the CA marked `default = true` as the fallback when `cert.ca` is omitted), and the trust bundle lists its members with `trust_bundle.ca_refs = [ca.<label>, …]`. A reference is an HCL traversal read as syntax, never evaluated: the schema does not use `hcl.EvalContext`, so `ca.next` cannot leak into string interpolation. Only the attribute form is accepted, and every reference error carries the expression's source range. See [ADR-025](./adr/025-ca-references.md), [ADR-026](./adr/026-trust-bundle-block.md) and [ADR-005](./adr/005-hcl-schema-decision.md).
 
 Certs name their destination directory via `output_dir`. See [ADR-020](./adr/020-output-dir-per-cert.md) for the rationale, path-resolution rules, and the conditions under which multi-directory fan-out would be reintroduced.
 

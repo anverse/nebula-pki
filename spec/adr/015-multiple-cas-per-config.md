@@ -129,7 +129,7 @@ The original v0.0.8 plan preserved `ca {}` as the single-CA shortcut. Rejected a
 
 **D1 — root-level `default_ca = "label"`.** Rejected: detaches the decision from the CA block, duplicates the label as a free-floating string.
 
-**D2 — unlabelled `ca {}` is the default.** Rejected: requires the default CA to be unlabelled, which precludes referencing it in `bundle.cas = [...]` by label.
+**D2 — unlabelled `ca {}` is the default.** Rejected: requires the default CA to be unlabelled, which precludes referencing it in `trust_bundle.ca_refs = [...]` by label.
 
 **D3 — `default = true` on a labelled `ca` block (chosen).** Every CA is labelled and referenceable. The default is co-located with its CA block. The only cost is the "at most one `default`" cross-block check.
 

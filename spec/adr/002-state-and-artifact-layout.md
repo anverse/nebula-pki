@@ -4,7 +4,7 @@
 
 accepted
 
-> **Trust bundle (amended by [ADR-026](./026-trust-bundle-block.md)).** `bundle.crt` is **not** always written — it is emitted only when a `trust_bundle` block is declared, and the CA record's `archived` field is removed. Read the "always written" / "non-archived" prose below accordingly. Body sweep pending in v0.1.9.
+> **Trust bundle (amended by [ADR-026](./026-trust-bundle-block.md)).** `bundle.crt` is emitted only when a `trust_bundle` block is declared, and the CA record's `archived` field is removed. The body below reflects this.
 
 ## Context
 
@@ -30,7 +30,7 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
 
 `.enc` is appended by the active encryption backend (`none` writes plain `.key`). The suffix is configurable via `storage.encryption.<backend>.output_suffix`.
 
-Every `ca` block must carry a label ([ADR-015](./015-multiple-cas-per-config.md)), so CA cert/key paths are always `ca/<label>.crt` and `ca/<label>.key[.enc]`. `bundle.crt` holds the concatenation of every active (non-`archived`) CA cert and is always written — so downstream `pki.ca` has one stable path before, during, and after a rotation. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
+Every `ca` block must carry a label ([ADR-015](./015-multiple-cas-per-config.md)), so CA cert/key paths are always `ca/<label>.crt` and `ca/<label>.key[.enc]`. `bundle.crt` holds the concatenation of the CA certs listed in `trust_bundle.ca_refs`, in that order, and is written only when a `trust_bundle` block is declared. Declaring it from the start gives downstream `pki.ca` one stable path before, during, and after a rotation. See [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-026](./026-trust-bundle-block.md).
 
 ### File modes
 
@@ -68,8 +68,12 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
     "output_suffix": ".enc"
   },
   "trust_bundle": {
+    "label": "main",
     "path": "out/ca/bundle.crt",
-    "ca_fingerprints": ["f2a1c9...", "ab77e0..."]
+    "ca_fingerprints": ["f2a1c9...", "ab77e0..."],
+    "links": [
+      { "path": "out/hetzner/bundle.crt", "target": "../ca/bundle.crt" }
+    ]
   },
   "cas": {
     "current": {
@@ -79,7 +83,6 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "curve": "25519",
       "version": 2,
       "default": true,
-      "archived": false,
       "not_before": "2026-05-17T12:43:00Z",
       "not_after":  "2027-05-17T12:43:00Z",
       "cert_path":  "out/ca/current.crt",
@@ -92,7 +95,6 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
       "curve": "25519",
       "version": 2,
       "default": false,
-      "archived": false,
       "not_before": "2026-05-17T12:43:00Z",
       "not_after":  "2027-05-17T12:43:00Z",
       "cert_path":  "out/ca/next.crt",
@@ -139,10 +141,9 @@ The manifest always uses the `cas` map — there is no legacy single-CA `ca` obj
 - `schema_version` — integer. Bumped only when the manifest format changes incompatibly. Currently `1`.
 - `generator.nebula_library_version` — the `slackhq/nebula` Go module version pinned at build time. Matches the value reported by `nebula-pki --version`. See [ADR-012](./012-upstream-nebula-coupling.md). Optional in older manifests; written by all current builds.
 - `config_path` — path to the HCL config that produced this manifest, relative to the manifest's directory when possible (absolute fallback). Lets future tooling detect "wrong config writing to my manifest" without enforcing it at runtime.
-- `cas` — map of CA label → CA record. Always present; always has at least one entry. Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, `archived`, validity window, and paths. See [ADR-015](./015-multiple-cas-per-config.md).
+- `cas` — map of CA label → CA record. Always present; always has at least one entry. Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, validity window, and paths. A CA declared in the config but not listed in `trust_bundle.ca_refs` keeps its record; the record is dropped when the `ca` block is deleted (its files stay on disk). See [ADR-015](./015-multiple-cas-per-config.md).
 - `cas.<label>.default` — `true` for the one CA marked `default = true` in HCL (the signer for certs that omit `cert.ca`); `false` for the rest. At most one record has `true`. Absent in the legacy single-CA `ca` object. This replaces the earlier top-level `default_ca` field. See [ADR-015](./015-multiple-cas-per-config.md).
-- `trust_bundle` — `{ path, ca_fingerprints }`. `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in bundle order, the fingerprint of every active (non-`archived`) CA cert included. Lets downstream tooling verify what the Nebula network currently trusts without parsing the PEM. See [ADR-016](./016-ca-rotation-and-trust-bundles.md).
-- `cas.<label>.archived` — `true` when the CA is excluded from the trust bundle and barred from signing. The CA's record is retained either way (archiving never deletes history).
+- `trust_bundle` — `{ label, path, ca_fingerprints, links }`, present only when a `trust_bundle` block is declared. `label` is the block label (recorded only; the bundle's identity is its path). `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in `ca_refs` order, the fingerprint of every member CA cert. `links` records the bundle's managed `link_crt` symlinks, same shape as `cas.<label>.links`. Lets downstream tooling verify what the Nebula network currently trusts without parsing the PEM; a CA whose fingerprint is absent from `ca_fingerprints` is not trusted. See [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-026](./026-trust-bundle-block.md).
 - `cas.<label>.mode` — `"generate"` or `"reference"`.
 - `*.fingerprint` (on `ca`, `cas.*`, and `certs.*`) — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every node), not of the public key and not of any private material — so it is always safe to commit.
 - `certs.*.name` — the cert Common Name. Equal to the cert's HCL label unless `cert.name` overrides it (see [ADR-009](./009-cert-label-vs-cert-name.md)).

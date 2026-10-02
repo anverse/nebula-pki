@@ -155,36 +155,45 @@ out/
 
 **Idempotency** — a re-run is a no-op when the symlink already points to the correct target. A broken or wrong-target symlink is recreated. A regular file at a declared link path is an error (never clobbered).
 
-**Stale cleanup** — removing a directory from `link_crt` causes the old symlink to be deleted on the next run. If a regular file now occupies the path, a notice is printed and the file is left alone.
+**Stale cleanup** — removing a directory from `link_crt`, or deleting the whole `ca` block, causes the old symlink to be deleted on the next run. If a regular file now occupies the path, a notice is printed and the file is left alone.
 
 The manifest records each managed link under `cas.<label>.links` so the tool can detect stale links across runs.
 
 ## Trust bundle
 
-Every run writes `out/ca/bundle.crt`, a concatenated PEM of all active CA certificates suitable for `pki.ca` in each node's Nebula `config.yaml`. The path is configurable:
+A `trust_bundle` block writes `out/ca/bundle.crt`, a concatenated PEM of the CA certificates it lists, suitable for `pki.ca` in each node's Nebula `config.yaml`. Membership is explicit: `ca_refs` lists the trusted CAs by reference, and the bundle holds them in that order.
 
 ```hcl
-storage {
-  trust_bundle_file = "out/ca/bundle.crt"   # default
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  path     = "out/ca/bundle.crt"            # default
+  link_crt = ["out/hetzner", "out/aws"]     # bundle.crt symlink in each directory
 }
 ```
 
-With a single CA, the bundle equals that CA's certificate. During rotation it holds both the old and new CA so nodes can authenticate against either; once the old CA is archived the bundle shrinks back to the active CA only.
+Without a `trust_bundle` block no bundle is written; point `pki.ca` at a CA certificate directly. If the network may ever rotate its CA, declare the bundle from the start, even with a single CA: `pki.ca` then keeps one stable path, and the bundle's `link_crt` symlinks stay correct through the whole rotation.
+
+With a single member the bundle equals that CA's certificate. During rotation it holds both the old and new CA so nodes can authenticate against either. When a bundle is declared, every cert must be signed by a member CA, and the `default = true` CA must be a member; anything else is a validation error.
+
+Removing the `trust_bundle` block, or changing its `path`, leaves the old bundle file on disk with a notice; its symlinks are deleted.
 
 ## CA rotation
 
-Rotating a CA is four edits to `nebula.hcl`, each followed by a rerun:
+Rotating a CA is four edits to `nebula.hcl`, each followed by a rerun. Declare the `trust_bundle` before you start (see above).
 
-1. **Add the new CA.** The bundle now contains both; distribute `bundle.crt` and reload nodes (they trust both, certs still signed by the old CA).
+1. **Add the new CA** and list it in `ca_refs`. The bundle now contains both; distribute `bundle.crt` and reload nodes (they trust both, certs still signed by the old CA).
 2. **Promote the new CA** to `default = true`. Certs are re-signed under the new CA on the next run; distribute the new certs and reload.
-3. **Archive the old CA** with `archived = true`. The bundle drops the old CA; distribute the slimmer `bundle.crt` and reload.
-4. **Remove the archived block** (optional cleanup) once satisfied. The old CA's cert and key files remain on disk unmanaged after the block is removed; delete them manually if desired.
+3. **Drop the old CA from `ca_refs`.** The bundle shrinks to the new CA; distribute the slimmer `bundle.crt` and reload. The old CA keeps its manifest record but may no longer sign.
+4. **Delete the old `ca` block** once satisfied. Its symlinks are deleted; its cert and key files stay on disk with a notice, for you to delete.
 
 ```hcl
-# Stage 3: old CA archived, new CA is the sole signer.
+# Stage 3: only the new CA is trusted and signs.
+trust_bundle "main" {
+  ca_refs = [ca.new]
+}
+
 ca "old" {
-  name     = "mesh-2025"
-  archived = true        # excluded from bundle; barred from signing
+  name = "mesh-2025"
 }
 
 ca "new" {
