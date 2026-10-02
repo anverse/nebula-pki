@@ -1064,7 +1064,7 @@ cert "h2" {
 	m1, _ := manifest.Load(cfg1.Resolve(cfg1.ManifestPath()))
 	h1FPBefore := m1.Certs["h1"].CAFingerprint
 
-	// Second run: move h1 to secondary by adding explicit `ca = "secondary"`.
+	// Second run: move h1 to secondary by adding explicit `ca = ca.secondary`.
 	cfg2 := loadHCL(`
 ca "primary" {
   name    = "primary-mesh"

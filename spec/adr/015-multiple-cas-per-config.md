@@ -6,8 +6,6 @@ accepted — supersedes [ADR-010](./010-single-ca-per-config.md)
 
 Amended in v0.0.8: the unlabelled `ca {}` form has been removed; all CAs must be labelled. See **Amendment: labels are always required** below.
 
-> The `cert.ca` field changes from a string label to a `ca.<label>` reference in [ADR-025](./025-ca-references.md).
-
 ## Context
 
 [ADR-010](./010-single-ca-per-config.md) restricted a configuration file to exactly one `ca` block and deferred multi-CA support as YAGNI. That call was correct for the early milestones: it kept the manifest single-rooted, removed a class of validation rules, and the "one HCL file per CA" workaround covered the only motivating case at the time (isolated `dev`/`staging`/`prod` environments).
@@ -35,7 +33,7 @@ ca "next" {
 }
 
 cert "app_01" {
-  ca       = "current"        # which CA signs THIS cert
+  ca       = ca.current       # which CA signs THIS cert
   networks = ["10.42.1.10/16"]
 }
 ```
@@ -45,7 +43,7 @@ cert "app_01" {
 - **Cardinality.** Zero `ca` blocks is an error. Every `ca` block must have exactly one label. An unlabelled `ca {}` block is an error.
 - **CA labels** follow the same identifier rules as cert labels (`^[A-Za-z_][A-Za-z0-9_-]*$`) and must be unique within the file.
 - **`ca.default`** is an optional boolean on a `ca` block marking it the default signing CA. **At most one** CA may set `default = true`; more than one is a validation error.
-- **`cert.ca`** selects the signing CA by label. It is:
+- **`cert.ca`** selects the signing CA with a `ca.<label>` reference ([ADR-025](./025-ca-references.md)). It is:
   - **optional** when the file has exactly one CA — there is nothing to disambiguate, so it may be omitted (or set explicitly, which is accepted but redundant);
   - **optional** when a CA is marked `default = true` — omitting `cert.ca` uses the default, setting it selects a non-default CA (an "alias");
   - **required** when the file has more than one CA **and** none is marked `default` — every cert must then name its CA explicitly.
@@ -62,7 +60,7 @@ ca "next" {
 
 cert "app_01" { networks = ["10.42.1.10/16"] }                 # signed by current (default)
 cert "app_02" {                                                # signed by next (alias)
-  ca = "next"
+  ca = ca.next
   networks = ["10.42.1.11/16"]
 }
 ```

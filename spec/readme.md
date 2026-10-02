@@ -74,7 +74,7 @@ The tool:
 - [`adr/022-taskfile-as-ci-entrypoint.md`](./adr/022-taskfile-as-ci-entrypoint.md) — Taskfile as the single entrypoint for CI and local automation.
 - [`adr/023-external-backend-protocol.md`](./adr/023-external-backend-protocol.md) — `encryption "external"` command protocol.
 - [`adr/024-rename-host-to-cert.md`](./adr/024-rename-host-to-cert.md) — rename the `host` block to `cert` (pre-1.0 hard switch, shipped first); carries the two-dialects naming rationale.
-- [`adr/025-ca-references.md`](./adr/025-ca-references.md) — terraform-style `ca.<label>` references replacing string labels; hard switch for `cert.ca`; the reserved-root convention.
+- [`adr/025-ca-references.md`](./adr/025-ca-references.md) — terraform-style `ca.<label>` references for `cert.ca`: one spelling, no evaluation, source-ranged errors; the reserved-root convention.
 - [`adr/026-trust-bundle-block.md`](./adr/026-trust-bundle-block.md) — explicit `trust_bundle` block: declared trust membership via `ca_refs`, bundle `link_crt`, removal of `archived`; carries the `trust_bundle`/`ca_refs` naming rationale. Amends ADR-016.
 
 ## Operating model

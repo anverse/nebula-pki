@@ -186,7 +186,7 @@ Set the optional `name` field when the certificate CN needs characters HCL label
 |---|---|---|---|---|
 | _label_ | identifier | yes | — | HCL identifier; manifest key. Conventionally snake_case. |
 | `name` | string | no (defaults to label) | `-name` | Certificate common name. Use when label and CN should differ. |
-| `ca` | string | conditional | `-ca-crt`/`-ca-key` (selects which) | Label of the signing CA. Optional when the file has exactly one CA or a CA is marked `default = true` (omit to use the default, or set explicitly); required when the file has more than one CA and none is marked `default`. See [ADR-015](./adr/015-multiple-cas-per-config.md). |
+| `ca` | reference (`ca.<label>`) | conditional | `-ca-crt`/`-ca-key` (selects which) | Reference to the signing CA, e.g. `ca = ca.next`; a quoted string is not a reference and is rejected. `ca = null` is the same as omitting it. Optional when the file has exactly one CA or a CA is marked `default = true` (omit to use the default, or set explicitly); required when the file has more than one CA and none is marked `default`. See [ADR-015](./adr/015-multiple-cas-per-config.md) and [ADR-025](./adr/025-ca-references.md). |
 | `networks` | list(CIDR) | yes | `-networks` | Overlay addresses for this cert. Each entry is a full CIDR, e.g. `"10.42.0.1/16"`. |
 | `groups` | list(string) | no | `-groups` | Free-form group tags. |
 | `unsafe_networks` | list(CIDR) | no | `-unsafe-networks` | Subnets this cert may route for. |
@@ -321,7 +321,7 @@ ca "next" {
 cert "app_01" { networks = ["10.42.1.10/16"] }
 ```
 
-**Stage 2 — flip the signing CA.** Move the `default = true` marker from `current` to `next`. On the next run every defaulted cert is re-signed under `next`; distribute the new certs and reload. (Canary first by setting `ca = "next"` on a few certs before moving the default.)
+**Stage 2 — flip the signing CA.** Move the `default = true` marker from `current` to `next`. On the next run every defaulted cert is re-signed under `next`; distribute the new certs and reload. (Canary first by setting `ca = ca.next` on a few certs before moving the default.)
 
 ```hcl
 ca "current" {
@@ -481,7 +481,8 @@ CA and multi-CA:
 - Two `ca` blocks share a label.
 - A `ca` label is not a valid identifier (`^[A-Za-z_][A-Za-z0-9_-]*$`).
 - More than one `ca` block sets `default = true`.
-- `cert.ca` names a CA label that is not declared.
+- `cert.ca` is not a reference of the form `ca.<label>` (a quoted string, the index form `ca["<label>"]`, a bare `ca`, extra steps, or another root such as `cert.x`).
+- `cert.ca` references a CA label that is not declared.
 - A cert's signing CA is ambiguous: the file has >1 CA, the cert has no `cert.ca`, and no CA is marked `default = true`.
 - A cert is signed by an `archived = true` CA (archived CAs may not sign).
 - `ca` is in reference mode but only one of `cert_file` / `key_file` is set.
@@ -511,11 +512,11 @@ Groups and storage:
 
 ## References between blocks
 
-The schema has exactly one kind of cross-block reference: a cert names its signing CA by **label** via `cert.ca` (with the CA marked `default = true` as the fallback when `cert.ca` is omitted), introduced in [ADR-015](./adr/015-multiple-cas-per-config.md). This is a plain string label, not a traversal expression — the schema does not use `hcl.EvalContext`; see [ADR-005](./adr/005-hcl-schema-decision.md).
+The schema has exactly one kind of cross-block reference: a cert names its signing CA with a **reference** `cert.ca = ca.<label>` (with the CA marked `default = true` as the fallback when `cert.ca` is omitted). The reference is an HCL traversal read as syntax, never evaluated: the schema does not use `hcl.EvalContext`, so `ca.next` cannot leak into string interpolation. Only the attribute form is accepted, and every reference error carries the expression's source range. See [ADR-025](./adr/025-ca-references.md) and [ADR-005](./adr/005-hcl-schema-decision.md).
 
 Certs name their destination directory via `output_dir`. See [ADR-020](./adr/020-output-dir-per-cert.md) for the rationale, path-resolution rules, and the conditions under which multi-directory fan-out would be reintroduced.
 
-If a future field needs to reference another block (per-output encryption recipients, for example), it will be added by reintroducing a named `output` block alongside the inline form, following the same label-reference pattern as `cert.ca`.
+If a future field needs to reference another block (per-output encryption recipients, for example), it will be added by reintroducing a named `output` block alongside the inline form, following the same `<block>.<label>` reference pattern as `cert.ca`.
 
 ## Labels vs. names (worked example)
 

@@ -60,7 +60,7 @@ Default file paths use the **cert name**, not the label. Full rationale in [`spe
 
 ## References between blocks
 
-The only cross-block reference is `cert.ca` (with the CA marked `default = true` as the fallback when omitted), a plain string label selecting the signing CA when more than one CA exists ([ADR-015](./spec/adr/015-multiple-cas-per-config.md)). Certs name their destination directory directly via `cert.output_dir`. The schema avoids `hcl.EvalContext` because nothing is interpolated — references are bare labels, not traversal expressions. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-020](./spec/adr/020-output-dir-per-cert.md).
+The only cross-block reference is `cert.ca = ca.<label>` (with the CA marked `default = true` as the fallback when omitted), selecting the signing CA when more than one CA exists ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), [ADR-025](./spec/adr/025-ca-references.md)). The reference is an HCL traversal read as syntax, never evaluated, so the schema needs no `hcl.EvalContext`. Only the attribute form is accepted (`ca["x"]` and quoted strings are rejected), and reference errors carry the expression's source range. Certs name their destination directory directly via `cert.output_dir`. See [ADR-005](./spec/adr/005-hcl-schema-decision.md) and [ADR-020](./spec/adr/020-output-dir-per-cert.md).
 
 ## Using an existing CA (reference mode)
 
@@ -123,7 +123,7 @@ ca "label" {
 ```hcl
 cert "router" {
   name            = "router.mesh"               # optional; defaults to label
-  ca              = "my-ca"                     # signing CA label; omit to use the default CA
+  ca              = ca.my-ca                    # signing CA reference; omit to use the default CA
   networks        = ["10.42.2.1/16", "fd42::1/64"]
   unsafe_networks = ["192.168.10.0/24"]
   groups          = ["router"]
@@ -264,7 +264,8 @@ The manifest already carries an explicit `schema_version` field from day one —
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
 - A cert's signing CA has `archived = true` → error (archived CAs may not sign).
 - More than one `ca` block sets `default = true` → error.
-- `cert.ca` names a CA that is not declared → error.
+- `cert.ca` is not a `ca.<label>` reference → error.
+- `cert.ca` references a CA that is not declared → error.
 - `cert.groups` containing a group not in `ca.groups` (when restricted) → error.
 - `cert.networks` containing a prefix not contained by `ca.networks` (when restricted) → error.
 - `cert.unsafe_networks` containing a prefix not contained by `ca.unsafe_networks` (when restricted) → error.

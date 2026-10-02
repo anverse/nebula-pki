@@ -122,7 +122,7 @@ ca "next" {
 }
 ```
 
-On the next run, every cert that relied on the default is re-signed under `next` (the re-sign is driven by the change in `ca_fingerprint`; see the idempotency rule in [ADR-002](./002-state-and-artifact-layout.md)). Certs pinned with an explicit `cert.ca` are unaffected until their pin changes — useful for canarying the new CA on a few certs (set `ca = "next"` on them) before moving the default.
+On the next run, every cert that relied on the default is re-signed under `next` (the re-sign is driven by the change in `ca_fingerprint`; see the idempotency rule in [ADR-002](./002-state-and-artifact-layout.md)). Certs pinned with an explicit `cert.ca` are unaffected until their pin changes — useful for canarying the new CA on a few certs (set `ca = ca.next` on them) before moving the default.
 
 ### The full rotation, declaratively
 
@@ -130,7 +130,7 @@ On the next run, every cert that relied on the default is re-signed under `next`
 |---|---|---|
 | 1. Generate CA2 | Add `ca "next" {}` | Generates `next`'s key/cert; records it in `cas`. |
 | 2. Distribute `CA1+CA2` | (none — automatic) | Bundle now contains both; operator ships `out/ca/bundle.crt` and reloads. |
-| 3. Re-sign certs onto CA2 | move `default = true` to `next` (or set `ca = "next"` per cert to canary) | Re-signs affected certs under `next`; fans out new certs. |
+| 3. Re-sign certs onto CA2 | move `default = true` to `next` (or set `ca = ca.next` per cert to canary) | Re-signs affected certs under `next`; fans out new certs. |
 | 4. Drop CA1 | `archived = true` on `current` (later delete the block) | Bundle drops `current`; operator ships the slimmer bundle and reloads. |
 
 The operator still performs the two **distribution + reload** actions (steps 2 and 4 require touching every node's running config — inherently outside this tool). Everything between — generating, signing, re-signing, bundling, and tracking progress in the manifest — is `edit HCL + re-run`.

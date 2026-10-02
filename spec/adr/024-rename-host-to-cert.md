@@ -12,7 +12,7 @@ The per-certificate declaration has been a `host` block since the first schema:
 host "app_01" {
   name     = "app-01.mesh.internal"   # cert CN
   networks = ["10.42.1.10/16"]
-  ca       = "next"                    # signing CA label (string form; see ADR-025)
+  ca       = ca.next                   # signing CA reference
 }
 ```
 
@@ -35,12 +35,9 @@ sequence (see "Release sequencing").
 cert "app_01" {
   name     = "app-01.mesh.internal"
   networks = ["10.42.1.10/16"]
-  ca       = "next"
+  ca       = ca.next
 }
 ```
-
-(The `ca` field still takes a string label at this point; it becomes a `ca.<label>`
-reference in [ADR-025](./025-ca-references.md), which ships next.)
 
 ### Scope of the rename (decided 2026-09-26)
 
