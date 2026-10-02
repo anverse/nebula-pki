@@ -223,15 +223,29 @@ cert "node" {
 	}
 }
 
-func TestTrustBundlePathDefault(t *testing.T) {
+func TestTrustBundlePathNoBlock(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `ca "m" { name = "m" }`)
+	if got := cfg.TrustBundlePath(); got != "" {
+		t.Errorf("TrustBundlePath() = %q, want empty without a trust_bundle block", got)
+	}
+}
+
+func TestTrustBundlePathDefault(t *testing.T) {
+	cfg := mustParse(t, "nebula.hcl", `
+trust_bundle "main" { ca_refs = [ca.m] }
+ca "m" { name = "m" }
+`)
 	if got, want := cfg.TrustBundlePath(), filepath.Join("out", "ca", "bundle.crt"); got != want {
 		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
+	}
+	if got := cfg.TrustBundleFilename(); got != "bundle.crt" {
+		t.Errorf("TrustBundleFilename() = %q, want bundle.crt", got)
 	}
 }
 
 func TestTrustBundlePathCustomOutDir(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
+trust_bundle "main" { ca_refs = [ca.m] }
 ca "m" { name = "m" }
 storage { out_dir = "pki" }
 `)
@@ -240,13 +254,19 @@ storage { out_dir = "pki" }
 	}
 }
 
-func TestTrustBundlePathCustomFile(t *testing.T) {
+func TestTrustBundlePathCustomPath(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
+trust_bundle "main" {
+  ca_refs = [ca.m]
+  path    = "shared/mesh-trust.crt"
+}
 ca "m" { name = "m" }
-storage { trust_bundle_file = "shared/mesh-trust.crt" }
 `)
 	if got, want := cfg.TrustBundlePath(), "shared/mesh-trust.crt"; got != want {
 		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
+	}
+	if got := cfg.TrustBundleFilename(); got != "mesh-trust.crt" {
+		t.Errorf("TrustBundleFilename() = %q, want mesh-trust.crt", got)
 	}
 }
 

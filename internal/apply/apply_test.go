@@ -1114,10 +1114,41 @@ cert "h2" {
 // Trust bundle tests
 // ---------------------------------------------------------------------------
 
+// meshBundleHCL is a single-CA config with a declared trust bundle.
+const meshBundleHCL = `
+trust_bundle "main" { ca_refs = [ca.mesh] }
+ca "mesh" { name = "mesh" }
+`
+
+// TestReconcile_NoBundleBlockWritesNoBundle verifies that without a
+// trust_bundle block no bundle is written and the manifest carries no
+// trust_bundle record (ADR-026 §2).
+func TestReconcile_NoBundleBlockWritesNoBundle(t *testing.T) {
+	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if rep.TrustBundleWritten {
+		t.Error("TrustBundleWritten = true without a trust_bundle block")
+	}
+	if _, err := os.Stat(cfg.Resolve(filepath.Join("out", "ca", "bundle.crt"))); err == nil {
+		t.Error("bundle.crt written without a trust_bundle block")
+	}
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if m.TrustBundle != nil {
+		t.Errorf("manifest.TrustBundle = %+v, want nil", m.TrustBundle)
+	}
+}
+
 // TestReconcile_BundleWritten verifies that bundle.crt is created on a fresh
 // run and has the expected file mode.
 func TestReconcile_BundleWritten(t *testing.T) {
-	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+	cfg := writeConfig(t, meshBundleHCL)
 
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
@@ -1140,7 +1171,7 @@ func TestReconcile_BundleWritten(t *testing.T) {
 // TestReconcile_BundleEqualsCACert verifies that a single-CA bundle contains
 // exactly the CA cert PEM bytes.
 func TestReconcile_BundleEqualsCACert(t *testing.T) {
-	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+	cfg := writeConfig(t, meshBundleHCL)
 
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -1158,7 +1189,7 @@ func TestReconcile_BundleEqualsCACert(t *testing.T) {
 // TestReconcile_BundleManifestRecord verifies that manifest.TrustBundle is
 // populated with the correct path and a matching fingerprint.
 func TestReconcile_BundleManifestRecord(t *testing.T) {
-	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+	cfg := writeConfig(t, meshBundleHCL)
 
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -1186,7 +1217,7 @@ func TestReconcile_BundleManifestRecord(t *testing.T) {
 // TestReconcile_BundleIdempotent verifies that a second run leaves
 // bundle.crt byte-identical and does not set TrustBundleWritten.
 func TestReconcile_BundleIdempotent(t *testing.T) {
-	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+	cfg := writeConfig(t, meshBundleHCL)
 
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("first Reconcile: %v", err)
@@ -1211,12 +1242,15 @@ func TestReconcile_BundleIdempotent(t *testing.T) {
 	}
 }
 
-// TestReconcile_BundleCustomPath verifies that storage.trust_bundle_file
-// redirects the bundle to the custom path.
+// TestReconcile_BundleCustomPath verifies that trust_bundle.path redirects
+// the bundle to the custom path.
 func TestReconcile_BundleCustomPath(t *testing.T) {
 	cfg := writeConfig(t, `
 ca "mesh" { name = "mesh" }
-storage { trust_bundle_file = "out/ca/mesh-trust.crt" }
+trust_bundle "main" {
+  ca_refs = [ca.mesh]
+  path    = "out/ca/mesh-trust.crt"
+}
 `)
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
@@ -1233,7 +1267,7 @@ storage { trust_bundle_file = "out/ca/mesh-trust.crt" }
 	}
 	// Default path must not exist.
 	if _, err := os.Stat(cfg.Resolve("out/ca/bundle.crt")); err == nil {
-		t.Error("default bundle.crt exists but should not when trust_bundle_file is set")
+		t.Error("default bundle.crt exists but should not when trust_bundle.path is set")
 	}
 
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
@@ -1245,11 +1279,14 @@ storage { trust_bundle_file = "out/ca/mesh-trust.crt" }
 	}
 }
 
-// TestReconcile_TwoCAsBundleConcatenates verifies that a two-CA config
-// writes a bundle containing both CA certs in declaration order and that
-// the manifest records both fingerprints.
+// TestReconcile_TwoCAsBundleConcatenates verifies that a two-member bundle
+// contains both CA certs in ca_refs order and that the manifest records both
+// fingerprints.
 func TestReconcile_TwoCAsBundleConcatenates(t *testing.T) {
 	cfg := writeConfig(t, `
+trust_bundle "main" {
+  ca_refs = [ca.primary, ca.secondary]
+}
 ca "primary" {
   name    = "primary-mesh"
   default = true
@@ -1271,7 +1308,7 @@ cert "h2" {
 	primaryCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
 	secondaryCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[1])))
 
-	// Bundle must be exactly primary || secondary in declaration order.
+	// Bundle must be exactly primary || secondary in ca_refs order.
 	want := append(primaryCert, secondaryCert...)
 	if !bytes.Equal(bundle, want) {
 		t.Error("two-CA bundle content does not match primary+secondary concatenation")
@@ -1298,7 +1335,7 @@ cert "h2" {
 // TestReconcile_BundleReport verifies the TrustBundlePath and
 // TrustBundleWritten fields on the Report struct across two runs.
 func TestReconcile_BundleReport(t *testing.T) {
-	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
+	cfg := writeConfig(t, meshBundleHCL)
 	expected := cfg.TrustBundlePath()
 
 	rep1, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})

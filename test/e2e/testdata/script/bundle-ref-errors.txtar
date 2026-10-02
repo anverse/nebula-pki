@@ -27,8 +27,7 @@ stderr '^error: notlist\.hcl:2,13-17: trust_bundle "main": ca_refs must be a lis
 
 # ca_refs is required.
 ! exec nebula-pki check -c missing.hcl
-stderr 'Missing required argument'
-stderr 'ca_refs'
+stderr '^error: missing\.hcl:1,1-20: trust_bundle "main": missing required argument ca_refs$'
 
 # Only one trust_bundle block.
 ! exec nebula-pki check -c two.hcl

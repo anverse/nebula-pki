@@ -77,14 +77,24 @@ func (c *Config) ManifestPath() string {
 	return c.Storage.ManifestFile
 }
 
-// TrustBundlePath returns the logical path of the emitted trust bundle.
-// When storage.trust_bundle_file is set it is returned unchanged; otherwise
-// the default <out_dir>/ca/bundle.crt is used.
+// TrustBundlePath returns the logical path of the declared trust bundle:
+// trust_bundle.path when set, otherwise the default <out_dir>/ca/bundle.crt.
+// Returns "" when no trust_bundle block is declared (no implicit bundle,
+// ADR-026 §2).
 func (c *Config) TrustBundlePath() string {
-	if c.Storage.TrustBundleFile != "" {
-		return c.Storage.TrustBundleFile
+	if c.TrustBundle == nil {
+		return ""
+	}
+	if c.TrustBundle.Path != "" {
+		return c.TrustBundle.Path
 	}
 	return filepath.Join(c.Storage.OutDir, caSubdir, bundleFile)
+}
+
+// TrustBundleFilename returns the basename of the trust bundle path. This is
+// the filename used for the bundle's link_crt symlinks (ADR-026 §4).
+func (c *Config) TrustBundleFilename() string {
+	return filepath.Base(c.TrustBundlePath())
 }
 
 // ArtifactPath is the single (cert, key) destination for a cert block.

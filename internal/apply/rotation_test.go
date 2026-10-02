@@ -1,6 +1,6 @@
 package apply
 
-// Tests for archived CA bundle filtering, RenewBefore in manifest,
+// Tests for trust bundle membership, RenewBefore in manifest,
 // deadline computation, and the full CA-rotation scenario.
 
 import (
@@ -17,16 +17,16 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Trust bundle: archived CA filtering
+// Trust bundle: explicit membership
 // ---------------------------------------------------------------------------
 
-func TestReconcile_ArchivedCA_ExcludedFromBundle(t *testing.T) {
-	// Two CAs: "current" archived, "next" active and default.
+func TestReconcile_NonMemberCA_ExcludedFromBundle(t *testing.T) {
+	// Two CAs: "current" not listed in ca_refs, "next" listed and default.
 	// The bundle must contain only "next"'s cert.
 	src := `
+trust_bundle "main" { ca_refs = [ca.next] }
 ca "current" {
-  name     = "old-mesh"
-  archived = true
+  name = "old-mesh"
 }
 ca "next" {
   name    = "new-mesh"
@@ -43,16 +43,16 @@ ca "next" {
 		t.Fatal("Changed = false, want true on first run")
 	}
 
-	// Manifest must record archived flag.
+	// The non-member CA keeps its manifest record.
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if !m.CAs["current"].Archived {
-		t.Error("manifest CAs[current].Archived = false, want true")
+	if m.CAs["current"] == nil {
+		t.Error("manifest CAs[current] = nil, want the non-member CA recorded")
 	}
-	if m.CAs["next"].Archived {
-		t.Error("manifest CAs[next].Archived = true, want false")
+	if m.TrustBundle == nil || m.TrustBundle.Label != "main" {
+		t.Errorf("TrustBundle = %+v, want label main", m.TrustBundle)
 	}
 
 	// Bundle fingerprints must list only "next".
@@ -68,11 +68,11 @@ ca "next" {
 	}
 }
 
-func TestReconcile_ArchivedCA_BundleIdempotent(t *testing.T) {
+func TestReconcile_NonMemberCA_BundleIdempotent(t *testing.T) {
 	src := `
+trust_bundle "main" { ca_refs = [ca.next] }
 ca "current" {
-  name     = "old-mesh"
-  archived = true
+  name = "old-mesh"
 }
 ca "next" {
   name    = "new-mesh"
@@ -333,16 +333,17 @@ cert "alpha" {
 	}
 }
 
-func TestComputeDeadlines_ArchivedCA_Excluded(t *testing.T) {
-	// An archived CA's expiry should not appear in the deadline report.
+func TestComputeDeadlines_NonMemberCA_Counts(t *testing.T) {
+	// Every declared CA counts in the deadline report, independent of trust
+	// bundle membership (ADR-017 2026-10-02 amendment).
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	archivedExpiry := now.Add(10 * 24 * time.Hour) // would be the earliest if included
-	activeExpiry := now.Add(365 * 24 * time.Hour)  // much later
+	oldExpiry := now.Add(10 * 24 * time.Hour)
+	newExpiry := now.Add(365 * 24 * time.Hour)
 
 	cfg := writeConfig(t, `
+trust_bundle "main" { ca_refs = [ca.new] }
 ca "old" {
-  name     = "old"
-  archived = true
+  name = "old"
 }
 ca "new" {
   name    = "new"
@@ -350,13 +351,12 @@ ca "new" {
 }
 `)
 	m := manifest.New()
-	m.CAs["old"] = &manifest.CA{NotAfter: archivedExpiry, Archived: true}
-	m.CAs["new"] = &manifest.CA{NotAfter: activeExpiry}
+	m.CAs["old"] = &manifest.CA{NotAfter: oldExpiry}
+	m.CAs["new"] = &manifest.CA{NotAfter: newExpiry}
 
 	d := computeDeadlines(cfg, m, now)
-	// Deadline must be the active CA's expiry, not the archived one.
-	if !d.NextDeadline.Equal(activeExpiry) {
-		t.Errorf("NextDeadline = %v, want active CA expiry %v (archived CA excluded)", d.NextDeadline, activeExpiry)
+	if !d.NextDeadline.Equal(oldExpiry) {
+		t.Errorf("NextDeadline = %v, want non-member CA expiry %v", d.NextDeadline, oldExpiry)
 	}
 }
 
@@ -378,6 +378,7 @@ func TestComputeDeadlines_EmptyManifest_ZeroDeadline(t *testing.T) {
 func TestReconcile_CARotation_FullScenario(t *testing.T) {
 	// Step 1: single CA "current"
 	src1 := `
+trust_bundle "main" { ca_refs = [ca.current] }
 ca "current" {
   name    = "mesh-2026"
   default = true
@@ -400,6 +401,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	// To keep this test self-contained, we write a separate config.
 	// Step 2 adds "next" with no default change; certs stay on "current".
 	src2 := `
+trust_bundle "main" { ca_refs = [ca.current, ca.next] }
 ca "current" {
   name    = "mesh-2026"
   default = true
@@ -434,6 +436,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 
 	// Step 3: move default = true to "next" → certs re-signed.
 	src3 := `
+trust_bundle "main" { ca_refs = [ca.current, ca.next] }
 ca "current" {
   name = "mesh-2026"
 }
@@ -460,11 +463,11 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Error("step3: alpha CA fingerprint unchanged, want new fingerprint (signed under 'next')")
 	}
 
-	// Step 4: archive "current" → bundle shrinks to just "next".
+	// Step 4: drop "current" from ca_refs → bundle shrinks to just "next".
 	src4 := `
+trust_bundle "main" { ca_refs = [ca.next] }
 ca "current" {
-  name     = "mesh-2026"
-  archived = true
+  name = "mesh-2026"
 }
 ca "next" {
   name    = "mesh-2027"
@@ -487,8 +490,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if m4.TrustBundle.CAFingerprints[0] != m4.CAs["next"].Fingerprint {
 		t.Error("step4: bundle fingerprint is not 'next', want 'next' only")
 	}
-	if !m4.CAs["current"].Archived {
-		t.Error("step4: manifest CAs[current].Archived = false, want true")
+	if m4.CAs["current"] == nil {
+		t.Error("step4: manifest CAs[current] = nil, want the dropped CA still recorded")
 	}
 
 	// Step 5: idempotency; re-run step 4 config must be a noop.
@@ -498,22 +501,22 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("step5 Reconcile: %v", err)
 	}
 	if rep5.Changed {
-		t.Error("step5: Changed = true, want false (idempotent after archival)")
+		t.Error("step5: Changed = true, want false (idempotent after dropping 'current')")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// writeDryRunPlan: CA archival changes the active-CA count
+// writeDryRunPlan: dropping a bundle member rewrites the bundle
 // ---------------------------------------------------------------------------
 
-func TestWriteDryRunPlan_CAArchival(t *testing.T) {
-	// Walk through the rotation steps so that by step 4 (archive old CA) all
-	// certs are already signed with the new CA and the plan has zero mutations.
-	// That is the exact scenario where the old code would print "up to date;
-	// nothing to do" despite the bundle needing a rewrite.
+func TestWriteDryRunPlan_BundleMemberDropped(t *testing.T) {
+	// Walk through the rotation steps so that by step 4 (drop the old CA from
+	// ca_refs) all certs are already signed with the new CA and no CA or cert
+	// changes. The dry run must still list the bundle rewrite.
 
 	// Step 1: single CA "current" as default.
 	cfg := writeConfig(t, `
+trust_bundle "main" { ca_refs = [ca.current] }
 ca "current" {
   name    = "mesh-2026"
   default = true
@@ -526,6 +529,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 
 	// Step 2: add "next" (default stays on "current"); bundle grows to 2 CAs.
 	cfg = reloadConfig(t, cfg, `
+trust_bundle "main" { ca_refs = [ca.current, ca.next] }
 ca "current" {
   name    = "mesh-2026"
   default = true
@@ -539,6 +543,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 
 	// Step 3: promote "next" to default; certs are re-signed with "next".
 	cfg = reloadConfig(t, cfg, `
+trust_bundle "main" { ca_refs = [ca.current, ca.next] }
 ca "current" { name = "mesh-2026" }
 ca "next" {
   name    = "mesh-2027"
@@ -550,12 +555,12 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("step3 Reconcile: %v", err)
 	}
 
-	// Step 4 config: archive "current". Certs are already on "next", so the
-	// plan has no mutations, yet the bundle must shrink from 2 to 1 CA.
-	cfgArchive := reloadConfig(t, cfg, `
+	// Step 4 config: drop "current" from ca_refs. Certs are already on
+	// "next", yet the bundle must shrink from 2 to 1 CA.
+	cfgDrop := reloadConfig(t, cfg, `
+trust_bundle "main" { ca_refs = [ca.next] }
 ca "current" {
-  name     = "mesh-2026"
-  archived = true
+  name = "mesh-2026"
 }
 ca "next" {
   name    = "mesh-2027"
@@ -564,47 +569,47 @@ ca "next" {
 cert "alpha" { networks = ["10.0.0.1/16"] }
 `)
 
-	current, err := manifest.Load(cfgArchive.Resolve(cfgArchive.ManifestPath()))
+	current, err := manifest.Load(cfgDrop.Resolve(cfgDrop.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
 	exists := func(p string) bool {
-		_, statErr := os.Stat(cfgArchive.Resolve(p))
+		_, statErr := os.Stat(cfgDrop.Resolve(p))
 		return statErr == nil
 	}
-	p, err := plan.Build(cfgArchive, current, fixedNow, exists, plan.Options{})
+	p, err := plan.Build(cfgDrop, current, fixedNow, exists, plan.Options{})
 	if err != nil {
 		t.Fatalf("plan.Build: %v", err)
 	}
-	if p.Changes() {
-		t.Fatal("plan.Changes() = true, want false; certs already signed with 'next', no CA to generate")
-	}
-
-	// Dry-run must list the bundle write because active CA count changed 2→1.
-	archiveEnc, err := crypto.New(cfgArchive.Storage.Encryption)
+	// Dry-run must list the bundle write because membership changed 2→1.
+	dropEnc, err := crypto.New(cfgDrop.Storage.Encryption)
 	if err != nil {
 		t.Fatalf("crypto.New: %v", err)
 	}
 	var buf bytes.Buffer
-	writeDryRunPlan(&buf, cfgArchive, archiveEnc, p, current, exists)
+	writeDryRunPlan(&buf, cfgDrop, dropEnc, p, current, exists)
 	out := buf.String()
 	if strings.Contains(out, "up to date; nothing to do") {
-		t.Errorf("dry-run = %q; want bundle write listed (archival shrinks bundle)", out)
+		t.Errorf("dry-run = %q; want bundle write listed (dropped member shrinks bundle)", out)
 	}
-	if !strings.Contains(out, cfgArchive.TrustBundlePath()) {
-		t.Errorf("dry-run = %q; want %q in output", out, cfgArchive.TrustBundlePath())
+	if !strings.Contains(out, cfgDrop.TrustBundlePath()) {
+		t.Errorf("dry-run = %q; want %q in output", out, cfgDrop.TrustBundlePath())
 	}
 
-	// After the real archival run the manifest records 1 active CA; dry-run must be a noop.
-	if _, err := Reconcile(cfgArchive, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
-		t.Fatalf("archival Reconcile: %v", err)
+	// After the real run the manifest records 1 member; dry-run must be a noop.
+	if _, err := Reconcile(cfgDrop, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("drop Reconcile: %v", err)
 	}
-	current2, _ := manifest.Load(cfgArchive.Resolve(cfgArchive.ManifestPath()))
+	current2, _ := manifest.Load(cfgDrop.Resolve(cfgDrop.ManifestPath()))
 
+	p2, err := plan.Build(cfgDrop, current2, fixedNow, exists, plan.Options{})
+	if err != nil {
+		t.Fatalf("plan.Build: %v", err)
+	}
 	var buf2 bytes.Buffer
-	writeDryRunPlan(&buf2, cfgArchive, archiveEnc, p, current2, exists)
+	writeDryRunPlan(&buf2, cfgDrop, dropEnc, p2, current2, exists)
 	if !strings.Contains(buf2.String(), "up to date; nothing to do") {
-		t.Errorf("post-archival dry-run = %q; want 'up to date; nothing to do'", buf2.String())
+		t.Errorf("post-run dry-run = %q; want 'up to date; nothing to do'", buf2.String())
 	}
 }
 

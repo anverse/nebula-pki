@@ -45,8 +45,13 @@ type Manifest struct {
 // every active CA cert included; lets downstream tooling verify Nebula network trust
 // without parsing PEM.
 type TrustBundle struct {
+	// Label is the trust_bundle block label. It is recorded only; the
+	// bundle's identity is its path (ADR-026 "Detailed rules").
+	Label          string   `json:"label"`
 	Path           string   `json:"path"`
 	CAFingerprints []string `json:"ca_fingerprints"`
+	// Links records the managed trust_bundle link_crt symlinks.
+	Links []CertLink `json:"links,omitempty"`
 }
 
 // Generator identifies the tool (and, later, the pinned upstream library)
@@ -92,7 +97,6 @@ type CA struct {
 	CertPath    string    `json:"cert_path"`
 	KeyPath     string    `json:"key_path"`
 	Default     bool      `json:"default,omitempty"`
-	Archived    bool      `json:"archived,omitempty"`
 	// Encryption is non-nil when the CA key file was written encrypted.
 	Encryption *EncryptionRecord `json:"encryption,omitempty"`
 	// Links records the managed link_crt symlinks for this CA (ADR-021).

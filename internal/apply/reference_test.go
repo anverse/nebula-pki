@@ -37,7 +37,13 @@ func seedReferenceCA(t *testing.T, dir, src string) *pki.CAResult {
 
 // writeRefConfig writes a reference-mode config that points at ca.crt /
 // ca.key in the same directory, plus a seeded CA there, and loads it.
-func writeRefConfig(t *testing.T, seedSrc string) (*config.Config, *pki.CAResult) {
+// refBundleHCL declares a trust bundle over the reference CA written by
+// writeRefConfig.
+const refBundleHCL = `
+trust_bundle "main" { ca_refs = [ca.ref] }
+`
+
+func writeRefConfig(t *testing.T, seedSrc string, extra ...string) (*config.Config, *pki.CAResult) {
 	t.Helper()
 	dir := t.TempDir()
 	seed := seedReferenceCA(t, dir, seedSrc)
@@ -48,6 +54,7 @@ ca "ref" {
   cert_file = "ca.crt"
   key_file  = "ca.key"
 }`
+	src += strings.Join(extra, "\n")
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -144,7 +151,7 @@ func TestReconcile_ReferenceRecordsManifestWithoutTouchingFiles(t *testing.T) {
 // referenced CA cert, that the manifest records the fingerprint, and that a
 // second run is idempotent (bundle not rewritten).
 func TestReconcile_ReferenceBundleContent(t *testing.T) {
-	cfg, seed := writeRefConfig(t, `ca "mesh" { name = "ref-mesh" }`)
+	cfg, seed := writeRefConfig(t, `ca "mesh" { name = "ref-mesh" }`, refBundleHCL)
 
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
@@ -224,7 +231,7 @@ func TestReconcile_ReferenceIdempotentRerun(t *testing.T) {
 // operator points cert_file/key_file at a different CA, the manifest's
 // fingerprint must update.
 func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
-	cfg, first := writeRefConfig(t, `ca "mesh" { name = "first-ca" }`)
+	cfg, first := writeRefConfig(t, `ca "mesh" { name = "first-ca" }`, refBundleHCL)
 
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("first Reconcile: %v", err)

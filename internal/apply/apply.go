@@ -379,12 +379,11 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc
 			return nil, caPEMs{}, fmt.Errorf("read CA %q certificate: %w", ca.Label, err)
 		}
 		// Carry the existing manifest entry forward, but always reflect the
-		// current config's Archived and Default flags; these can change
-		// (e.g. during rotation) without triggering a CA re-generation.
+		// current config's Default flag; it can change (e.g. during
+		// rotation) without triggering a CA re-generation.
 		if rec := current.CAs[ca.Label]; rec != nil {
 			updated := *rec
 			updated.Default = ca.Default
-			updated.Archived = ca.Archived
 			next.CAs[ca.Label] = &updated
 		}
 
@@ -451,7 +450,6 @@ func caResultToManifest(ca *config.CA, result *pki.CAResult, certPath, keyPath s
 		CertPath:    certPath,
 		KeyPath:     keyPath,
 		Default:     ca.Default,
-		Archived:    ca.Archived,
 	}
 }
 
@@ -757,20 +755,23 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 	return created, deleted, nil
 }
 
-// reconcileTrustBundle builds the concatenated-PEM trust bundle from every
-// active (non-archived) CA in declaration order. It populates next.TrustBundle
-// and writes the bundle file when the content has changed. Returns true when
-// the file was written.
+// reconcileTrustBundle builds the concatenated-PEM trust bundle from the
+// declared trust_bundle members in ca_refs order. It populates
+// next.TrustBundle and writes the bundle file when the content has changed.
+// Without a trust_bundle block nothing is written and next.TrustBundle stays
+// nil (ADR-026 §2). Returns true when the file was written.
 func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current, next *manifest.Manifest, exists func(string) bool) (bool, error) {
+	tb := cfg.TrustBundle
+	if tb == nil {
+		next.TrustBundle = nil
+		return false, nil
+	}
 	bundlePath := cfg.TrustBundlePath()
 
 	var bundle []byte
-	fps := make([]string, 0, len(cfg.CAs))
-	for i := range cfg.CAs {
-		ca := &cfg.CAs[i]
-		if ca.Archived {
-			continue // archived CAs are excluded from the trust bundle (ADR-016)
-		}
+	fps := make([]string, 0, len(tb.CARefs))
+	for _, label := range tb.CARefs {
+		ca := cfg.CAByLabel(label)
 		bundle = append(bundle, caKeys[ca.Label].cert...)
 		if rec := next.CAs[ca.Label]; rec != nil {
 			fps = append(fps, rec.Fingerprint)
@@ -778,6 +779,7 @@ func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current,
 	}
 
 	next.TrustBundle = &manifest.TrustBundle{
+		Label:          tb.Label,
 		Path:           bundlePath,
 		CAFingerprints: fps,
 	}
@@ -929,21 +931,16 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 	// Include the trust bundle in the preview when it would be written:
 	// - any new CA is generated (new fingerprint enters the bundle), or
 	// - the bundle file is absent, or
-	// - the count of active (non-archived) CAs differs from the manifest's
-	//   recorded fingerprint count, which happens when a CA is archived or
-	//   un-archived between runs.
-	activeCount := 0
-	for i := range cfg.CAs {
-		if !cfg.CAs[i].Archived {
-			activeCount++
+	// - the member count differs from the manifest's recorded fingerprint
+	//   count.
+	if cfg.TrustBundle != nil {
+		manifestCount := 0
+		if current.TrustBundle != nil {
+			manifestCount = len(current.TrustBundle.CAFingerprints)
 		}
-	}
-	manifestCount := 0
-	if current.TrustBundle != nil {
-		manifestCount = len(current.TrustBundle.CAFingerprints)
-	}
-	if anyCAGenerate || !exists(cfg.TrustBundlePath()) || activeCount != manifestCount {
-		writes = append(writes, cfg.TrustBundlePath())
+		if anyCAGenerate || !exists(cfg.TrustBundlePath()) || len(cfg.TrustBundle.CARefs) != manifestCount {
+			writes = append(writes, cfg.TrustBundlePath())
+		}
 	}
 
 	if len(writes) == 0 && len(linkLines) == 0 {
@@ -964,7 +961,7 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 // section of the deadline report.
 const deadlineSoonWindow = 60 * 24 * time.Hour
 
-// computeDeadlines inspects m for every cert and non-archived CA, then
+// computeDeadlines inspects m for every cert and every declared CA, then
 // returns the earliest actionable deadline plus supplementary detail.
 //
 // For a cert with renew_before: deadline = not_after − renew_before (the
@@ -1010,12 +1007,9 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 		updateEarliest(deadline, desc)
 	}
 
-	// CAs — non-archived only; use config CA order for determinism.
+	// CAs — every declared CA; use config CA order for determinism.
 	for i := range cfg.CAs {
 		ca := &cfg.CAs[i]
-		if ca.Archived {
-			continue
-		}
 		rec, ok := m.CAs[ca.Label]
 		if !ok || rec == nil || rec.NotAfter.IsZero() {
 			continue

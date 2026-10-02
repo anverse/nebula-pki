@@ -243,6 +243,7 @@ func TestDryRunFlag_FreshDir(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "nebula.hcl")
 	if err := os.WriteFile(cfgPath, []byte(`
+trust_bundle "main" { ca_refs = [ca.mesh] }
 ca "mesh" { name = "mesh" }
 cert "alpha" { networks = ["10.0.0.1/16"] }
 `), 0o600); err != nil {

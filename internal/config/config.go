@@ -41,6 +41,38 @@ type Config struct {
 	CAs     []CA
 	Storage Storage
 	Certs   []Cert
+
+	// TrustBundle is the declared trust_bundle block, or nil when the config
+	// declares none. There is no implicit bundle (ADR-026 §2).
+	TrustBundle *TrustBundle
+}
+
+// TrustBundle is the parsed trust_bundle block (ADR-026). It states trust
+// membership explicitly via CA references.
+type TrustBundle struct {
+	Label string
+	// CARefs holds the member CA labels in ca_refs order, which is also the
+	// order of the certificates in the emitted bundle.
+	CARefs []string
+	// CARefRanges holds the source range of each ca_refs element, used to
+	// point membership errors at the offending HCL.
+	CARefRanges []hcl.Range
+	// Path is trust_bundle.path as written; empty means the default
+	// <out_dir>/ca/bundle.crt. Use Config.TrustBundlePath.
+	Path string
+	// LinkCrt is a list of directories where a relative symlink to the
+	// bundle is created. The symlink name is the bundle file's basename.
+	LinkCrt []string
+}
+
+// Has reports whether the CA with the given label is a bundle member.
+func (tb *TrustBundle) Has(label string) bool {
+	for _, l := range tb.CARefs {
+		if l == label {
+			return true
+		}
+	}
+	return false
 }
 
 // IsMultiCA reports whether the config declares more than one CA.
@@ -155,12 +187,6 @@ type CA struct {
 	RenewBefore    time.Duration
 	HasRenewBefore bool
 
-	// Archived, when true, excludes this CA's certificate from the emitted
-	// trust bundle and prevents it from signing certs. The manifest record
-	// is kept for audit. Used to stage the final step of a CA rotation.
-	// See ADR-016.
-	Archived bool
-
 	// LinkCrt is a list of directories where a relative symlink to this CA's
 	// certificate should be created. Symlink filename follows CACertFilename.
 	// See ADR-021 and spec/milestones/v0.2.md §"CA cert links".
@@ -173,10 +199,9 @@ type CA struct {
 
 // Storage holds the storage block.
 type Storage struct {
-	OutDir          string
-	ManifestFile    string
-	TrustBundleFile string
-	Encryption      EncryptionConfig
+	OutDir       string
+	ManifestFile string
+	Encryption   EncryptionConfig
 }
 
 // EncryptionConfig is the parsed encryption block.
@@ -343,9 +368,10 @@ func diagsError(diags hcl.Diagnostics) error {
 // ---------------------------------------------------------------------------
 
 type rawConfig struct {
-	CAs     []rawCA     `hcl:"ca,block"`
-	Storage *rawStorage `hcl:"storage,block"`
-	Certs   []rawCert   `hcl:"cert,block"`
+	CAs          []rawCA          `hcl:"ca,block"`
+	TrustBundles []rawTrustBundle `hcl:"trust_bundle,block"`
+	Storage      *rawStorage      `hcl:"storage,block"`
+	Certs        []rawCert        `hcl:"cert,block"`
 }
 
 type rawCA struct {
@@ -369,17 +395,15 @@ type rawCA struct {
 	CertFile         *string  `hcl:"cert_file,optional"`
 	KeyFile          *string  `hcl:"key_file,optional"`
 	RenewBefore      *string  `hcl:"renew_before,optional"`
-	Archived         *bool    `hcl:"archived,optional"`
 	LinkCrt          []string `hcl:"link_crt,optional"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
 
 type rawStorage struct {
-	OutDir          *string            `hcl:"out_dir,optional"`
-	ManifestFile    *string            `hcl:"manifest_file,optional"`
-	TrustBundleFile *string            `hcl:"trust_bundle_file,optional"`
-	Encryption      []rawEncryptionRaw `hcl:"encryption,block"`
+	OutDir       *string            `hcl:"out_dir,optional"`
+	ManifestFile *string            `hcl:"manifest_file,optional"`
+	Encryption   []rawEncryptionRaw `hcl:"encryption,block"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
@@ -413,6 +437,16 @@ type rawExternalBody struct {
 	EncryptCommand []string `hcl:"encrypt_command,optional"`
 	DecryptCommand []string `hcl:"decrypt_command,optional"`
 	OutputSuffix   *string  `hcl:"output_suffix,optional"`
+}
+
+type rawTrustBundle struct {
+	Label string `hcl:"label,label"`
+
+	CARefs  hcl.Expression `hcl:"ca_refs"`
+	Path    *string        `hcl:"path,optional"`
+	LinkCrt []string       `hcl:"link_crt,optional"`
+
+	Range hcl.Range `hcl:",def_range"`
 }
 
 type rawCert struct {
@@ -461,6 +495,18 @@ func decode(filename string, raw *rawConfig) (*Config, error) {
 		return nil, err
 	}
 	cfg.Storage = *storage
+
+	if len(raw.TrustBundles) > 1 {
+		second := raw.TrustBundles[1]
+		return nil, fmt.Errorf("%s: trust_bundle %q: only one trust_bundle block is allowed", second.Range, second.Label)
+	}
+	if len(raw.TrustBundles) == 1 {
+		tb, err := decodeTrustBundle(&raw.TrustBundles[0])
+		if err != nil {
+			return nil, err
+		}
+		cfg.TrustBundle = tb
+	}
 
 	certs := make([]Cert, 0, len(raw.Certs))
 	for _, rh := range raw.Certs {
@@ -568,9 +614,6 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 		ca.RenewBefore = d
 		ca.HasRenewBefore = true
 	}
-	if r.Archived != nil {
-		ca.Archived = *r.Archived
-	}
 	ca.LinkCrt = append(ca.LinkCrt, r.LinkCrt...)
 
 	return ca, nil
@@ -621,9 +664,6 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 		if r.ManifestFile != nil && *r.ManifestFile != "" {
 			s.ManifestFile = *r.ManifestFile
 		}
-		if r.TrustBundleFile != nil && *r.TrustBundleFile != "" {
-			s.TrustBundleFile = *r.TrustBundleFile
-		}
 		if len(r.Encryption) > 1 {
 			return nil, fmt.Errorf("%s: storage: multiple `encryption` blocks are not allowed", filename)
 		}
@@ -656,6 +696,38 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 		s.ManifestFile = filepath.Join(s.OutDir, defaultManifestName)
 	}
 	return s, nil
+}
+
+func decodeTrustBundle(r *rawTrustBundle) (*TrustBundle, error) {
+	tb := &TrustBundle{Label: r.Label}
+
+	if v, diags := r.CARefs.Value(nil); !diags.HasErrors() && v.IsNull() {
+		return nil, fmt.Errorf("%s: trust_bundle %q: missing required argument ca_refs", r.Range, r.Label)
+	}
+	elems, diags := hcl.ExprList(r.CARefs)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("%s: trust_bundle %q: ca_refs must be a list of ca.<label> references", r.CARefs.Range(), r.Label)
+	}
+	if len(elems) == 0 {
+		return nil, fmt.Errorf("%s: trust_bundle %q: ca_refs must list at least one CA", r.CARefs.Range(), r.Label)
+	}
+	for i, e := range elems {
+		label, err := caRefLabel(e)
+		if errors.Is(err, errCARefShape) || (err == nil && label == "") {
+			return nil, fmt.Errorf("%s: trust_bundle %q: ca_refs[%d] must be a CA reference of the form ca.<label>", e.Range(), r.Label, i)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: trust_bundle %q: ca_refs[%d]: %w", e.Range(), r.Label, i, err)
+		}
+		tb.CARefs = append(tb.CARefs, label)
+		tb.CARefRanges = append(tb.CARefRanges, e.Range())
+	}
+
+	if r.Path != nil {
+		tb.Path = *r.Path
+	}
+	tb.LinkCrt = append(tb.LinkCrt, r.LinkCrt...)
+	return tb, nil
 }
 
 func decodeCert(filename string, r *rawCert) (*Cert, error) {
@@ -830,6 +902,12 @@ func validate(cfg *Config) error {
 	if err := validateCAs(cfg); err != nil {
 		return err
 	}
+	if err := validateTrustBundle(cfg); err != nil {
+		return err
+	}
+	if err := validateLinkPaths(cfg); err != nil {
+		return err
+	}
 	return validateCerts(cfg)
 }
 
@@ -918,24 +996,89 @@ func validateOneCA(filename string, ca *CA) error {
 		}
 	}
 
-	// An archived CA cannot also be the default: all certs that lack an
-	// explicit cert.ca would resolve to an archived (non-signing) CA,
-	// making the configuration immediately invalid.
-	if ca.Archived && ca.Default {
-		return fmt.Errorf("ca %q: an archived CA cannot be marked default = true", ca.Label)
-	}
+	return validateLinkCrt(fmt.Sprintf("ca %q", ca.Label), ca.LinkCrt)
+}
 
-	seenDirs := make(map[string]struct{}, len(ca.LinkCrt))
-	for i, d := range ca.LinkCrt {
+// validateLinkCrt checks one link_crt list: entries must be non-empty and
+// must not repeat. owner prefixes the error, e.g. `ca "mesh"`.
+func validateLinkCrt(owner string, dirs []string) error {
+	seenDirs := make(map[string]struct{}, len(dirs))
+	for i, d := range dirs {
 		if d == "" {
-			return fmt.Errorf("ca %q: link_crt[%d]: directory path must not be empty", ca.Label, i)
+			return fmt.Errorf("%s: link_crt[%d]: directory path must not be empty", owner, i)
 		}
 		if _, dup := seenDirs[d]; dup {
-			return fmt.Errorf("ca %q: link_crt[%d]: duplicate directory %q", ca.Label, i, d)
+			return fmt.Errorf("%s: link_crt[%d]: duplicate directory %q", owner, i, d)
 		}
 		seenDirs[d] = struct{}{}
 	}
+	return nil
+}
 
+// validateTrustBundle checks the trust_bundle block, when declared: label
+// shape, resolvable and duplicate-free members, its own link_crt list, and
+// that the default CA is a member (ADR-026).
+func validateTrustBundle(cfg *Config) error {
+	tb := cfg.TrustBundle
+	if tb == nil {
+		return nil
+	}
+	if !caLabelRe.MatchString(tb.Label) {
+		return fmt.Errorf("trust_bundle %q: label must match ^[A-Za-z_][A-Za-z0-9_-]*$", tb.Label)
+	}
+	seen := make(map[string]struct{}, len(tb.CARefs))
+	for i, label := range tb.CARefs {
+		if cfg.CAByLabel(label) == nil {
+			return fmt.Errorf("%s: trust_bundle %q: ca_refs[%d]: ca %q is not declared", tb.CARefRanges[i], tb.Label, i, label)
+		}
+		if _, dup := seen[label]; dup {
+			return fmt.Errorf("%s: trust_bundle %q: ca_refs[%d]: duplicate member ca %q", tb.CARefRanges[i], tb.Label, i, label)
+		}
+		seen[label] = struct{}{}
+	}
+	if err := validateLinkCrt(fmt.Sprintf("trust_bundle %q", tb.Label), tb.LinkCrt); err != nil {
+		return err
+	}
+	for i := range cfg.CAs {
+		ca := &cfg.CAs[i]
+		if ca.Default && !tb.Has(ca.Label) {
+			return fmt.Errorf("ca %q: default = true requires the CA to be in trust_bundle %q ca_refs", ca.Label, tb.Label)
+		}
+	}
+	return nil
+}
+
+// validateLinkPaths checks that no two link_crt sources (any ca block or the
+// trust_bundle) write the same symlink path. Directories are compared after
+// cleaning, so "out/x/" and "out/x" are the same (ADR-026 §3).
+func validateLinkPaths(cfg *Config) error {
+	owners := make(map[string]string) // cleaned symlink path -> owner
+	check := func(owner string, dirs []string, filename string) error {
+		for _, d := range dirs {
+			p := filepath.Join(d, filename)
+			other, dup := owners[p]
+			if !dup {
+				owners[p] = owner
+				continue
+			}
+			if other == owner {
+				return fmt.Errorf("%s: link_crt: directory %q repeats another entry", owner, d)
+			}
+			return fmt.Errorf("link_crt: %s and %s both write symlink %s", other, owner, p)
+		}
+		return nil
+	}
+	for i := range cfg.CAs {
+		ca := cfg.CAs[i]
+		if err := check(fmt.Sprintf("ca %q", ca.Label), ca.LinkCrt, cfg.CACertFilename(ca)); err != nil {
+			return err
+		}
+	}
+	if tb := cfg.TrustBundle; tb != nil {
+		if err := check(fmt.Sprintf("trust_bundle %q", tb.Label), tb.LinkCrt, cfg.TrustBundleFilename()); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1055,7 +1198,8 @@ func validateCertRenewBefore(h *Cert, signingCA *CA) error {
 }
 
 // resolveSigningCA returns the CA that signs h, or an error if the
-// signing CA is ambiguous, undeclared, or archived. This is the single
+// signing CA is ambiguous, undeclared, or not a member of the declared
+// trust_bundle. This is the single
 // point of CA-selection logic shared by validate and the callers in
 // plan/apply.
 func resolveSigningCA(cfg *Config, h *Cert) (*CA, error) {
@@ -1081,8 +1225,12 @@ func resolveSigningCA(cfg *Config, h *Cert) (*CA, error) {
 			)
 		}
 	}
-	if ca.Archived {
-		return nil, fmt.Errorf("cert %q: ca %q is archived and may not sign certs", h.Label, ca.Label)
+	if tb := cfg.TrustBundle; tb != nil && !tb.Has(ca.Label) {
+		err := fmt.Errorf("cert %q: ca %q is not in trust_bundle %q ca_refs and may not sign certs", h.Label, ca.Label, tb.Label)
+		if h.CARef != "" {
+			return nil, fmt.Errorf("%s: %w", h.CARefRange, err)
+		}
+		return nil, err
 	}
 	return ca, nil
 }

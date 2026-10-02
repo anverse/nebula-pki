@@ -192,8 +192,7 @@ func TestBuild_CARotation_DefaultChange_ResignsCerts(t *testing.T) {
 	// After moving default = true to "next": certs must be re-signed.
 	cfg := parseCfg(t, `
 ca "current" {
-  name     = "old-mesh"
-  archived = true
+  name = "old-mesh"
 }
 ca "next" {
   name    = "new-mesh"
