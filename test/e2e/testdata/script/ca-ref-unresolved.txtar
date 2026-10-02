@@ -4,6 +4,10 @@
 ! exec nebula-pki check
 stderr '^error: nebula\.hcl:7,14-21: cert "app_01": ca "typo" is not declared$'
 
+# Labels are case-sensitive: ca.Current does not resolve to ca "current".
+! exec nebula-pki check -c case.hcl
+stderr '^error: case\.hcl:7,14-24: cert "app_01": ca "Current" is not declared$'
+
 -- nebula.hcl --
 ca "current" {
   name = "mesh-2026"
@@ -12,4 +16,14 @@ ca "current" {
 cert "app_01" {
   networks = ["10.42.1.10/16"]
   ca       = ca.typo
+}
+
+-- case.hcl --
+ca "current" {
+  name = "mesh-2026"
+}
+
+cert "app_01" {
+  networks = ["10.42.1.10/16"]
+  ca       = ca.Current
 }

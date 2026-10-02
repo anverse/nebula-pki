@@ -470,6 +470,44 @@ cert "h" {
 `,
 			wantErr: `test.hcl:5,14-28: cert "h": ca "nonexistent" is not declared`,
 		},
+		{
+			name: "cert_ca_ref_case_sensitive",
+			src: `
+ca "m" { name = "m" }
+cert "h" {
+  networks = ["10.0.0.1/16"]
+  ca       = ca.M
+}
+`,
+			wantErr: `test.hcl:5,14-18: cert "h": ca "M" is not declared`,
+		},
+		{
+			name: "null_ca_ref_ambiguous",
+			src: `
+ca "alpha" { name = "alpha" }
+ca "beta"  { name = "beta" }
+cert "h" {
+  networks = ["10.0.0.1/16"]
+  ca       = null
+}
+`,
+			wantErr: `cert "h": ambiguous signing ca (the config has 2 CAs and none is marked default = true; set ca = ca.<label> on the cert or add default = true to one ca block)`,
+		},
+		{
+			name: "first_ca_ref_error_wins",
+			src: `
+ca "m" { name = "m" }
+cert "a" {
+  ca       = "x"
+  networks = ["10.0.0.1/16"]
+}
+cert "b" {
+  ca       = ca.zzz
+  networks = ["10.0.0.2/16"]
+}
+`,
+			wantErr: `test.hcl:4,14-17: cert "a": ca must be a CA reference of the form ca.<label>`,
+		},
 	}
 
 	for _, tc := range cases {
