@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -318,9 +319,12 @@ func TestTrustBundleRoundTrip(t *testing.T) {
 	orig := New()
 	orig.GeneratedAt = t0
 	orig.TrustBundle = &TrustBundle{
+		Label:          "main",
 		Path:           "out/ca/bundle.crt",
 		CAFingerprints: []string{"fp1", "fp2"},
+		Links:          []CertLink{{Path: "out/node/bundle.crt", Target: "../ca/bundle.crt"}},
 	}
+	orig.CAs["mesh"] = &CA{Mode: "generate", Name: "mesh", Fingerprint: "fp1"}
 
 	data, err := Marshal(orig)
 	if err != nil {
@@ -337,6 +341,18 @@ func TestTrustBundleRoundTrip(t *testing.T) {
 	}
 	if got.TrustBundle == nil {
 		t.Fatal("TrustBundle = nil after round-trip")
+	}
+	if got.TrustBundle.Label != "main" {
+		t.Errorf("TrustBundle.Label = %q, want main", got.TrustBundle.Label)
+	}
+	if want := []CertLink{{Path: "out/node/bundle.crt", Target: "../ca/bundle.crt"}}; !reflect.DeepEqual(got.TrustBundle.Links, want) {
+		t.Errorf("TrustBundle.Links = %v, want %v", got.TrustBundle.Links, want)
+	}
+	if !strings.Contains(string(data), `"label": "main"`) {
+		t.Errorf("JSON must carry the bundle label:\n%s", data)
+	}
+	if strings.Contains(string(data), `"archived"`) {
+		t.Errorf("JSON must not carry an archived field:\n%s", data)
 	}
 	if got.TrustBundle.Path != "out/ca/bundle.crt" {
 		t.Errorf("TrustBundle.Path = %q, want out/ca/bundle.crt", got.TrustBundle.Path)

@@ -657,3 +657,87 @@ func reloadConfig(t *testing.T, base *config.Config, src string) *config.Config 
 	}
 	return cfg
 }
+
+// ---------------------------------------------------------------------------
+// Trust bundle links and released artifacts
+// ---------------------------------------------------------------------------
+
+func TestReconcile_BundleLinksRecordedUnderTrustBundle(t *testing.T) {
+	cfg := writeConfig(t, `
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  link_crt = ["out/node"]
+}
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/node"]
+}
+`)
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if err != nil {
+		t.Fatalf("manifest.Load: %v", err)
+	}
+	if got := m.TrustBundle.Links; len(got) != 1 || got[0].Path != "out/node/bundle.crt" || got[0].Target != "../ca/bundle.crt" {
+		t.Errorf("TrustBundle.Links = %+v, want out/node/bundle.crt → ../ca/bundle.crt", got)
+	}
+	if got := m.CAs["mesh"].Links; len(got) != 1 || got[0].Path != "out/node/mesh.crt" {
+		t.Errorf("CAs[mesh].Links = %+v, want only out/node/mesh.crt", got)
+	}
+	owners := map[plan.Kind]int{}
+	for _, l := range rep.CreatedLinks {
+		owners[l.Owner]++
+	}
+	if owners[plan.KindTrustBundle] != 1 || owners[plan.KindCA] != 1 {
+		t.Errorf("CreatedLinks = %+v, want one bundle link and one CA link", rep.CreatedLinks)
+	}
+}
+
+func TestReconcile_RemovedCAReleasedOnce(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "old" { name = "old" }
+ca "new" {
+  name    = "new"
+  default = true
+}
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	cfg = reloadConfig(t, cfg, `
+ca "new" {
+  name    = "new"
+  default = true
+}
+`)
+	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if !rep.Changed {
+		t.Fatal("Changed = false, want true (manifest drops the removed CA)")
+	}
+	if len(rep.Released) != 1 || rep.Released[0].Label != "old" || len(rep.Released[0].Paths) != 2 {
+		t.Fatalf("Released = %+v, want ca old with cert and key", rep.Released)
+	}
+	for _, p := range rep.Released[0].Paths {
+		if _, err := os.Stat(cfg.Resolve(p)); err != nil {
+			t.Errorf("released file %s removed, want it kept on disk: %v", p, err)
+		}
+	}
+	m, _ := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
+	if m.CAs["old"] != nil {
+		t.Error("manifest still records the removed CA")
+	}
+
+	rep3, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
+	if err != nil {
+		t.Fatalf("third Reconcile: %v", err)
+	}
+	if rep3.Changed || len(rep3.Released) != 0 {
+		t.Errorf("third run: Changed = %v, Released = %+v; want a no-op", rep3.Changed, rep3.Released)
+	}
+}
