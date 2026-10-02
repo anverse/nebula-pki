@@ -59,13 +59,37 @@ No evaluation context is introduced. The field is decoded as a raw `hcl.Expressi
    error above.
 3. The traversal must have exactly two steps: root `ca`, then one attribute step — the label.
    Any other root or shape is an error (`unknown reference root "cert"; only ca.<label> references are supported`).
-4. The label is resolved against declared `ca` blocks post-decode, exactly as string labels
-   are resolved today; an unresolved label is an error carrying the expression's source range.
+4. The label is resolved against declared `ca` blocks post-decode; an unresolved label is an
+   error carrying the expression's source range.
 
 This is the same technique Terraform uses for `depends_on`. It is deliberately **not** an
 eval context: `ca.next` never evaluates to a value, so it cannot leak into string
 interpolation, and the reference remains a distinct syntactic object that `hclwrite`-based
 tooling can find, generate, and rewrite mechanically.
+
+### Detailed rules (decided 2026-10-02)
+
+- **One spelling only.** The attribute form `ca.<label>` is the only accepted reference.
+  The index form `ca["<label>"]`, which `hcl.AbsTraversalForExpr` would otherwise accept,
+  is rejected with the shape error. Every legal CA label (`^[A-Za-z_][A-Za-z0-9_-]*$`) is
+  already a valid HCL identifier, hyphens included (`ca.my-ca` is one traversal, not a
+  subtraction), so the index form adds no expressiveness; in HCL it also reads as "element
+  of a collection", not "the block named".
+- **Errors.** Anything that is not a bare traversal (a quoted string, a template, a function
+  call) gets `ca must be a CA reference of the form ca.<label>`. A traversal with a root other
+  than `ca` gets `unknown reference root "<root>"; only ca.<label> references are supported`.
+  A traversal with the `ca` root but the wrong shape (a bare `ca`, extra steps, an index
+  step) gets the first error. There is no message naming the former string syntax.
+- **Source ranges.** Every reference error (shape, root, unresolved label) is prefixed with
+  the expression's `file:line,col` range. Other validation errors are unchanged.
+- **`null`.** `ca = null` is equivalent to omitting the field: the cert is signed by the
+  default (or sole) CA.
+- **JSON Schema.** `spec/hcl-schema.formal.json` cannot express a traversal. It describes
+  `cert.ca` as a string matching `^ca\.[A-Za-z_][A-Za-z0-9_-]*$`, with a `$comment` that
+  native syntax takes a bare traversal. This is also exactly how HCL's JSON syntax spells a
+  traversal (`"ca": "ca.next"`).
+- **Documentation.** Specs, ADRs, examples and agent docs show only the reference form, with
+  no notes about the earlier string syntax. ADR-010 stays untouched as a superseded record.
 
 ## Naming: scalar `cert.ca` keeps the bare token; list fields take a plural
 
