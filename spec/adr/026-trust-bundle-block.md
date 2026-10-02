@@ -148,6 +148,42 @@ This closes the fan-out gap: an output directory listed in both a CA's (or no CA
 
 Declaring the `trust_bundle` at step 0 (not only when membership first diverges) keeps `pki.ca` pointed at one stable path across the whole rotation. Every trust-set change is then an edit to one visible list in one block, reviewable as a one-line diff.
 
+### Detailed rules (decided 2026-10-02)
+
+- **Label.** The `trust_bundle` label matches the CA label pattern `^[A-Za-z_][A-Za-z0-9_-]*$`.
+- **Bundle order.** The bundle concatenates the member certificates in `ca_refs` order, and
+  `trust_bundle.ca_fingerprints` follows the same order. Reordering `ca_refs` rewrites the
+  bundle.
+- **Source ranges.** Every `ca_refs` error (an element that is not a `ca.<label>` reference, a
+  reference to an undeclared CA, a duplicate member, an empty list, a value that is not a list)
+  is prefixed with the offending expression's `file:line,col` range, exactly like `cert.ca`
+  errors ([ADR-025](./025-ca-references.md)). A second `trust_bundle` block is reported at that
+  block's range.
+- **Identity is the path, the label is recorded only.** The bundle holds no secret material, its
+  bytes derive entirely from the member CAs, and its file name derives from `path`, never from
+  the label. With a single bundle the manifest record is one object, not a label-keyed map.
+  Renaming the label therefore only updates `trust_bundle.label` in the manifest; no file or
+  symlink is rewritten. (CA and cert labels behave differently: there the label is the manifest
+  key and, for CAs, the default file name, so a label change creates a new CA or re-signs the
+  cert.) When multiple bundles arrive, the manifest record becomes a label-keyed map and the
+  label becomes the identity, as for `ca` and `cert`; that is the future ADR's concern.
+- **The bundle is a planned action.** The planner decides whether the bundle is written, up to
+  date, or stale, so `--dry-run` shows exactly what a run would do. It is written when a member
+  CA is generated in this run, the member fingerprints (in `ca_refs` order) differ from the
+  manifest, the file is missing, or `path` changed.
+- **Removed block or changed `path`: the file stays.** When the `trust_bundle` block is removed,
+  or its `path` changes, the previously written bundle file is **not deleted**. It stays on disk
+  and the run prints a notice that the file is no longer managed, the same policy as stale cert
+  artifacts. The manifest drops the old record (or records the new path). The bundle's managed
+  symlinks *are* deleted, like any stale `link_crt` symlink (§4).
+- **Symlink collisions.** The symmetric uniqueness check covers symlink paths only, across all
+  `ca` blocks and the `trust_bundle`. Paths are compared after `filepath.Clean`, so
+  `out/hetzner/` and `out/hetzner` are the same directory. Collisions between a symlink and a
+  cert artifact or the bundle file itself are not checked.
+- **Link ownership.** Every planned symlink records which block owns it (a CA or the trust
+  bundle) as well as the label, so a CA and a bundle with the same label never share links. The
+  CLI reports `linked trust bundle "<label>"` for bundle symlinks.
+
 ## Relation to ADR-007
 
 [ADR-007](./007-schema-evolution.md) names field removal as the trigger for introducing the `nebula_pki { schema = N }` block. Removing `archived` and `storage.trust_bundle_file`, and dropping the implicit always-emitted bundle, ship **without** schema versioning and without a migration path, under ADR-007's experimental-stage amendment: the tool is not yet used in production, so the removed fields simply stop parsing (generic HCL errors, no targeted rewrite messages) and configs relying on the implicit bundle stop emitting it until a `trust_bundle` block is declared.

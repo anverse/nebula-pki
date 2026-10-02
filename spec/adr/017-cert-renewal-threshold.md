@@ -89,6 +89,16 @@ Rules:
 - **Past-due / expired.** Any certificate already inside its window (or already expired) that was *not* re-signed this run — e.g. an `in_pub` cert whose upstream public key is missing, or a reference-mode CA the operator owns — is surfaced as **overdue** in the same block, so a stale deadline is never silently hidden.
 - **Determinism.** "now" comes from the injectable `pki.Clock`, so the printed relative offsets (`in 27d`) are deterministic under test.
 
+> **Amendment (2026-10-02) — CAs and expiry warnings.** Every **declared** CA counts towards the
+> report, independent of trust-bundle membership (the `archived` flag that used to exclude CAs is
+> gone, see [ADR-026](./026-trust-bundle-block.md), and with future multiple bundles membership
+> would be meaningless as a filter). An **expired** CA is not a deadline anymore, since running
+> again cannot fix it. It is printed as a separate warning, `warning: CA "<label>" expired <n>d
+> ago (<date>)`, and excluded from the "next deadline" computation, so a retired but still
+> declared CA never hides the next real action. The warning is printed even when the config has
+> no certs. The default output stays short: there is no per-CA listing on every run; a full
+> listing belongs in the deferred `nebula-pki show`.
+
 This is purely informational. It changes no exit code and triggers no writes; it reads the same `not_after` / `renew_before` data the idempotency verdict already uses.
 
 ## Consequences

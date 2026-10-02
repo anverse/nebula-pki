@@ -83,6 +83,14 @@ The manifest records every managed link. On each run the planner diffs the manif
 - A path present in the manifest but absent from the config → emit `DeleteSymlink`.
 - `DeleteSymlink` in `apply`: re-checks with `os.Lstat`; if it is a symlink, calls `os.Remove`; if it is now a regular file, prints a notice and skips — consistent with the policy of never auto-deleting non-symlink files.
 
+> **Amendment (2026-10-02) — deleted `ca` blocks.** The diff above originally covered only CAs
+> still declared in the config, so deleting a whole `ca` block left its symlinks on disk and
+> dropped the manifest record that tracked them. The planner now also walks manifest CAs that
+> are no longer declared and emits `DeleteSymlink` for every recorded link. The deleted CA's
+> certificate and key files are **not** removed: they stay on disk and the run prints a notice
+> that they are no longer managed (the same policy as stale cert artifacts and a removed trust
+> bundle, see [ADR-026](./026-trust-bundle-block.md)). Only symlinks are cleaned up.
+
 ### Manifest representation
 
 ```json
