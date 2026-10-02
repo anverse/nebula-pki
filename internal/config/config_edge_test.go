@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/slackhq/nebula/cert"
 )
 
@@ -462,5 +464,49 @@ cert "phone" {
 `
 	if _, err := Parse("t.hcl", []byte(src)); err != nil {
 		t.Fatalf("Parse: %v (out_crt + in_pub should be accepted)", err)
+	}
+}
+
+// --- CA references ----------------------------------------------------------
+
+func TestCARefLabel(t *testing.T) {
+	const shapeErr = "ca must be a CA reference of the form ca.<label>"
+	cases := []struct {
+		name    string
+		src     string
+		want    string
+		wantErr string
+	}{
+		{name: "reference", src: `ca.next`, want: "next"},
+		{name: "hyphenated label", src: `ca.edge-ca`, want: "edge-ca"},
+		{name: "null", src: `null`, want: ""},
+		{name: "quoted string", src: `"next"`, wantErr: shapeErr},
+		{name: "template", src: `"${ca.next}"`, wantErr: shapeErr},
+		{name: "function call", src: `lower("next")`, wantErr: shapeErr},
+		{name: "index form", src: `ca["next"]`, wantErr: shapeErr},
+		{name: "bare root", src: `ca`, wantErr: shapeErr},
+		{name: "extra steps", src: `ca.next.name`, wantErr: shapeErr},
+		{name: "foreign root", src: `cert.next`, wantErr: `unknown reference root "cert"; only ca.<label> references are supported`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			expr, diags := hclsyntax.ParseExpression([]byte(c.src), "test.hcl", hcl.InitialPos)
+			if diags.HasErrors() {
+				t.Fatalf("parse %q: %v", c.src, diags)
+			}
+			got, err := caRefLabel(expr)
+			if c.wantErr != "" {
+				if err == nil || err.Error() != c.wantErr {
+					t.Fatalf("err = %v, want %q", err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("label = %q, want %q", got, c.want)
+			}
+		})
 	}
 }

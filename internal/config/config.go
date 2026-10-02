@@ -716,6 +716,36 @@ func decodeCert(filename string, r *rawCert) (*Cert, error) {
 	return h, nil
 }
 
+// errCARefShape is returned for any `ca` value that is not exactly a
+// ca.<label> traversal. See ADR-025.
+var errCARefShape = errors.New("ca must be a CA reference of the form ca.<label>")
+
+// caRefLabel extracts the CA label from a ca.<label> reference without
+// evaluating it (ADR-025). A missing attribute (which gohcl synthesizes as
+// a static null) and an explicit `null` both return "", meaning "use the
+// default CA". Only the attribute form is accepted; ca["<label>"] is
+// rejected so every reference has exactly one spelling.
+func caRefLabel(expr hcl.Expression) (string, error) {
+	if v, diags := expr.Value(nil); !diags.HasErrors() && v.IsNull() {
+		return "", nil
+	}
+	trav, diags := hcl.AbsTraversalForExpr(expr)
+	if diags.HasErrors() {
+		return "", errCARefShape
+	}
+	if root := trav.RootName(); root != "ca" {
+		return "", fmt.Errorf("unknown reference root %q; only ca.<label> references are supported", root)
+	}
+	if len(trav) != 2 {
+		return "", errCARefShape
+	}
+	attr, ok := trav[1].(hcl.TraverseAttr)
+	if !ok {
+		return "", errCARefShape
+	}
+	return attr.Name, nil
+}
+
 func decodeSopsBody(filename string, enc rawEncryptionRaw) (*SopsConfig, error) {
 	var raw rawSopsBody
 	if diags := gohcl.DecodeBody(enc.Body, nil, &raw); diags.HasErrors() {
