@@ -486,6 +486,11 @@ func TestCARefLabel(t *testing.T) {
 		{name: "index form", src: `ca["next"]`, wantErr: shapeErr},
 		{name: "bare root", src: `ca`, wantErr: shapeErr},
 		{name: "extra steps", src: `ca.next.name`, wantErr: shapeErr},
+		{name: "parenthesized", src: `(ca.next)`, wantErr: shapeErr},
+		{name: "number", src: `5`, wantErr: shapeErr},
+		{name: "splat", src: `ca.*`, wantErr: shapeErr},
+		{name: "list", src: `[ca.next]`, wantErr: shapeErr},
+		{name: "conditional", src: `true ? ca.next : ca.next`, wantErr: shapeErr},
 		{name: "foreign root", src: `cert.next`, wantErr: `unknown reference root "cert"; only ca.<label> references are supported`},
 	}
 	for _, c := range cases {

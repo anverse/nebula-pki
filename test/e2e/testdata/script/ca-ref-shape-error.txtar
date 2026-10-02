@@ -21,6 +21,26 @@ stderr '^error: root\.hcl:3,8-14: cert "a": unknown reference root "cert"; only 
 ! exec nebula-pki check -c template.hcl
 stderr '^error: template\.hcl:3,8-17: cert "a": ca must be a CA reference of the form ca\.<label>$'
 
+# Parenthesized reference.
+! exec nebula-pki check -c paren.hcl
+stderr '^error: paren\.hcl:3,8-14: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+# Number literal.
+! exec nebula-pki check -c number.hcl
+stderr '^error: number\.hcl:3,8-9: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+# Splat over the ca root.
+! exec nebula-pki check -c splat.hcl
+stderr '^error: splat\.hcl:3,8-12: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+# List of references.
+! exec nebula-pki check -c list.hcl
+stderr '^error: list\.hcl:3,8-14: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+# Conditional expression.
+! exec nebula-pki check -c conditional.hcl
+stderr '^error: conditional\.hcl:3,8-26: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
 -- index.hcl --
 ca "m" { name = "m" }
 cert "a" {
@@ -53,5 +73,40 @@ cert "a" {
 ca "m" { name = "m" }
 cert "a" {
   ca = "${ca.m}"
+  networks = ["10.0.0.1/16"]
+}
+
+-- paren.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = (ca.m)
+  networks = ["10.0.0.1/16"]
+}
+
+-- number.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = 5
+  networks = ["10.0.0.1/16"]
+}
+
+-- splat.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = ca.*
+  networks = ["10.0.0.1/16"]
+}
+
+-- list.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = [ca.m]
+  networks = ["10.0.0.1/16"]
+}
+
+-- conditional.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = true ? ca.m : ca.m
   networks = ["10.0.0.1/16"]
 }
