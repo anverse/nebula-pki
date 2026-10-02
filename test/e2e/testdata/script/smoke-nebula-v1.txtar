@@ -43,7 +43,7 @@ cert "alpha" {
 
 cert "beta" {
   networks = ["10.10.0.2/24"]
-  ca       = "meshp256"
+  ca       = ca.meshp256
 }
 
 -- alpha.yml --

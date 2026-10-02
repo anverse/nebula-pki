@@ -1,0 +1,15 @@
+# A well-formed reference to an undeclared CA label is rejected with the
+# expression's source range (ADR-025).
+
+! exec nebula-pki check
+stderr '^nebula\.hcl:7,14-21: cert "app_01": ca "typo" is not declared$'
+
+-- nebula.hcl --
+ca "current" {
+  name = "mesh-2026"
+}
+
+cert "app_01" {
+  networks = ["10.42.1.10/16"]
+  ca       = ca.typo
+}

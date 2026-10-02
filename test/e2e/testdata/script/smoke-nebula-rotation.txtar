@@ -30,7 +30,7 @@ ca "new" {
 
 cert "node" {
   networks = ["10.10.0.4/24"]
-  ca       = "new"
+  ca       = ca.new
 }
 
 -- node.yml --

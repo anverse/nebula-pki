@@ -1,0 +1,57 @@
+# A cert selects its signing CA with a `ca.<label>` reference (ADR-025).
+# The referenced CA signs the cert, the default CA signs the cert that
+# omits `ca`, `ca = null` counts as omitted, and hyphenated labels resolve
+# as one traversal rather than a subtraction.
+
+exec nebula-pki check
+! stderr .
+
+exec nebula-pki
+stderr '^signed cert "app_01"$'
+stderr '^signed cert "app_02"$'
+stderr '^signed cert "app_03"$'
+stderr '^signed cert "app_04"$'
+
+# app_01 is pinned to `next`, app_04 to the hyphenated `edge-ca`; app_02
+# omits `ca` and app_03 sets it to null, so both get the default `current`.
+grep '"app_01": \{\s*"ca": "next",' out/nebula-pki.json
+grep '"app_02": \{\s*"ca": "current",' out/nebula-pki.json
+grep '"app_03": \{\s*"ca": "current",' out/nebula-pki.json
+grep '"app_04": \{\s*"ca": "edge-ca",' out/nebula-pki.json
+
+# Second run is idempotent.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- nebula.hcl --
+ca "current" {
+  name    = "mesh-2026"
+  default = true
+}
+
+ca "next" {
+  name = "mesh-2027"
+}
+
+ca "edge-ca" {
+  name = "mesh-edge"
+}
+
+cert "app_01" {
+  networks = ["10.42.1.10/16"]
+  ca       = ca.next
+}
+
+cert "app_02" {
+  networks = ["10.42.1.11/16"]
+}
+
+cert "app_03" {
+  networks = ["10.42.1.12/16"]
+  ca       = null
+}
+
+cert "app_04" {
+  networks = ["10.42.1.13/16"]
+  ca       = ca.edge-ca
+}

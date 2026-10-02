@@ -1,0 +1,57 @@
+# Malformed references in `cert.ca` are rejected with a source range
+# (ADR-025): only the attribute form `ca.<label>` is accepted.
+
+# Index form.
+! exec nebula-pki check -c index.hcl
+stderr '^index\.hcl:3,8-20: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+# Bare root without a label.
+! exec nebula-pki check -c bare.hcl
+stderr '^bare\.hcl:3,8-10: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+# Extra traversal steps.
+! exec nebula-pki check -c extra.hcl
+stderr '^extra\.hcl:3,8-21: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+# Foreign reference root.
+! exec nebula-pki check -c root.hcl
+stderr '^root\.hcl:3,8-14: cert "a": unknown reference root "cert"; only ca\.<label> references are supported$'
+
+# Template interpolation is not a reference.
+! exec nebula-pki check -c template.hcl
+stderr '^template\.hcl:3,8-20: cert "a": ca must be a CA reference of the form ca\.<label>$'
+
+-- index.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = ca["m"]
+  networks = ["10.0.0.1/16"]
+}
+
+-- bare.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = ca
+  networks = ["10.0.0.1/16"]
+}
+
+-- extra.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = ca.m.name
+  networks = ["10.0.0.1/16"]
+}
+
+-- root.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = cert.m
+  networks = ["10.0.0.1/16"]
+}
+
+-- template.hcl --
+ca "m" { name = "m" }
+cert "a" {
+  ca = "${ca.m}"
+  networks = ["10.0.0.1/16"]
+}

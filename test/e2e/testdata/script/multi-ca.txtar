@@ -104,5 +104,5 @@ cert "h1" {
 
 cert "h2" {
   networks = ["10.0.0.2/16"]
-  ca       = "secondary"
+  ca       = ca.secondary
 }

@@ -1,0 +1,20 @@
+# A quoted string in `cert.ca` is not a reference and is rejected with the
+# regular reference error, pointing at the expression (ADR-025).
+
+! exec nebula-pki check
+stderr '^nebula\.hcl:7,14-20: cert "app_01": ca must be a CA reference of the form ca\.<label>$'
+
+# A reconcile run fails the same way and writes nothing.
+! exec nebula-pki
+stderr 'ca must be a CA reference of the form ca\.<label>'
+! exists out
+
+-- nebula.hcl --
+ca "next" {
+  name = "mesh-2027"
+}
+
+cert "app_01" {
+  networks = ["10.42.1.10/16"]
+  ca       = "next"
+}
