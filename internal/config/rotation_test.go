@@ -93,7 +93,7 @@ ca "next" {
   default = true
 }
 cert "alpha" {
-  ca       = "current"
+  ca       = ca.current
   networks = ["10.0.0.1/16"]
 }
 `

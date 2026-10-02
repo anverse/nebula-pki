@@ -465,10 +465,10 @@ cert "h" { networks = ["10.0.0.1/16"] }
 ca "mesh" { name = "mesh" }
 cert "h" {
   networks = ["10.0.0.1/16"]
-  ca       = "nonexistent"
+  ca       = ca.nonexistent
 }
 `,
-			wantErr: "not declared",
+			wantErr: `test.hcl:5,14-28: cert "h": ca "nonexistent" is not declared`,
 		},
 	}
 
@@ -550,7 +550,7 @@ ca "alpha" { name = "alpha" }
 ca "beta"  { name = "beta" }
 cert "h" {
   networks = ["10.0.0.1/16"]
-  ca       = "beta"
+  ca       = ca.beta
 }
 `
 	cfg, err := Parse("test.hcl", []byte(src))
@@ -560,6 +560,35 @@ cert "h" {
 	signing := cfg.SigningCA(cfg.Certs[0])
 	if signing == nil || signing.Label != "beta" {
 		t.Errorf("SigningCA = %v, want beta", signing)
+	}
+}
+
+// TestParse_CertCARefOmittedOrNull verifies that an omitted `ca` and an
+// explicit `ca = null` both fall back to the default CA (ADR-025).
+func TestParse_CertCARefOmittedOrNull(t *testing.T) {
+	src := `
+ca "alpha" {
+  name    = "alpha"
+  default = true
+}
+ca "beta" { name = "beta" }
+cert "omitted" { networks = ["10.0.0.1/16"] }
+cert "null" {
+  networks = ["10.0.0.2/16"]
+  ca       = null
+}
+`
+	cfg, err := Parse("test.hcl", []byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for _, c := range cfg.Certs {
+		if c.CARef != "" {
+			t.Errorf("cert %q: CARef = %q, want empty", c.Label, c.CARef)
+		}
+		if signing := cfg.SigningCA(c); signing == nil || signing.Label != "alpha" {
+			t.Errorf("cert %q: SigningCA = %v, want alpha", c.Label, signing)
+		}
 	}
 }
 

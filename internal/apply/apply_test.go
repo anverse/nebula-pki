@@ -931,7 +931,7 @@ ca "secondary" { name = "secondary-mesh" }
 cert "h1" { networks = ["10.0.0.1/16"] }
 cert "h2" {
   networks = ["10.0.0.2/16"]
-  ca       = "secondary"
+  ca       = ca.secondary
 }
 `)
 	rep, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
@@ -1054,7 +1054,7 @@ ca "secondary" { name = "secondary-mesh" }
 cert "h1" { networks = ["10.0.0.1/16"] }
 cert "h2" {
   networks = ["10.0.0.2/16"]
-  ca       = "secondary"
+  ca       = ca.secondary
 }
 `)
 	if _, err := Reconcile(cfg1, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
@@ -1073,11 +1073,11 @@ ca "primary" {
 ca "secondary" { name = "secondary-mesh" }
 cert "h1" {
   networks = ["10.0.0.1/16"]
-  ca       = "secondary"
+  ca       = ca.secondary
 }
 cert "h2" {
   networks = ["10.0.0.2/16"]
-  ca       = "secondary"
+  ca       = ca.secondary
 }
 `)
 	rep2, err := Reconcile(cfg2, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
@@ -1260,7 +1260,7 @@ ca "secondary" {
 cert "h1" { networks = ["10.0.0.1/16"] }
 cert "h2" {
   networks = ["10.0.0.2/16"]
-  ca       = "secondary"
+  ca       = ca.secondary
 }
 `)
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {

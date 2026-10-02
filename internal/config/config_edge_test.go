@@ -405,7 +405,7 @@ ca "strict" {
 cert "h" {
   networks = ["10.0.0.1/16"]
   groups   = ["any"]
-  ca       = "permissive"
+  ca       = ca.permissive
 }
 `
 	// h uses "permissive" which allows "any", should succeed even though

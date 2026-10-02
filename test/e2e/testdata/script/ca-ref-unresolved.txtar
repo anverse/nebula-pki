@@ -2,7 +2,7 @@
 # expression's source range (ADR-025).
 
 ! exec nebula-pki check
-stderr '^nebula\.hcl:7,14-21: cert "app_01": ca "typo" is not declared$'
+stderr '^error: nebula\.hcl:7,14-21: cert "app_01": ca "typo" is not declared$'
 
 -- nebula.hcl --
 ca "current" {

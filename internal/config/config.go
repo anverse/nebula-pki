@@ -243,9 +243,12 @@ type Cert struct {
 	// Name is the certificate CN. Defaults to Label.
 	Name string
 
-	// CARef is the value of the `ca` field on the cert block: the label
-	// of the signing CA. Empty means "use the default (or sole) CA".
+	// CARef is the label named by the cert's `ca = ca.<label>` reference
+	// (ADR-025). Empty means "use the default (or sole) CA".
 	CARef string
+	// CARefRange is the source range of the reference expression, used to
+	// point reference errors at the offending HCL.
+	CARefRange hcl.Range
 
 	Networks       []netip.Prefix
 	Groups         []string
@@ -415,18 +418,18 @@ type rawExternalBody struct {
 type rawCert struct {
 	Label string `hcl:"label,label"`
 
-	CARef          *string  `hcl:"ca,optional"`
-	Name           *string  `hcl:"name,optional"`
-	Networks       []string `hcl:"networks,optional"`
-	Groups         []string `hcl:"groups,optional"`
-	UnsafeNetworks []string `hcl:"unsafe_networks,optional"`
-	Duration       *string  `hcl:"duration,optional"`
-	OutCRT         *string  `hcl:"out_crt,optional"`
-	OutKey         *string  `hcl:"out_key,optional"`
-	OutQR          *string  `hcl:"out_qr,optional"`
-	InPub          *string  `hcl:"in_pub,optional"`
-	OutputDir      *string  `hcl:"output_dir,optional"`
-	RenewBefore    *string  `hcl:"renew_before,optional"`
+	CARef          hcl.Expression `hcl:"ca,optional"`
+	Name           *string        `hcl:"name,optional"`
+	Networks       []string       `hcl:"networks,optional"`
+	Groups         []string       `hcl:"groups,optional"`
+	UnsafeNetworks []string       `hcl:"unsafe_networks,optional"`
+	Duration       *string        `hcl:"duration,optional"`
+	OutCRT         *string        `hcl:"out_crt,optional"`
+	OutKey         *string        `hcl:"out_key,optional"`
+	OutQR          *string        `hcl:"out_qr,optional"`
+	InPub          *string        `hcl:"in_pub,optional"`
+	OutputDir      *string        `hcl:"output_dir,optional"`
+	RenewBefore    *string        `hcl:"renew_before,optional"`
 
 	Range hcl.Range `hcl:",def_range"`
 }
@@ -664,7 +667,12 @@ func decodeCert(filename string, r *rawCert) (*Cert, error) {
 	}
 
 	if r.CARef != nil {
-		h.CARef = *r.CARef
+		label, err := caRefLabel(r.CARef)
+		if err != nil {
+			return nil, fmt.Errorf("%s: cert %q: %w", r.CARef.Range(), r.Label, err)
+		}
+		h.CARef = label
+		h.CARefRange = r.CARef.Range()
 	}
 
 	nets, err := parsePrefixes(filename, fmt.Sprintf("cert %q.networks", r.Label), r.Networks)
@@ -1055,7 +1063,7 @@ func resolveSigningCA(cfg *Config, h *Cert) (*CA, error) {
 	if h.CARef != "" {
 		ca = cfg.CAByLabel(h.CARef)
 		if ca == nil {
-			return nil, fmt.Errorf("cert %q: ca %q is not declared", h.Label, h.CARef)
+			return nil, fmt.Errorf("%s: cert %q: ca %q is not declared", h.CARefRange, h.Label, h.CARef)
 		}
 	} else if len(cfg.CAs) == 1 {
 		ca = &cfg.CAs[0]
