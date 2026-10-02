@@ -1,0 +1,49 @@
+# With a trust_bundle declared, the default CA and every cert's signing CA
+# must be members of it (ADR-026 §3). Without a bundle there is no such rule.
+
+# default = true on a CA that is not in the bundle.
+! exec nebula-pki check -c default.hcl
+stderr '^error: ca "next": default = true requires the CA to be in trust_bundle "main" ca_refs$'
+! exists out
+
+# cert.ca pointing at a CA that is not in the bundle.
+! exec nebula-pki check -c certca.hcl
+stderr '^error: certca\.hcl:15,14-21: cert "app": ca "next" is not in trust_bundle "main" ca_refs and may not sign certs$'
+
+# The same reconcile refuses before writing anything.
+! exec nebula-pki -c certca.hcl
+stderr 'is not in trust_bundle "main" ca_refs'
+! exists out
+
+-- default.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.current]
+}
+
+ca "current" {
+  name = "mesh-2026"
+}
+
+ca "next" {
+  name    = "mesh-2027"
+  default = true
+}
+
+-- certca.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.current]
+}
+
+ca "current" {
+  name    = "mesh-2026"
+  default = true
+}
+
+ca "next" {
+  name = "mesh-2027"
+}
+
+cert "app" {
+  ca       = ca.next
+  networks = ["10.0.0.1/16"]
+}

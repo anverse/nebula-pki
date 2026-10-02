@@ -1,0 +1,44 @@
+# Removing the trust_bundle block keeps the bundle file on disk with a notice,
+# deletes the bundle's symlinks, and drops the manifest record
+# (ADR-026 "Detailed rules").
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+exists out/node/bundle.crt
+
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ stop managing out/ca/bundle\.crt \(file stays on disk\)$'
+stdout '^\+ delete stale link out/node/bundle\.crt$'
+stdout '^\+ write out/nebula-pki\.json$'
+
+exec nebula-pki
+stderr '^deleted link out/node/bundle\.crt$'
+stderr '^notice: trust bundle out/ca/bundle\.crt is no longer managed; the file stays on disk$'
+! stderr 'wrote trust bundle'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+
+exists out/ca/bundle.crt
+! exists out/node/bundle.crt
+! grep '"trust_bundle"' out/nebula-pki.json
+
+# The next run is a no-op and the notice is not repeated.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'notice'
+
+-- v1.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  link_crt = ["out/node"]
+}
+
+ca "mesh" {
+  name = "mesh"
+}
+
+-- v2.hcl --
+ca "mesh" {
+  name = "mesh"
+}

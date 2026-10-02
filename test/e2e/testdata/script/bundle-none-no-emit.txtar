@@ -1,0 +1,38 @@
+# Without a trust_bundle block no bundle is written and the manifest carries
+# no trust_bundle record. There is no implicit bundle (ADR-026 §2). Any
+# declared CA may sign.
+
+exec nebula-pki
+stderr '^generated CA "current" \(mesh-2026\)$'
+stderr '^generated CA "next" \(mesh-2027\)$'
+stderr '^signed cert "alpha"$'
+stderr '^signed cert "beta"$'
+! stderr 'trust bundle'
+! stdout .
+
+! exists out/ca/bundle.crt
+! grep '"trust_bundle"' out/nebula-pki.json
+
+# Dry run does not preview a bundle either.
+exec nebula-pki --dry-run
+stdout '^up to date; nothing to do$'
+! stdout 'bundle'
+
+-- nebula.hcl --
+ca "current" {
+  name    = "mesh-2026"
+  default = true
+}
+
+ca "next" {
+  name = "mesh-2027"
+}
+
+cert "alpha" {
+  networks = ["10.0.0.1/16"]
+}
+
+cert "beta" {
+  networks = ["10.0.0.2/16"]
+  ca       = ca.next
+}

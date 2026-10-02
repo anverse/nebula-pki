@@ -14,7 +14,7 @@ stderr '^wrote manifest'
 exists out/certs/alpha.key.enc
 ! exists out/certs/alpha.key
 
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alpha.crt
+exec nebula-cert verify -ca out/ca/mesh.crt -crt out/certs/alpha.crt
 
 # Decrypt the cert key the way an operator would, then hand it to nebula.
 exec sops --decrypt --input-type binary --output-type binary --output alpha.key out/certs/alpha.key.enc
@@ -38,7 +38,7 @@ cert "alpha" {
 
 -- alpha.yml --
 pki:
-  ca: out/ca/bundle.crt
+  ca: out/ca/mesh.crt
   cert: out/certs/alpha.crt
   key: alpha.key
 listen:

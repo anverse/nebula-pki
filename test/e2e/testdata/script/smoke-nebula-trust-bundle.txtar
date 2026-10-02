@@ -1,0 +1,94 @@
+# Real-binary smoke test for the trust bundle: two nodes in their own output
+# directories, signed by different CAs, each reading pki.ca through the
+# trust_bundle link_crt symlink in its directory. nebula-cert must verify both
+# certs against the linked bundle, and nebula must load each node's PKI from
+# it. The cross-CA handshake is covered by TestSmoke_TrustBundleHandshake.
+
+[!exec:nebula] skip 'nebula not in PATH'
+[!exec:nebula-cert] skip 'nebula-cert not in PATH'
+
+exec nebula-pki
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^linked trust bundle "main"$'
+
+# Each cert verifies against the bundle reached through its own directory.
+exec nebula-cert verify -ca out/alpha/bundle.crt -crt out/alpha/alpha.crt
+exec nebula-cert verify -ca out/beta/bundle.crt -crt out/beta/beta.crt
+exec nebula-cert verify -ca out/alpha/bundle.crt -crt out/beta/beta.crt
+
+# Negative control: a single member CA alone does not trust the other's cert.
+! exec nebula-cert verify -ca out/ca/current.crt -crt out/beta/beta.crt
+
+# nebula loads each node's PKI with pki.ca pointing at the symlinked bundle.
+exec nebula -test -config alpha.yml
+exec nebula -test -config beta.yml
+
+-- nebula.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current, ca.next]
+  link_crt = ["out/alpha", "out/beta"]
+}
+
+ca "current" {
+  name    = "mesh-2026"
+  default = true
+}
+
+ca "next" {
+  name = "mesh-2027"
+}
+
+cert "alpha" {
+  networks   = ["10.10.0.1/24"]
+  output_dir = "out/alpha"
+}
+
+cert "beta" {
+  ca         = ca.next
+  networks   = ["10.10.0.2/24"]
+  output_dir = "out/beta"
+}
+
+-- alpha.yml --
+pki:
+  ca: out/alpha/bundle.crt
+  cert: out/alpha/alpha.crt
+  key: out/alpha/alpha.key
+listen:
+  host: 127.0.0.1
+  port: 0
+lighthouse:
+  am_lighthouse: false
+tun:
+  disabled: true
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: any
+      host: any
+
+-- beta.yml --
+pki:
+  ca: out/beta/bundle.crt
+  cert: out/beta/beta.crt
+  key: out/beta/beta.key
+listen:
+  host: 127.0.0.1
+  port: 0
+lighthouse:
+  am_lighthouse: false
+tun:
+  disabled: true
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: any
+      host: any

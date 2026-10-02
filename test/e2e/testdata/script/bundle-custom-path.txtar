@@ -1,0 +1,68 @@
+# trust_bundle.path sets the bundle location, and the link_crt symlink name
+# follows its basename. Changing path writes the bundle to the new location,
+# keeps the old file on disk with a notice, and moves the symlinks
+# (ADR-026 "Detailed rules").
+
+[!exec:readlink] skip 'readlink not in PATH'
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle: out/trust/mesh-trust\.crt$'
+stderr '^linked trust bundle "main"$'
+stderr '^  out/node/mesh-trust\.crt$'
+! exists out/ca/bundle.crt
+cmp out/trust/mesh-trust.crt out/ca/mesh.crt
+exec readlink out/node/mesh-trust.crt
+stdout '^\.\./trust/mesh-trust\.crt$'
+grep '"path": "out/trust/mesh-trust.crt"' out/nebula-pki.json
+
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+# Move the bundle.
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ write out/trust/pki-ca\.crt$'
+stdout '^\+ stop managing out/trust/mesh-trust\.crt \(file stays on disk\)$'
+stdout '^\+ delete stale link out/node/mesh-trust\.crt$'
+stdout '^\+ create link out/node/pki-ca\.crt → \.\./trust/pki-ca\.crt$'
+
+exec nebula-pki
+stderr '^wrote trust bundle: out/trust/pki-ca\.crt$'
+stderr '^deleted link out/node/mesh-trust\.crt$'
+stderr '^  out/node/pki-ca\.crt$'
+stderr '^notice: trust bundle out/trust/mesh-trust\.crt is no longer managed; the file stays on disk$'
+
+# The old file stays; the old symlink is gone.
+exists out/trust/mesh-trust.crt
+! exists out/node/mesh-trust.crt
+cmp out/node/pki-ca.crt out/ca/mesh.crt
+grep '"path": "out/trust/pki-ca.crt"' out/nebula-pki.json
+! grep 'mesh-trust' out/nebula-pki.json
+
+# The notice is printed once.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'notice'
+
+-- v1.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  path     = "out/trust/mesh-trust.crt"
+  link_crt = ["out/node"]
+}
+
+ca "mesh" {
+  name = "mesh"
+}
+
+-- v2.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  path     = "out/trust/pki-ca.crt"
+  link_crt = ["out/node"]
+}
+
+ca "mesh" {
+  name = "mesh"
+}

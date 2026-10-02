@@ -18,7 +18,6 @@ stderr '^signed cert "beta"$'
 stderr '^wrote manifest'
 ! stdout .
 
-exists out/ca/bundle.crt
 exists out/certs/alpha.crt
 exists out/certs/beta.crt
 

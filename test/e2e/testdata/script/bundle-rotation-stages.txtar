@@ -1,10 +1,11 @@
-# Full CA rotation scenario.
+# Full CA rotation with an explicit trust_bundle (ADR-026 "The rotation dance,
+# revised").
 #
-# Step 1: initial Nebula network with a single "current" CA.
-# Step 2: add "next" CA — both appear in the trust bundle; certs unchanged.
-# Step 3: promote "next" to default — certs re-sign; bundle unchanged.
-# Step 4: archive "current" — bundle shrinks to "next" only; certs unchanged.
-# Step 5: remove the archived block entirely — clean noop.
+# Step 1: steady state, a single "current" CA in a declared trust_bundle.
+# Step 2: add "next" and list it in ca_refs, so the bundle carries both; certs unchanged.
+# Step 3: promote "next" to default, so certs re-sign; bundle unchanged.
+# Step 4: drop "current" from ca_refs, so the bundle shrinks to "next"; certs unchanged.
+# Step 5: delete the "current" block; its files stay on disk with a notice.
 
 # ── Step 1: initial state ─────────────────────────────────────────────────────
 cp step1.hcl nebula.hcl
@@ -86,7 +87,7 @@ stderr '^wrote manifest'
 ! cmp out/certs/alpha.crt alpha.step1.crt
 ! cmp out/certs/beta.crt  beta.step1.crt
 
-# Bundle unchanged: same two CAs, neither archived.
+# Bundle unchanged: ca_refs did not change.
 cmp out/ca/bundle.crt bundle.step2.crt
 
 # Snapshot new certs.
@@ -104,11 +105,11 @@ cmp out/certs/alpha.crt alpha.step3.crt
 cmp out/certs/beta.crt  beta.step3.crt
 cmp out/ca/bundle.crt   bundle.step2.crt
 
-# ── Step 4: archive "current" — bundle shrinks to "next" only ────────────────
+# ── Step 4: drop "current" from ca_refs — bundle shrinks to "next" only ──────
 cp step4.hcl nebula.hcl
 
 # Dry-run must preview the bundle write even though no CA is generated
-# and all certs are already signed (this exercises the archival-count fix).
+# and all certs are already signed.
 exec nebula-pki --dry-run
 stdout '^\+ write out/ca/bundle\.crt$'
 stdout '^\+ write out/nebula-pki\.json$'
@@ -130,10 +131,11 @@ cmp out/certs/beta.crt  beta.step3.crt
 # Bundle now equals just the "next" CA cert.
 cmp out/ca/bundle.crt out/ca/next.crt
 
-# Manifest records the archive flag.
-grep '"archived"' out/nebula-pki.json
+# The dropped CA keeps its manifest record; there is no archived flag.
+grep '"test-mesh"' out/nebula-pki.json
+! grep '"archived"' out/nebula-pki.json
 
-# Idempotency: second run with archived config is a noop.
+# Idempotency: a second run with the step 4 config is a noop.
 exec nebula-pki
 stderr '^up to date; nothing to do$'
 ! stderr 'generated CA'
@@ -149,31 +151,41 @@ exec nebula-pki --dry-run
 stdout '^up to date; nothing to do$'
 ! stderr 'wrote trust bundle'
 
-# ── Step 5: remove the archived block entirely ────────────────────────────────
-# Removing the ca "current" block is a clean noop: "next" is up to date,
-# certs are still signed under it, and the bundle fingerprints are unchanged.
-# The old CA cert/key files remain on disk but are no longer managed.
+# ── Step 5: delete the "current" block ───────────────────────────────────────
+# "next" is up to date, certs are still signed under it, and the bundle is
+# unchanged. The old CA cert/key files stay on disk with a notice, and the
+# manifest drops the "current" record.
 cp step5.hcl nebula.hcl
 exec nebula-pki
-stderr '^up to date; nothing to do$'
 ! stderr 'generated CA'
 ! stderr 'signed cert'
 ! stderr 'wrote trust bundle'
+stderr '^notice: ca "current" was removed from the config; its files stay on disk and are no longer managed:$'
+stderr '^  out/ca/current\.crt$'
+stderr '^  out/ca/current\.key$'
+stderr '^wrote manifest'
 ! stdout .
+exists out/ca/current.crt
+exists out/ca/current.key
 
 # Certs and bundle are byte-identical to end of step 4.
 cmp out/certs/alpha.crt alpha.step3.crt
 cmp out/certs/beta.crt  beta.step3.crt
 cmp out/ca/bundle.crt   out/ca/next.crt
 
-# Manifest is unchanged (noop run never rewrites it): the stale "current"
-# entry with archived=true persists, which is harmless — future writes will
-# drop it when something else changes.
-grep '"current"' out/nebula-pki.json
-grep '"archived"' out/nebula-pki.json
+! grep '"test-mesh"' out/nebula-pki.json
 grep '"next"' out/nebula-pki.json
 
+# The next run is a no-op and the notice is not repeated.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'notice'
+
 -- step1.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.current]
+}
+
 ca "current" {
   name    = "test-mesh"
   default = true
@@ -188,6 +200,10 @@ cert "beta" {
 }
 
 -- step2.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.current, ca.next]
+}
+
 ca "current" {
   name    = "test-mesh"
   default = true
@@ -206,6 +222,10 @@ cert "beta" {
 }
 
 -- step3.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.current, ca.next]
+}
+
 ca "current" {
   name = "test-mesh"
 }
@@ -224,9 +244,12 @@ cert "beta" {
 }
 
 -- step4.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.next]
+}
+
 ca "current" {
-  name     = "test-mesh"
-  archived = true
+  name = "test-mesh"
 }
 
 ca "next" {
@@ -243,6 +266,10 @@ cert "beta" {
 }
 
 -- step5.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.next]
+}
+
 ca "next" {
   name    = "test-mesh-v2"
   default = true

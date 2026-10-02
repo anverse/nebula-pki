@@ -1,0 +1,47 @@
+# The bundle's identity is its path; the label is only recorded. Renaming the
+# label updates the manifest and rewrites no file or symlink
+# (ADR-026 "Detailed rules").
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^linked trust bundle "main"$'
+grep '"label": "main"' out/nebula-pki.json
+cp out/ca/bundle.crt bundle.first
+
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ write out/nebula-pki\.json$'
+! stdout 'bundle'
+! stdout 'link'
+
+exec nebula-pki
+! stderr 'wrote trust bundle'
+! stderr 'link'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+grep '"label": "primary"' out/nebula-pki.json
+! grep '"label": "main"' out/nebula-pki.json
+grep '"path": "out/node/bundle.crt"' out/nebula-pki.json
+cmp out/ca/bundle.crt bundle.first
+
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- v1.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  link_crt = ["out/node"]
+}
+
+ca "mesh" {
+  name = "mesh"
+}
+
+-- v2.hcl --
+trust_bundle "primary" {
+  ca_refs  = [ca.mesh]
+  link_crt = ["out/node"]
+}
+
+ca "mesh" {
+  name = "mesh"
+}

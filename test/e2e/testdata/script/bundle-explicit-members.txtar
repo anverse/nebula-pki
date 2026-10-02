@@ -1,0 +1,97 @@
+# trust_bundle.ca_refs states membership explicitly. The bundle carries only
+# the listed CAs, in ca_refs order. A declared CA that is not listed is still
+# generated and recorded, it is just not trusted (ADR-026 §1).
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^generated CA "a" \(mesh-a\)$'
+stderr '^generated CA "b" \(mesh-b\)$'
+stderr '^generated CA "c" \(mesh-c\)$'
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+! stdout .
+
+# Bundle is c then a, and b is left out.
+exec cat out/ca/c.crt out/ca/a.crt
+cp stdout expected.crt
+cmp out/ca/bundle.crt expected.crt
+
+# The non-member CA keeps its manifest record.
+grep '"mesh-b"' out/nebula-pki.json
+
+# Reordering ca_refs rewrites the bundle in the new order.
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ write out/ca/bundle\.crt$'
+! stdout 'out/ca/a\.crt'
+exec nebula-pki
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+! stderr 'generated CA'
+exec cat out/ca/a.crt out/ca/c.crt
+cp stdout expected.crt
+cmp out/ca/bundle.crt expected.crt
+
+# Adding the third CA extends the bundle.
+cp v3.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+exec cat out/ca/a.crt out/ca/c.crt out/ca/b.crt
+cp stdout expected.crt
+cmp out/ca/bundle.crt expected.crt
+
+# And the next run is a no-op.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- v1.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.c, ca.a]
+}
+
+ca "a" {
+  name    = "mesh-a"
+  default = true
+}
+
+ca "b" {
+  name = "mesh-b"
+}
+
+ca "c" {
+  name = "mesh-c"
+}
+
+-- v2.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.a, ca.c]
+}
+
+ca "a" {
+  name    = "mesh-a"
+  default = true
+}
+
+ca "b" {
+  name = "mesh-b"
+}
+
+ca "c" {
+  name = "mesh-c"
+}
+
+-- v3.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.a, ca.c, ca.b]
+}
+
+ca "a" {
+  name    = "mesh-a"
+  default = true
+}
+
+ca "b" {
+  name = "mesh-b"
+}
+
+ca "c" {
+  name = "mesh-c"
+}

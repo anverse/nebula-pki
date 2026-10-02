@@ -17,7 +17,7 @@ stderr '^wrote manifest'
 ! exists out/certs/alice.key
 
 # The signed cert chains to the CA under the real nebula-cert.
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alice.crt
+exec nebula-cert verify -ca out/ca/mesh.crt -crt out/certs/alice.crt
 
 # nebula accepts the signed cert together with the device-held private key,
 # including the private-key/certificate pairing check.
@@ -36,7 +36,7 @@ cert "alice" {
 
 -- alice.yml --
 pki:
-  ca: out/ca/bundle.crt
+  ca: out/ca/mesh.crt
   cert: out/certs/alice.crt
   key: device/alice.key
 listen:

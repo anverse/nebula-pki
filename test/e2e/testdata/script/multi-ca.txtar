@@ -16,7 +16,6 @@ stderr '^  key:  out/certs/h1\.key$'
 stderr '^signed cert "h2"$'
 stderr '^  cert: out/certs/h2\.crt$'
 stderr '^  key:  out/certs/h2\.key$'
-stderr '^wrote trust bundle: out/ca/bundle\.crt$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
@@ -26,9 +25,8 @@ exists out/ca/primary.key
 exists out/ca/secondary.crt
 exists out/ca/secondary.key
 
-# Trust bundle must exist and contain CA certificate material.
-exists out/ca/bundle.crt
-grep 'NEBULA CERTIFICATE' out/ca/bundle.crt
+# No trust_bundle block is declared, so no bundle is written.
+! exists out/ca/bundle.crt
 
 # Both cert/key pairs must exist.
 exists out/certs/h1.crt
@@ -45,8 +43,7 @@ grep 'NEBULA ED25519 PRIVATE KEY' out/ca/secondary.key
 grep 'NEBULA CERTIFICATE' out/certs/h1.crt
 grep 'NEBULA CERTIFICATE' out/certs/h2.crt
 
-# Manifest records both CAs in the `cas` map, each cert's signing CA, and
-# the trust bundle with two fingerprints.
+# Manifest records both CAs in the `cas` map and each cert's signing CA.
 grep '"primary"' out/nebula-pki.json
 grep '"secondary"' out/nebula-pki.json
 grep '"primary-mesh"' out/nebula-pki.json
@@ -54,15 +51,13 @@ grep '"secondary-mesh"' out/nebula-pki.json
 grep '"h1"' out/nebula-pki.json
 grep '"h2"' out/nebula-pki.json
 grep '"ca_fingerprint"' out/nebula-pki.json
-grep '"trust_bundle"' out/nebula-pki.json
-grep '"ca_fingerprints"' out/nebula-pki.json
+! grep '"trust_bundle"' out/nebula-pki.json
 
 # Snapshot all artifacts for idempotency check.
 cp out/ca/primary.crt primary.crt.first
 cp out/ca/primary.key primary.key.first
 cp out/ca/secondary.crt secondary.crt.first
 cp out/ca/secondary.key secondary.key.first
-cp out/ca/bundle.crt bundle.crt.first
 cp out/certs/h1.crt h1.crt.first
 cp out/certs/h1.key h1.key.first
 cp out/certs/h2.crt h2.crt.first
@@ -81,7 +76,6 @@ cmp out/ca/primary.crt primary.crt.first
 cmp out/ca/primary.key primary.key.first
 cmp out/ca/secondary.crt secondary.crt.first
 cmp out/ca/secondary.key secondary.key.first
-cmp out/ca/bundle.crt bundle.crt.first
 cmp out/certs/h1.crt h1.crt.first
 cmp out/certs/h1.key h1.key.first
 cmp out/certs/h2.crt h2.crt.first

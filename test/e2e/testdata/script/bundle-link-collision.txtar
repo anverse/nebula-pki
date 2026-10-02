@@ -1,0 +1,114 @@
+# No two link_crt sources may write the same <dir>/<filename> symlink, checked
+# symmetrically across every ca block and the trust_bundle (ADR-026 §3).
+# Directories are compared after cleaning, so "out/x/" equals "out/x".
+
+# CA vs trust_bundle: the CA cert file is named bundle.crt.
+! exec nebula-pki check -c ca-bundle.hcl
+stderr '^error: link_crt: ca "current" and trust_bundle "main" both write symlink out/shared/bundle\.crt$'
+! exists out
+
+# trust_bundle vs CA with a custom bundle path whose file name matches a CA's.
+! exec nebula-pki check -c bundle-ca.hcl
+stderr '^error: link_crt: ca "current" and trust_bundle "main" both write symlink out/shared/current\.crt$'
+
+# CA vs CA: two CAs whose cert files share a name.
+! exec nebula-pki check -c ca-ca.hcl
+stderr '^error: link_crt: ca "one" and ca "two" both write symlink out/shared/ca\.crt$'
+
+# Same directory spelled differently still collides.
+! exec nebula-pki check -c cleaned.hcl
+stderr '^error: link_crt: ca "current" and trust_bundle "main" both write symlink out/shared/bundle\.crt$'
+
+# Sharing a directory with different file names is fine.
+exec nebula-pki check -c shared-ok.hcl
+
+# Empty and duplicate entries in the bundle's own list.
+! exec nebula-pki check -c empty.hcl
+stderr '^error: trust_bundle "main": link_crt\[0\]: directory path must not be empty$'
+! exec nebula-pki check -c dup.hcl
+stderr '^error: trust_bundle "main": link_crt\[1\]: duplicate directory "out/a"$'
+
+-- ca-bundle.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/shared"]
+}
+
+ca "current" {
+  name     = "mesh"
+  out_crt  = "out/ca/bundle-of-one/bundle.crt"
+  out_key  = "out/ca/bundle-of-one/bundle.key"
+  link_crt = ["out/shared"]
+}
+
+-- bundle-ca.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  path     = "out/trust/current.crt"
+  link_crt = ["out/shared"]
+}
+
+ca "current" {
+  name     = "mesh"
+  link_crt = ["out/shared"]
+}
+
+-- ca-ca.hcl --
+ca "one" {
+  name     = "mesh-one"
+  default  = true
+  out_crt  = "out/one/ca.crt"
+  out_key  = "out/one/ca.key"
+  link_crt = ["out/shared"]
+}
+
+ca "two" {
+  name     = "mesh-two"
+  out_crt  = "out/two/ca.crt"
+  out_key  = "out/two/ca.key"
+  link_crt = ["out/shared"]
+}
+
+-- cleaned.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/shared/"]
+}
+
+ca "current" {
+  name     = "mesh"
+  out_crt  = "out/ca/x/bundle.crt"
+  out_key  = "out/ca/x/bundle.key"
+  link_crt = ["./out/shared"]
+}
+
+-- shared-ok.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/shared"]
+}
+
+ca "current" {
+  name     = "mesh"
+  link_crt = ["out/shared"]
+}
+
+-- empty.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = [""]
+}
+
+ca "current" {
+  name = "mesh"
+}
+
+-- dup.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/a", "out/a"]
+}
+
+ca "current" {
+  name = "mesh"
+}

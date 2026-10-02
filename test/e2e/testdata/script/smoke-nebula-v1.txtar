@@ -24,6 +24,10 @@ exec nebula -test -config alpha.yml
 exec nebula -test -config beta.yml
 
 -- nebula.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.mesh25519, ca.meshp256]
+}
+
 ca "mesh25519" {
   name    = "mesh25519"
   curve   = "25519"

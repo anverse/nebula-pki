@@ -1,0 +1,123 @@
+# Every ca_refs error carries the offending expression's source range, like
+# cert.ca errors (ADR-025, ADR-026 "Detailed rules").
+
+# An element that is not a reference.
+! exec nebula-pki check -c shape.hcl
+stderr '^error: shape\.hcl:2,20-23: trust_bundle "main": ca_refs\[1\] must be a CA reference of the form ca\.<label>$'
+
+# A reference with a foreign root.
+! exec nebula-pki check -c root.hcl
+stderr '^error: root\.hcl:2,14-20: trust_bundle "main": ca_refs\[0\]: unknown reference root "cert"; only ca\.<label> references are supported$'
+
+# A reference to an undeclared CA.
+! exec nebula-pki check -c dangling.hcl
+stderr '^error: dangling\.hcl:2,20-26: trust_bundle "main": ca_refs\[1\]: ca "nxt" is not declared$'
+
+# A duplicate member.
+! exec nebula-pki check -c dup.hcl
+stderr '^error: dup\.hcl:2,20-24: trust_bundle "main": ca_refs\[1\]: duplicate member ca "a"$'
+
+# An empty list.
+! exec nebula-pki check -c empty.hcl
+stderr '^error: empty\.hcl:2,13-15: trust_bundle "main": ca_refs must list at least one CA$'
+
+# A single reference instead of a list.
+! exec nebula-pki check -c notlist.hcl
+stderr '^error: notlist\.hcl:2,13-17: trust_bundle "main": ca_refs must be a list of ca\.<label> references$'
+
+# ca_refs is required.
+! exec nebula-pki check -c missing.hcl
+stderr 'Missing required argument'
+stderr 'ca_refs'
+
+# Only one trust_bundle block.
+! exec nebula-pki check -c two.hcl
+stderr '^error: two\.hcl:5,1-22: trust_bundle "second": only one trust_bundle block is allowed$'
+
+# The label follows the CA label pattern.
+! exec nebula-pki check -c label.hcl
+stderr '^error: trust_bundle "1bad": label must match \^\[A-Za-z_\]\[A-Za-z0-9_-\]\*\$$'
+
+-- shape.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.a, "b"]
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- root.hcl --
+trust_bundle "main" {
+  ca_refs = [cert.a]
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- dangling.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.a, ca.nxt]
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- dup.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.a, ca.a]
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- empty.hcl --
+trust_bundle "main" {
+  ca_refs = []
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- notlist.hcl --
+trust_bundle "main" {
+  ca_refs = ca.a
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- missing.hcl --
+trust_bundle "main" {
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- two.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.a]
+}
+
+trust_bundle "second" {
+  ca_refs = [ca.a]
+}
+
+ca "a" {
+  name = "mesh-a"
+}
+
+-- label.hcl --
+trust_bundle "1bad" {
+  ca_refs = [ca.a]
+}
+
+ca "a" {
+  name = "mesh-a"
+}

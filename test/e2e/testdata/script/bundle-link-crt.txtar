@@ -1,0 +1,82 @@
+# trust_bundle.link_crt fans the bundle out with relative symlinks named after
+# the bundle file (ADR-026 §4). A CA symlink and the bundle symlink may share a
+# directory when their file names differ. Re-runs are no-ops, and a directory
+# removed from link_crt has its symlink deleted.
+
+[!exec:readlink] skip 'readlink not in PATH'
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^linked trust bundle "main"$'
+stderr '^  out/hetzner/bundle\.crt$'
+stderr '^  out/aws/bundle\.crt$'
+stderr '^linked CA "current"$'
+stderr '^  out/hetzner/current\.crt$'
+! stdout .
+
+exec readlink out/hetzner/bundle.crt
+stdout '^\.\./ca/bundle\.crt$'
+cmp out/hetzner/bundle.crt out/ca/bundle.crt
+cmp out/aws/bundle.crt out/ca/bundle.crt
+cmp out/hetzner/current.crt out/ca/current.crt
+
+# The manifest records the bundle links under trust_bundle, the CA link under
+# the CA.
+grep '"path": "out/hetzner/bundle.crt"' out/nebula-pki.json
+grep '"target": "../ca/bundle.crt"' out/nebula-pki.json
+grep '"path": "out/hetzner/current.crt"' out/nebula-pki.json
+
+# Second run: all up to date.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'linked'
+! stdout .
+
+# Removing a directory from the bundle's link_crt deletes only that symlink.
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ delete stale link out/aws/bundle\.crt$'
+exec nebula-pki
+stderr '^deleted link out/aws/bundle\.crt$'
+! stderr 'wrote trust bundle'
+! exists out/aws/bundle.crt
+exists out/hetzner/bundle.crt
+exists out/hetzner/current.crt
+! grep 'out/aws/bundle.crt' out/nebula-pki.json
+
+# A wrong symlink target is repaired.
+rm out/hetzner/bundle.crt
+symlink out/hetzner/bundle.crt -> ../ca/current.crt
+exec nebula-pki
+stderr '^linked trust bundle "main"$'
+exec readlink out/hetzner/bundle.crt
+stdout '^\.\./ca/bundle\.crt$'
+
+# A regular file at a bundle link path is never clobbered.
+rm out/hetzner/bundle.crt
+cp out/ca/bundle.crt out/hetzner/bundle.crt
+! exec nebula-pki
+stderr 'out/hetzner/bundle\.crt is not a symlink; remove it manually'
+
+-- v1.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/hetzner", "out/aws"]
+}
+
+ca "current" {
+  name     = "mesh-2026"
+  link_crt = ["out/hetzner"]
+}
+
+-- v2.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/hetzner"]
+}
+
+ca "current" {
+  name     = "mesh-2026"
+  link_crt = ["out/hetzner"]
+}

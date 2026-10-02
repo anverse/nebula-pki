@@ -1,0 +1,30 @@
+# archived and storage.trust_bundle_file are removed (ADR-026). They fail with
+# the generic HCL error; there is no migration message.
+
+! exec nebula-pki check -c archived.hcl
+stderr 'Unsupported argument'
+stderr 'archived'
+
+! exec nebula-pki check -c bundlefile.hcl
+stderr 'Unsupported argument'
+stderr 'trust_bundle_file'
+
+-- archived.hcl --
+ca "old" {
+  name     = "mesh-old"
+  archived = true
+}
+
+ca "new" {
+  name    = "mesh-new"
+  default = true
+}
+
+-- bundlefile.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+
+storage {
+  trust_bundle_file = "out/ca/trust.crt"
+}

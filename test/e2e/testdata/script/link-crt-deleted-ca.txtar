@@ -1,0 +1,52 @@
+# Deleting a whole ca block deletes its link_crt symlinks, keeps its cert and
+# key files on disk, and prints a notice that they are no longer managed
+# (ADR-021 2026-10-02 amendment).
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^linked CA "old"$'
+exists out/node/old.crt
+
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ delete stale link out/node/old\.crt$'
+stdout '^\+ stop managing out/ca/old\.crt \(file stays on disk\)$'
+stdout '^\+ stop managing out/ca/old\.key \(file stays on disk\)$'
+stdout '^\+ write out/nebula-pki\.json$'
+
+exec nebula-pki
+stderr '^deleted link out/node/old\.crt$'
+stderr '^notice: ca "old" was removed from the config; its files stay on disk and are no longer managed:$'
+stderr '^  out/ca/old\.crt$'
+stderr '^  out/ca/old\.key$'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+
+! exists out/node/old.crt
+exists out/ca/old.crt
+exists out/ca/old.key
+exists out/node/new.crt
+! grep '"mesh-old"' out/nebula-pki.json
+
+# The next run is a no-op and the notice is not repeated.
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'notice'
+
+-- v1.hcl --
+ca "old" {
+  name     = "mesh-old"
+  link_crt = ["out/node"]
+}
+
+ca "new" {
+  name     = "mesh-new"
+  default  = true
+  link_crt = ["out/node"]
+}
+
+-- v2.hcl --
+ca "new" {
+  name     = "mesh-new"
+  default  = true
+  link_crt = ["out/node"]
+}

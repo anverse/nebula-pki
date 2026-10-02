@@ -19,6 +19,10 @@ exec nebula-cert verify -ca out/ca/new.crt -crt out/certs/node.crt
 exec nebula -test -config node.yml
 
 -- nebula.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.old, ca.new]
+}
+
 ca "old" {
   name = "mesh-old"
 }
