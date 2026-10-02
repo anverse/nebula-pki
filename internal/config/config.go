@@ -1076,7 +1076,7 @@ func resolveSigningCA(cfg *Config, h *Cert) (*CA, error) {
 		}
 		if ca == nil {
 			return nil, fmt.Errorf(
-				"cert %q: ambiguous signing ca (the config has %d CAs and none is marked default = true; set cert.ca or add default = true to one ca block)",
+				"cert %q: ambiguous signing ca (the config has %d CAs and none is marked default = true; set ca = ca.<label> on the cert or add default = true to one ca block)",
 				h.Label, len(cfg.CAs),
 			)
 		}

@@ -457,7 +457,7 @@ ca "alpha" { name = "alpha" }
 ca "beta"  { name = "beta" }
 cert "h" { networks = ["10.0.0.1/16"] }
 `,
-			wantErr: "ambiguous",
+			wantErr: `cert "h": ambiguous signing ca (the config has 2 CAs and none is marked default = true; set ca = ca.<label> on the cert or add default = true to one ca block)`,
 		},
 		{
 			name: "unknown_cert_ca_ref",
