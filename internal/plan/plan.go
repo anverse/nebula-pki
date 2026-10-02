@@ -4,7 +4,8 @@
 // supply an existence probe) and never mutates anything.
 //
 // It plans one action per CA (generate or reference) and one action per
-// cert (sign or noop). Cert actions always follow all CA actions.
+// cert (sign or noop). Cert actions always follow all CA actions. Link,
+// trust bundle, and release actions follow the certs.
 package plan
 
 import (
@@ -13,6 +14,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
@@ -39,6 +42,15 @@ const (
 	// OpDeleteSymlink means a managed symlink must be removed because its
 	// directory was removed from link_crt. Used for link_crt stale cleanup.
 	OpDeleteSymlink Op = "delete_symlink"
+	// OpWrite means the trust bundle file must be (re)written.
+	OpWrite Op = "write"
+	// OpRelabel means only the trust bundle's recorded label changed; the
+	// manifest is rewritten, no file or symlink is touched (ADR-026).
+	OpRelabel Op = "relabel"
+	// OpRelease means files the manifest tracked are no longer managed by
+	// the config. They stay on disk; only the manifest record is dropped
+	// and a notice is printed (ADR-021, ADR-026).
+	OpRelease Op = "release"
 )
 
 // Kind is the artifact an action concerns.
@@ -51,6 +63,10 @@ const (
 	KindCert Kind = "cert"
 	// KindLink is a link_crt symlink.
 	KindLink Kind = "link"
+	// KindTrustBundle is the trust bundle file.
+	KindTrustBundle Kind = "trust_bundle"
+	// KindRelease is a set of files the config no longer manages (OpRelease).
+	KindRelease Kind = "release"
 )
 
 // Action is a single planned operation.
@@ -58,8 +74,13 @@ type Action struct {
 	Op   Op
 	Kind Kind
 	// Label is the config label for the artifact (CA label for KindCA,
-	// cert label for KindCert, CA label for KindLink).
+	// cert label for KindCert, the owning block's label for KindLink and
+	// for a release, the trust_bundle label for KindTrustBundle).
 	Label string
+	// Owner is the kind of block that owns a KindLink action (KindCA or
+	// KindTrustBundle), so a CA and a trust bundle with the same label never
+	// share links. For OpRelease it is the kind of the released block.
+	Owner Kind
 	// Path is the primary logical artifact path, for display. Empty for
 	// no-ops.
 	Path string
@@ -76,6 +97,8 @@ type Action struct {
 	// LinkDir is the logical directory path for the symlink. Set for
 	// OpCreateSymlink (apply calls os.MkdirAll on cfg.Resolve(LinkDir)).
 	LinkDir string
+	// Paths lists the logical files an OpRelease action stops managing.
+	Paths []string
 }
 
 // Plan is the ordered set of actions a reconcile would perform.
@@ -119,6 +142,29 @@ func (p Plan) CertActions() []Action {
 	return certs
 }
 
+// TrustBundleAction returns the trust bundle action, if a trust_bundle block
+// is declared.
+func (p Plan) TrustBundleAction() (Action, bool) {
+	for _, a := range p.Actions {
+		if a.Kind == KindTrustBundle {
+			return a, true
+		}
+	}
+	return Action{}, false
+}
+
+// ReleaseActions returns the actions for artifacts that are no longer
+// managed: removed ca blocks and a removed or moved trust bundle.
+func (p Plan) ReleaseActions() []Action {
+	var rel []Action
+	for _, a := range p.Actions {
+		if a.Op == OpRelease {
+			rel = append(rel, a)
+		}
+	}
+	return rel
+}
+
 // LinkActions returns all link_crt symlink actions from the plan.
 func (p Plan) LinkActions() []Action {
 	var links []Action
@@ -141,7 +187,7 @@ type Options struct {
 
 	// Lstat returns the mode bits for the absolute filesystem path.
 	// Returns (0, fs.ErrNotExist) when the path does not exist; (0, err)
-	// for other I/O errors. Used by planCALinks to inspect symlink state.
+	// for other I/O errors. Used by planLinks to inspect symlink state.
 	// When nil, all link_crt paths are treated as absent.
 	Lstat func(realPath string) (os.FileMode, error)
 
@@ -178,13 +224,18 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		actions = append(actions, ha)
 	}
 
-	for i := range cfg.CAs {
-		linkActions, err := planCALinks(cfg, &cfg.CAs[i], m, opts)
+	for _, src := range linkSources(cfg, m) {
+		linkActions, err := planLinks(cfg, src, opts)
 		if err != nil {
 			return Plan{}, err
 		}
 		actions = append(actions, linkActions...)
 	}
+
+	if a, ok := planTrustBundle(cfg, m, actions, exists); ok {
+		actions = append(actions, a)
+	}
+	actions = append(actions, planReleases(cfg, m)...)
 
 	return Plan{Actions: actions}, nil
 }
@@ -394,129 +445,266 @@ func caStateError(label string, tracked, haveCert, haveKey bool, certPath, keyPa
 	}
 }
 
-// planCALinks computes the symlink actions for one CA's link_crt list.
-// For each declared directory it checks the current symlink state via
-// opts.Lstat / opts.Readlink and emits CreateSymlink, Noop, or an error.
-// Symlinks present in the manifest but no longer in the config emit
-// DeleteSymlink for stale-link cleanup.
-func planCALinks(cfg *config.Config, ca *config.CA, m *manifest.Manifest, opts Options) ([]Action, error) {
-	if len(ca.LinkCrt) == 0 {
-		// Still need to emit DeleteSymlink for any manifest links if the
-		// entire link_crt list was removed.
-		return planCALinkStale(ca, m, nil)
+// linkSource is one owner of link_crt symlinks: a ca block, the trust
+// bundle, or a block removed from the config whose recorded links must be
+// cleaned up.
+type linkSource struct {
+	owner Kind
+	label string
+	// dirs is the declared link_crt list; nil for a removed block.
+	dirs []string
+	// filename is the symlink name; target is the logical path it points at.
+	filename string
+	target   string
+	// recorded is the manifest's links for this owner.
+	recorded []manifest.CertLink
+}
+
+// desc names the owner in messages, e.g. `ca "mesh"`.
+func (s linkSource) desc() string {
+	if s.owner == KindTrustBundle {
+		return fmt.Sprintf("trust_bundle %q", s.label)
+	}
+	return fmt.Sprintf("ca %q", s.label)
+}
+
+// linkSources lists every link owner: the declared CAs in config order, CAs
+// recorded in the manifest but no longer declared (sorted by label, so their
+// stale links are deleted, ADR-021 amendment), and the trust bundle, whether
+// declared or only recorded.
+func linkSources(cfg *config.Config, m *manifest.Manifest) []linkSource {
+	var srcs []linkSource
+	for i := range cfg.CAs {
+		ca := cfg.CAs[i]
+		src := linkSource{
+			owner:    KindCA,
+			label:    ca.Label,
+			dirs:     ca.LinkCrt,
+			filename: cfg.CACertFilename(ca),
+			target:   cfg.CACertPathForCA(ca),
+		}
+		if m != nil && m.CAs[ca.Label] != nil {
+			src.recorded = m.CAs[ca.Label].Links
+		}
+		srcs = append(srcs, src)
+	}
+	for _, label := range removedCALabels(cfg, m) {
+		srcs = append(srcs, linkSource{owner: KindCA, label: label, recorded: m.CAs[label].Links})
 	}
 
-	certPath := cfg.CACertPathForCA(*ca)
-	linkFilename := cfg.CACertFilename(*ca)
-	absCertPath := cfg.Resolve(certPath)
+	var recorded []manifest.CertLink
+	if m != nil && m.TrustBundle != nil {
+		recorded = m.TrustBundle.Links
+	}
+	if tb := cfg.TrustBundle; tb != nil {
+		srcs = append(srcs, linkSource{
+			owner:    KindTrustBundle,
+			label:    tb.Label,
+			dirs:     tb.LinkCrt,
+			filename: cfg.TrustBundleFilename(),
+			target:   cfg.TrustBundlePath(),
+			recorded: recorded,
+		})
+	} else if m != nil && m.TrustBundle != nil {
+		srcs = append(srcs, linkSource{owner: KindTrustBundle, label: m.TrustBundle.Label, recorded: recorded})
+	}
+	return srcs
+}
+
+// removedCALabels returns the labels of CAs recorded in the manifest but no
+// longer declared in the config, sorted for deterministic output.
+func removedCALabels(cfg *config.Config, m *manifest.Manifest) []string {
+	if m == nil {
+		return nil
+	}
+	var labels []string
+	for label := range m.CAs {
+		if cfg.CAByLabel(label) == nil {
+			labels = append(labels, label)
+		}
+	}
+	sort.Strings(labels)
+	return labels
+}
+
+// planLinks computes the symlink actions for one link owner. For each
+// declared directory it checks the current symlink state via opts.Lstat /
+// opts.Readlink and emits CreateSymlink, Noop, or an error. Symlinks
+// recorded in the manifest but no longer declared emit DeleteSymlink for
+// stale-link cleanup.
+func planLinks(cfg *config.Config, src linkSource, opts Options) ([]Action, error) {
+	absTarget := cfg.Resolve(src.target)
 
 	// expectedPaths tracks which logical link paths are currently declared,
 	// so we can diff against the manifest for stale detection.
-	expectedPaths := make(map[string]struct{}, len(ca.LinkCrt))
+	expectedPaths := make(map[string]struct{}, len(src.dirs))
 	var actions []Action
 
-	for _, dir := range ca.LinkCrt {
-		linkPath := filepath.Join(dir, linkFilename) // logical
+	for _, dir := range src.dirs {
+		linkPath := filepath.Join(dir, src.filename) // logical
 		absLinkDir := cfg.Resolve(dir)
 		absLinkPath := cfg.Resolve(linkPath)
 
-		target, err := filepath.Rel(absLinkDir, absCertPath)
+		target, err := filepath.Rel(absLinkDir, absTarget)
 		if err != nil {
-			return nil, fmt.Errorf("ca %q: link_crt %q: cannot compute relative path to CA cert: %w", ca.Label, dir, err)
+			return nil, fmt.Errorf("%s: link_crt %q: cannot compute relative path to %s: %w", src.desc(), dir, src.target, err)
 		}
 
 		expectedPaths[linkPath] = struct{}{}
 
+		create := Action{
+			Op:         OpCreateSymlink,
+			Kind:       KindLink,
+			Owner:      src.owner,
+			Label:      src.label,
+			Path:       linkPath,
+			LinkTarget: target,
+			LinkDir:    dir,
+			Desc:       fmt.Sprintf("create link %s → %s", linkPath, target),
+		}
+
 		if opts.Lstat == nil {
-			actions = append(actions, Action{
-				Op:         OpCreateSymlink,
-				Kind:       KindLink,
-				Label:      ca.Label,
-				Path:       linkPath,
-				LinkTarget: target,
-				LinkDir:    dir,
-				Desc:       fmt.Sprintf("create link %s → %s", linkPath, target),
-			})
+			actions = append(actions, create)
 			continue
 		}
 
 		mode, err := opts.Lstat(absLinkPath)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			actions = append(actions, Action{
-				Op:         OpCreateSymlink,
-				Kind:       KindLink,
-				Label:      ca.Label,
-				Path:       linkPath,
-				LinkTarget: target,
-				LinkDir:    dir,
-				Desc:       fmt.Sprintf("create link %s → %s", linkPath, target),
-			})
+			actions = append(actions, create)
 		case err != nil:
-			return nil, fmt.Errorf("ca %q: link_crt %q: lstat %s: %w", ca.Label, dir, linkPath, err)
+			return nil, fmt.Errorf("%s: link_crt %q: lstat %s: %w", src.desc(), dir, linkPath, err)
 		case mode&os.ModeSymlink != 0:
 			currentTarget, err := opts.Readlink(absLinkPath)
 			if err != nil {
-				return nil, fmt.Errorf("ca %q: link_crt %q: readlink %s: %w", ca.Label, dir, linkPath, err)
+				return nil, fmt.Errorf("%s: link_crt %q: readlink %s: %w", src.desc(), dir, linkPath, err)
 			}
 			if currentTarget == target {
 				actions = append(actions, Action{
 					Op:         OpNoop,
 					Kind:       KindLink,
-					Label:      ca.Label,
+					Owner:      src.owner,
+					Label:      src.label,
 					Path:       linkPath,
 					LinkTarget: target,
 					Desc:       fmt.Sprintf("link %s up to date", linkPath),
 				})
 			} else {
-				actions = append(actions, Action{
-					Op:         OpCreateSymlink,
-					Kind:       KindLink,
-					Label:      ca.Label,
-					Path:       linkPath,
-					LinkTarget: target,
-					LinkDir:    dir,
-					Desc:       fmt.Sprintf("update link %s → %s (was %s)", linkPath, target, currentTarget),
-				})
+				create.Desc = fmt.Sprintf("update link %s → %s (was %s)", linkPath, target, currentTarget)
+				actions = append(actions, create)
 			}
 		default:
 			return nil, fmt.Errorf(
-				"ca %q: link_crt %q: %s is not a symlink; remove it manually to let nebula-pki manage this path",
-				ca.Label, dir, linkPath,
+				"%s: link_crt %q: %s is not a symlink; remove it manually to let nebula-pki manage this path",
+				src.desc(), dir, linkPath,
 			)
 		}
 	}
 
-	stale, err := planCALinkStale(ca, m, expectedPaths)
-	if err != nil {
-		return nil, err
-	}
-	return append(actions, stale...), nil
-}
-
-// planCALinkStale emits DeleteSymlink actions for manifest links that are no
-// longer present in expectedPaths. When expectedPaths is nil every manifest
-// link is stale.
-func planCALinkStale(ca *config.CA, m *manifest.Manifest, expectedPaths map[string]struct{}) ([]Action, error) {
-	if m == nil {
-		return nil, nil
-	}
-	mCA := m.CAs[ca.Label]
-	if mCA == nil {
-		return nil, nil
-	}
-	var actions []Action
-	for _, link := range mCA.Links {
+	for _, link := range src.recorded {
 		if _, ok := expectedPaths[link.Path]; ok {
 			continue
 		}
 		actions = append(actions, Action{
 			Op:    OpDeleteSymlink,
 			Kind:  KindLink,
-			Label: ca.Label,
+			Owner: src.owner,
+			Label: src.label,
 			Path:  link.Path,
 			Desc:  fmt.Sprintf("delete stale link %s", link.Path),
 		})
 	}
 	return actions, nil
+}
+
+// planTrustBundle decides the trust bundle action when a trust_bundle block
+// is declared (ADR-026 "Detailed rules"). The bundle is written when it is
+// not recorded yet, its path changed, the file is missing, a member CA is
+// generated in this run, or the members' recorded fingerprints (in ca_refs
+// order) differ from the bundle's. A changed label alone only rewrites the
+// manifest. Reference-mode CAs are re-read on every run, so apply re-checks
+// the actual fingerprints before deciding not to write.
+func planTrustBundle(cfg *config.Config, m *manifest.Manifest, caActions []Action, exists func(string) bool) (Action, bool) {
+	tb := cfg.TrustBundle
+	if tb == nil {
+		return Action{}, false
+	}
+	path := cfg.TrustBundlePath()
+	write := Action{Op: OpWrite, Kind: KindTrustBundle, Label: tb.Label, Path: path, Desc: fmt.Sprintf("write trust bundle %s", path)}
+
+	if m == nil || m.TrustBundle == nil || m.TrustBundle.Path != path || !exists(path) {
+		return write, true
+	}
+	generated := make(map[string]bool)
+	for _, a := range caActions {
+		if a.Kind == KindCA && a.Op == OpGenerate {
+			generated[a.Label] = true
+		}
+	}
+	fps := make([]string, 0, len(tb.CARefs))
+	for _, label := range tb.CARefs {
+		rec := m.CAs[label]
+		if generated[label] || rec == nil {
+			return write, true
+		}
+		fps = append(fps, rec.Fingerprint)
+	}
+	if !slices.Equal(fps, m.TrustBundle.CAFingerprints) {
+		return write, true
+	}
+	if m.TrustBundle.Label != tb.Label {
+		return Action{Op: OpRelabel, Kind: KindTrustBundle, Label: tb.Label, Path: path,
+			Desc: fmt.Sprintf("relabel trust bundle %q → %q", m.TrustBundle.Label, tb.Label)}, true
+	}
+	return Action{Op: OpNoop, Kind: KindTrustBundle, Label: tb.Label, Path: path, Desc: "trust bundle up to date"}, true
+}
+
+// planReleases emits OpRelease actions for files the manifest tracked that
+// the config no longer manages: the cert and key of every removed ca block,
+// and the bundle file when the trust_bundle block was removed or its path
+// changed. The files stay on disk (ADR-021 amendment, ADR-026). A path that
+// is still managed by the current config is never reported.
+func planReleases(cfg *config.Config, m *manifest.Manifest) []Action {
+	if m == nil {
+		return nil
+	}
+	managed := make(map[string]bool)
+	suffix := cfg.Storage.Encryption.KeySuffix()
+	for i := range cfg.CAs {
+		managed[cfg.CACertPathForCA(cfg.CAs[i])] = true
+		managed[cfg.CAKeyPathForCA(cfg.CAs[i])] = true
+		managed[cfg.CAKeyPathForCA(cfg.CAs[i])+suffix] = true
+	}
+	if cfg.TrustBundle != nil {
+		managed[cfg.TrustBundlePath()] = true
+	}
+
+	var actions []Action
+	release := func(owner Kind, label string, paths ...string) {
+		var kept []string
+		for _, p := range paths {
+			if p != "" && !managed[p] {
+				kept = append(kept, p)
+			}
+		}
+		if len(kept) == 0 && owner == KindTrustBundle {
+			return
+		}
+		actions = append(actions, Action{
+			Op:    OpRelease,
+			Kind:  KindRelease,
+			Owner: owner,
+			Label: label,
+			Paths: kept,
+			Desc:  fmt.Sprintf("release %s %q", owner, label),
+		})
+	}
+	for _, label := range removedCALabels(cfg, m) {
+		rec := m.CAs[label]
+		release(KindCA, label, rec.CertPath, rec.KeyPath)
+	}
+	if m.TrustBundle != nil {
+		release(KindTrustBundle, m.TrustBundle.Label, m.TrustBundle.Path)
+	}
+	return actions
 }

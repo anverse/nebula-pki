@@ -7,7 +7,7 @@ exec nebula-pki
 stderr '^generated CA "old" \(mesh-old\)$'
 ! stderr 'expired'
 
-sleep 3s
+exec sleep 3
 
 exec nebula-pki
 stderr '^up to date; nothing to do$'

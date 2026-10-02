@@ -156,13 +156,29 @@ type Report struct {
 	CreatedLinks []LinkReport
 	// DeletedLinks records logical symlink paths deleted this run (stale link_crt cleanup).
 	DeletedLinks []string
+
+	// Released lists files the config stopped managing this run: the cert
+	// and key of a removed ca block, or a removed or moved trust bundle.
+	// The files stay on disk (ADR-021 amendment, ADR-026).
+	Released []ReleaseReport
+}
+
+// ReleaseReport names files that are no longer managed and stay on disk.
+type ReleaseReport struct {
+	// Owner is plan.KindCA or plan.KindTrustBundle.
+	Owner plan.Kind
+	Label string
+	Paths []string
 }
 
 // LinkReport summarises one link_crt symlink created or updated this run.
 type LinkReport struct {
-	CALabel string
-	Path    string
-	Target  string
+	// Owner is plan.KindCA or plan.KindTrustBundle; Label is the owning
+	// block's label.
+	Owner  plan.Kind
+	Label  string
+	Path   string
+	Target string
 }
 
 // caPEMs holds the material for one CA, used to sign certs.
@@ -259,7 +275,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		}
 	}
 
-	createdLinks, deletedLinks, err := applyLinks(cfg, p.LinkActions(), next, opts.Warn)
+	createdLinks, deletedLinks, bundleLinks, err := applyLinks(cfg, p.LinkActions(), next, opts.Warn)
 	if err != nil {
 		return nil, err
 	}
@@ -291,12 +307,28 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		hasAnyChange = true
 	}
 
-	bundleWritten, err := reconcileTrustBundle(cfg, caKeys, current, next, exists)
+	bundleWritten, err := reconcileTrustBundle(cfg, caKeys, current, next, bundleLinks, exists)
 	if err != nil {
 		return nil, err
 	}
 	if bundleWritten {
+		// A rewritten bundle mutated disk even when the manifest content is
+		// unchanged (e.g. the file was deleted by hand).
 		hasAnyChange = true
+		diskChanged = true
+	}
+	if a, ok := p.TrustBundleAction(); ok && a.Op == plan.OpRelabel {
+		hasAnyChange = true
+	}
+
+	// Removed ca blocks and a removed or moved trust bundle: the files stay
+	// on disk, only the manifest stops tracking them.
+	var released []ReleaseReport
+	for _, a := range p.ReleaseActions() {
+		hasAnyChange = true
+		if len(a.Paths) > 0 {
+			released = append(released, ReleaseReport{Owner: a.Owner, Label: a.Label, Paths: a.Paths})
+		}
 	}
 	report.TrustBundlePath = cfg.TrustBundlePath()
 	report.TrustBundleWritten = bundleWritten
@@ -316,8 +348,8 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 
 	// Rebuild-and-compare: if the candidate manifest is identical to what is
 	// already recorded (ignoring generated_at), skip the write so the on-disk
-	// bytes stay stable — UNLESS a disk mutation (symlink create/delete)
-	// happened this run, in which case always write so generated_at advances
+	// bytes stay stable — UNLESS a disk mutation (symlink create/delete,
+	// trust bundle rewrite) happened this run, in which case always write so generated_at advances
 	// and the CLI reports "changed".
 	if unchanged, prev := manifestUnchanged(current, next); unchanged && !diskChanged {
 		next.GeneratedAt = prev
@@ -330,6 +362,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	report.Changed = true
 	report.SignedCerts = signed
 	report.StaleArtifacts = stale
+	report.Released = released
 	return report, nil
 }
 
@@ -655,71 +688,83 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 	return signed, stale, nil
 }
 
+// linkOwner keys the active links of one link_crt owner.
+type linkOwner struct {
+	kind  plan.Kind
+	label string
+}
+
 // applyLinks executes link_crt symlink actions and updates next.CAs with the
-// resulting links array. Returns the lists of created and deleted link paths
+// resulting links array. The trust bundle's links are returned separately
+// (bundleLinks) because its manifest record is built afterwards by
+// reconcileTrustBundle. Returns the lists of created and deleted link paths
 // for the report. Parent directories are created as needed. A regular file
 // (non-symlink) at a link path is an error for CreateSymlink; for
 // DeleteSymlink it is a notice printed to warn and the file is left alone.
-func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Manifest, warn io.Writer) (created []LinkReport, deleted []string, err error) {
-	// activeLinks tracks the post-run links for each CA label. Every CA that
+func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Manifest, warn io.Writer) (created []LinkReport, deleted []string, bundleLinks []manifest.CertLink, err error) {
+	// activeLinks tracks the post-run links for each owner. Every owner that
 	// appears in any link action is added here (including delete-only cases,
 	// where the value stays nil to clear the manifest links array).
-	activeLinks := make(map[string][]manifest.CertLink)
-	// Mark a CA label as seen regardless of which op we process.
-	seen := func(label string) {
-		if _, ok := activeLinks[label]; !ok {
-			activeLinks[label] = nil
+	activeLinks := make(map[linkOwner][]manifest.CertLink)
+	key := func(a plan.Action) linkOwner { return linkOwner{a.Owner, a.Label} }
+	// Mark an owner as seen regardless of which op we process.
+	seen := func(a plan.Action) {
+		if _, ok := activeLinks[key(a)]; !ok {
+			activeLinks[key(a)] = nil
 		}
+	}
+	add := func(a plan.Action) {
+		activeLinks[key(a)] = append(activeLinks[key(a)], manifest.CertLink{Path: a.Path, Target: a.LinkTarget})
 	}
 
 	for _, a := range linkActions {
 		switch a.Op {
 		case plan.OpCreateSymlink:
-			seen(a.Label)
+			seen(a)
 			absDir := cfg.Resolve(a.LinkDir)
 			absLink := cfg.Resolve(a.Path)
 
 			if err := os.MkdirAll(absDir, 0o755); err != nil {
-				return nil, nil, fmt.Errorf("link %s: create directory: %w", a.Path, err)
+				return nil, nil, nil, fmt.Errorf("link %s: create directory: %w", a.Path, err)
 			}
 
 			info, lstatErr := os.Lstat(absLink)
 			if lstatErr == nil {
 				if info.Mode()&os.ModeSymlink == 0 {
-					return nil, nil, fmt.Errorf(
-						"ca %q: link_crt: %s is not a symlink; remove it manually to let nebula-pki manage this path",
-						a.Label, a.Path,
+					return nil, nil, nil, fmt.Errorf(
+						"%s %q: link_crt: %s is not a symlink; remove it manually to let nebula-pki manage this path",
+						a.Owner, a.Label, a.Path,
 					)
 				}
 				// Re-read the target: if it already matches, skip the
 				// remove+recreate so we don't report a spurious write.
 				if existing, rerr := os.Readlink(absLink); rerr == nil && existing == a.LinkTarget {
-					activeLinks[a.Label] = append(activeLinks[a.Label], manifest.CertLink{Path: a.Path, Target: a.LinkTarget})
+					add(a)
 					continue
 				}
 				// Existing symlink with wrong target: remove before recreating.
 				if err := os.Remove(absLink); err != nil {
-					return nil, nil, fmt.Errorf("link %s: remove existing symlink: %w", a.Path, err)
+					return nil, nil, nil, fmt.Errorf("link %s: remove existing symlink: %w", a.Path, err)
 				}
 			} else if !errors.Is(lstatErr, fs.ErrNotExist) {
-				return nil, nil, fmt.Errorf("link %s: lstat: %w", a.Path, lstatErr)
+				return nil, nil, nil, fmt.Errorf("link %s: lstat: %w", a.Path, lstatErr)
 			}
 
 			if err := os.Symlink(a.LinkTarget, absLink); err != nil {
-				return nil, nil, fmt.Errorf("link %s: symlink: %w", a.Path, err)
+				return nil, nil, nil, fmt.Errorf("link %s: symlink: %w", a.Path, err)
 			}
 
-			created = append(created, LinkReport{CALabel: a.Label, Path: a.Path, Target: a.LinkTarget})
-			activeLinks[a.Label] = append(activeLinks[a.Label], manifest.CertLink{Path: a.Path, Target: a.LinkTarget})
+			created = append(created, LinkReport{Owner: a.Owner, Label: a.Label, Path: a.Path, Target: a.LinkTarget})
+			add(a)
 
 		case plan.OpNoop:
 			if a.Kind == plan.KindLink {
-				seen(a.Label)
-				activeLinks[a.Label] = append(activeLinks[a.Label], manifest.CertLink{Path: a.Path, Target: a.LinkTarget})
+				seen(a)
+				add(a)
 			}
 
 		case plan.OpDeleteSymlink:
-			seen(a.Label) // marks the CA as seen; activeLinks[label] stays nil
+			seen(a) // marks the owner as seen; its links stay nil
 			absLink := cfg.Resolve(a.Path)
 			info, lstatErr := os.Lstat(absLink)
 			switch {
@@ -728,7 +773,7 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 				// knows the stale manifest record was cleared.
 				deleted = append(deleted, a.Path)
 			case lstatErr != nil:
-				return nil, nil, fmt.Errorf("link %s: lstat: %w", a.Path, lstatErr)
+				return nil, nil, nil, fmt.Errorf("link %s: lstat: %w", a.Path, lstatErr)
 			case info.Mode()&os.ModeSymlink == 0:
 				// Regular file now occupies the path — notice and skip.
 				fmt.Fprintf(coalesceWriter(warn),
@@ -737,7 +782,7 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 				)
 			default:
 				if err := os.Remove(absLink); err != nil {
-					return nil, nil, fmt.Errorf("link %s: remove: %w", a.Path, err)
+					return nil, nil, nil, fmt.Errorf("link %s: remove: %w", a.Path, err)
 				}
 				deleted = append(deleted, a.Path)
 			}
@@ -746,13 +791,17 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 
 	// Propagate the active links array to the candidate manifest for every CA
 	// that had link actions (including noop-only runs where no change occurred).
-	for label, links := range activeLinks {
-		if rec := next.CAs[label]; rec != nil {
+	for owner, links := range activeLinks {
+		if owner.kind == plan.KindTrustBundle {
+			bundleLinks = links
+			continue
+		}
+		if rec := next.CAs[owner.label]; rec != nil {
 			rec.Links = links
 		}
 	}
 
-	return created, deleted, nil
+	return created, deleted, bundleLinks, nil
 }
 
 // reconcileTrustBundle builds the concatenated-PEM trust bundle from the
@@ -760,7 +809,7 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 // next.TrustBundle and writes the bundle file when the content has changed.
 // Without a trust_bundle block nothing is written and next.TrustBundle stays
 // nil (ADR-026 §2). Returns true when the file was written.
-func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current, next *manifest.Manifest, exists func(string) bool) (bool, error) {
+func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current, next *manifest.Manifest, links []manifest.CertLink, exists func(string) bool) (bool, error) {
 	tb := cfg.TrustBundle
 	if tb == nil {
 		next.TrustBundle = nil
@@ -782,11 +831,13 @@ func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current,
 		Label:          tb.Label,
 		Path:           bundlePath,
 		CAFingerprints: fps,
+		Links:          links,
 	}
 
-	// Idempotency: skip the write when the bundle file already exists and
-	// the manifest records the same set of CA fingerprints in the same order.
-	if current.TrustBundle != nil && exists(bundlePath) {
+	// Idempotency: skip the write when the bundle file already exists at the
+	// recorded path and the manifest records the same CA fingerprints in the
+	// same order.
+	if current.TrustBundle != nil && current.TrustBundle.Path == bundlePath && exists(bundlePath) {
 		if fingerprintsEqual(current.TrustBundle.CAFingerprints, fps) {
 			return false, nil
 		}
@@ -885,10 +936,8 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 
 	suffix := enc.Suffix()
 
-	anyCAGenerate := false
 	for _, caAction := range p.CAActions() {
 		if caAction.Op == plan.OpGenerate {
-			anyCAGenerate = true
 			ca := cfg.CAByLabel(caAction.Label)
 			if ca != nil {
 				keyPath := cfg.CAKeyPathForCA(*ca)
@@ -928,22 +977,27 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 		}
 	}
 
-	// Include the trust bundle in the preview when it would be written:
-	// - any new CA is generated (new fingerprint enters the bundle), or
-	// - the bundle file is absent, or
-	// - the member count differs from the manifest's recorded fingerprint
-	//   count.
-	if cfg.TrustBundle != nil {
-		manifestCount := 0
-		if current.TrustBundle != nil {
-			manifestCount = len(current.TrustBundle.CAFingerprints)
-		}
-		if anyCAGenerate || !exists(cfg.TrustBundlePath()) || len(cfg.TrustBundle.CARefs) != manifestCount {
-			writes = append(writes, cfg.TrustBundlePath())
+	// The trust bundle is a planned action (ADR-026 "Detailed rules"); a
+	// relabel changes only the manifest.
+	manifestOnly := false
+	if a, ok := p.TrustBundleAction(); ok {
+		switch a.Op {
+		case plan.OpWrite:
+			writes = append(writes, a.Path)
+		case plan.OpRelabel:
+			manifestOnly = true
 		}
 	}
 
-	if len(writes) == 0 && len(linkLines) == 0 {
+	var releaseLines []string
+	for _, a := range p.ReleaseActions() {
+		manifestOnly = true
+		for _, path := range a.Paths {
+			releaseLines = append(releaseLines, fmt.Sprintf("stop managing %s (file stays on disk)", path))
+		}
+	}
+
+	if len(writes) == 0 && len(linkLines) == 0 && !manifestOnly {
 		fmt.Fprintln(w, "up to date; nothing to do")
 		return
 	}
@@ -952,6 +1006,9 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 		fmt.Fprintf(w, "+ write %s\n", path)
 	}
 	for _, line := range linkLines {
+		fmt.Fprintf(w, "+ %s\n", line)
+	}
+	for _, line := range releaseLines {
 		fmt.Fprintf(w, "+ %s\n", line)
 	}
 	fmt.Fprintf(w, "+ write %s\n", cfg.ManifestPath())

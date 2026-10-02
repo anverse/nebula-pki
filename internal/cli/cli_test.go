@@ -13,6 +13,7 @@ import (
 	"github.com/anverse/nebula-pki/internal/config"
 	"github.com/anverse/nebula-pki/internal/manifest"
 	"github.com/anverse/nebula-pki/internal/pki"
+	"github.com/anverse/nebula-pki/internal/plan"
 )
 
 func TestVersionSubcommand(t *testing.T) {
@@ -511,6 +512,39 @@ func TestWriteReconcileSummary(t *testing.T) {
 				"wrote manifest: out/nebula-pki.json",
 			},
 			wantNot: []string{"up to date"},
+		},
+		{
+			// Links of one owner are grouped under one heading; CA and trust
+			// bundle links are named by their owner.
+			name: "changed_with_owner_links",
+			rep: apply.Report{
+				Changed:      true,
+				ManifestPath: "out/nebula-pki.json",
+				CreatedLinks: []apply.LinkReport{
+					{Owner: plan.KindTrustBundle, Label: "main", Path: "out/a/bundle.crt"},
+					{Owner: plan.KindTrustBundle, Label: "main", Path: "out/b/bundle.crt"},
+					{Owner: plan.KindCA, Label: "mesh", Path: "out/a/mesh.crt"},
+				},
+			},
+			wantContain: []string{
+				"linked trust bundle \"main\"\n  out/a/bundle.crt\n  out/b/bundle.crt\nlinked CA \"mesh\"\n  out/a/mesh.crt\n",
+			},
+		},
+		{
+			// Released files stay on disk and are named in a notice.
+			name: "changed_with_released_files",
+			rep: apply.Report{
+				Changed:      true,
+				ManifestPath: "out/nebula-pki.json",
+				Released: []apply.ReleaseReport{
+					{Owner: plan.KindCA, Label: "old", Paths: []string{"out/ca/old.crt", "out/ca/old.key"}},
+					{Owner: plan.KindTrustBundle, Label: "main", Paths: []string{"out/ca/bundle.crt"}},
+				},
+			},
+			wantContain: []string{
+				"notice: ca \"old\" was removed from the config; its files stay on disk and are no longer managed:\n  out/ca/old.crt\n  out/ca/old.key\n",
+				"notice: trust bundle out/ca/bundle.crt is no longer managed; the file stays on disk\n",
+			},
 		},
 		{
 			name: "noop_run",

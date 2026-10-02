@@ -1973,6 +1973,7 @@ func TestApplyLinks_CorrectSymlinkSkipsRecreate(t *testing.T) {
 	action := plan.Action{
 		Op:         plan.OpCreateSymlink,
 		Kind:       plan.KindLink,
+		Owner:      plan.KindCA,
 		Label:      "mesh",
 		Path:       "out/hetzner/mesh.crt",
 		LinkTarget: correctTarget,
@@ -1980,7 +1981,7 @@ func TestApplyLinks_CorrectSymlinkSkipsRecreate(t *testing.T) {
 		Desc:       "create link out/hetzner/mesh.crt → " + correctTarget,
 	}
 	next := &manifest.Manifest{}
-	created, _, err := applyLinks(cfg, []plan.Action{action}, next, nil)
+	created, _, _, err := applyLinks(cfg, []plan.Action{action}, next, nil)
 	if err != nil {
 		t.Fatalf("applyLinks: %v", err)
 	}

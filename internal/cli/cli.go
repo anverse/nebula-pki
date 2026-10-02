@@ -13,6 +13,7 @@ import (
 	"github.com/anverse/nebula-pki/internal/buildinfo"
 	"github.com/anverse/nebula-pki/internal/config"
 	"github.com/anverse/nebula-pki/internal/pki"
+	"github.com/anverse/nebula-pki/internal/plan"
 	"github.com/spf13/cobra"
 )
 
@@ -111,8 +112,16 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		fmt.Fprintf(w, "  cert: %s\n", ca.CertPath)
 		fmt.Fprintf(w, "  key:  %s\n", ca.KeyPath)
 	}
-	for _, l := range rep.CreatedLinks {
-		fmt.Fprintf(w, "linked CA %q\n  %s\n", l.CALabel, l.Path)
+	for i, l := range rep.CreatedLinks {
+		// Group consecutive links of one owner under a single heading.
+		if i == 0 || l.Owner != rep.CreatedLinks[i-1].Owner || l.Label != rep.CreatedLinks[i-1].Label {
+			if l.Owner == plan.KindTrustBundle {
+				fmt.Fprintf(w, "linked trust bundle %q\n", l.Label)
+			} else {
+				fmt.Fprintf(w, "linked CA %q\n", l.Label)
+			}
+		}
+		fmt.Fprintf(w, "  %s\n", l.Path)
 	}
 	for _, p := range rep.DeletedLinks {
 		fmt.Fprintf(w, "deleted link %s\n", p)
@@ -130,6 +139,18 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 		fmt.Fprintln(w, "notice: the following files are no longer managed by this configuration.")
 		fmt.Fprintln(w, "  They can be deleted once you have confirmed the new location is correct:")
 		for _, p := range rep.StaleArtifacts {
+			fmt.Fprintf(w, "  %s\n", p)
+		}
+	}
+	for _, r := range rep.Released {
+		if r.Owner == plan.KindTrustBundle {
+			for _, p := range r.Paths {
+				fmt.Fprintf(w, "notice: trust bundle %s is no longer managed; the file stays on disk\n", p)
+			}
+			continue
+		}
+		fmt.Fprintf(w, "notice: ca %q was removed from the config; its files stay on disk and are no longer managed:\n", r.Label)
+		for _, p := range r.Paths {
 			fmt.Fprintf(w, "  %s\n", p)
 		}
 	}
