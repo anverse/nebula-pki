@@ -164,6 +164,13 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 // It is printed on every reconcile and --dry-run, including no-op runs. When
 // there are no managed certificates yet, nothing is printed.
 func printDeadlineReport(w io.Writer, d apply.DeadlineReport, now time.Time) {
+	// Expired CAs are warnings, not deadlines; they are printed even when
+	// there is nothing else to report.
+	for _, item := range d.ExpiredCAs {
+		days := int(now.Sub(item.Deadline).Hours() / 24)
+		fmt.Fprintf(w, "warning: CA %q expired %dd ago (%s)\n", item.Label, days, item.Deadline.UTC().Format("2006-01-02"))
+	}
+
 	if d.NextDeadline.IsZero() {
 		return
 	}

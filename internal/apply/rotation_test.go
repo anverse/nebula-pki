@@ -360,6 +360,36 @@ ca "new" {
 	}
 }
 
+func TestComputeDeadlines_ExpiredCA_IsWarningNotDeadline(t *testing.T) {
+	// An expired CA cannot be fixed by running again: it is listed in
+	// ExpiredCAs and never sets NextDeadline (ADR-017 2026-10-02 amendment).
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	expired := now.Add(-3 * 24 * time.Hour)
+	newExpiry := now.Add(365 * 24 * time.Hour)
+
+	cfg := writeConfig(t, `
+ca "old" { name = "old" }
+ca "new" {
+  name    = "new"
+  default = true
+}
+`)
+	m := manifest.New()
+	m.CAs["old"] = &manifest.CA{NotAfter: expired}
+	m.CAs["new"] = &manifest.CA{NotAfter: newExpiry}
+
+	d := computeDeadlines(cfg, m, now)
+	if !d.NextDeadline.Equal(newExpiry) {
+		t.Errorf("NextDeadline = %v, want %v (expired CA is not a deadline)", d.NextDeadline, newExpiry)
+	}
+	if len(d.ExpiredCAs) != 1 || d.ExpiredCAs[0].Label != "old" || !d.ExpiredCAs[0].Deadline.Equal(expired) {
+		t.Errorf("ExpiredCAs = %+v, want CA old", d.ExpiredCAs)
+	}
+	if len(d.OverdueItems) != 0 {
+		t.Errorf("OverdueItems = %+v, want none", d.OverdueItems)
+	}
+}
+
 func TestComputeDeadlines_EmptyManifest_ZeroDeadline(t *testing.T) {
 	cfg := writeConfig(t, `ca "mesh" { name = "mesh" }`)
 	m := manifest.New() // no CA record yet

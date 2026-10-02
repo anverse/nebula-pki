@@ -167,3 +167,31 @@ func TestPrintDeadlineReport_OverduePlusSoon(t *testing.T) {
 		t.Errorf("output = %q; want no hint when primary is overdue", out)
 	}
 }
+
+func TestPrintDeadlineReport_ExpiredCAWarning(t *testing.T) {
+	d := apply.DeadlineReport{
+		NextDeadline:     drFar,
+		NextDeadlineDesc: `cert "alpha" expires`,
+		ExpiredCAs:       []apply.DeadlineItem{{Kind: "ca", Label: "old", Deadline: drOverdue2}},
+	}
+	out := printDeadlineReportStr(d)
+	if !strings.Contains(out, "warning: CA \"old\" expired 10d ago (2026-05-22)\n") {
+		t.Errorf("output = %q; want the expired CA warning", out)
+	}
+	if !strings.Contains(out, `next deadline: cert "alpha" expires`) {
+		t.Errorf("output = %q; want the next deadline unaffected by the expired CA", out)
+	}
+	if strings.Contains(out, "overdue") {
+		t.Errorf("output = %q; an expired CA is a warning, not overdue", out)
+	}
+}
+
+func TestPrintDeadlineReport_ExpiredCAWithoutDeadline(t *testing.T) {
+	d := apply.DeadlineReport{
+		ExpiredCAs: []apply.DeadlineItem{{Kind: "ca", Label: "old", Deadline: drOverdue}},
+	}
+	out := printDeadlineReportStr(d)
+	if out != "warning: CA \"old\" expired 5d ago (2026-05-27)\n" {
+		t.Errorf("output = %q; want only the expired CA warning", out)
+	}
+}

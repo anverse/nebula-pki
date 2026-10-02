@@ -108,9 +108,13 @@ type DeadlineReport struct {
 	// SoonItems are additional items whose deadline falls within the next
 	// 60 days (excluding the item that set NextDeadline).
 	SoonItems []DeadlineItem
-	// OverdueItems are items already past their deadline and not re-signed
-	// this run (e.g. a reference-mode CA whose cert has lapsed).
+	// OverdueItems are certs already past their deadline and not re-signed
+	// this run.
 	OverdueItems []DeadlineItem
+	// ExpiredCAs are declared CAs whose certificate has expired. Running
+	// again cannot fix them, so they are warnings, not deadlines, and never
+	// set NextDeadline (ADR-017 2026-10-02 amendment).
+	ExpiredCAs []DeadlineItem
 }
 
 // Report summarises what a reconcile did, for the CLI to present. Paths
@@ -1075,8 +1079,10 @@ func computeDeadlines(cfg *config.Config, m *manifest.Manifest, now time.Time) D
 		desc := fmt.Sprintf("CA %q expires", ca.Label)
 
 		if !now.Before(deadline) {
-			rep.OverdueItems = append(rep.OverdueItems, DeadlineItem{Kind: "ca", Label: ca.Label, Deadline: deadline, Desc: desc})
-		} else if deadline.Before(now.Add(deadlineSoonWindow)) {
+			rep.ExpiredCAs = append(rep.ExpiredCAs, DeadlineItem{Kind: "ca", Label: ca.Label, Deadline: deadline, Desc: desc})
+			continue
+		}
+		if deadline.Before(now.Add(deadlineSoonWindow)) {
 			rep.SoonItems = append(rep.SoonItems, DeadlineItem{Kind: "ca", Label: ca.Label, Deadline: deadline, Desc: desc})
 		}
 		updateEarliest(deadline, desc)
