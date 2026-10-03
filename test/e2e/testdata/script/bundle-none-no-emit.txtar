@@ -1,5 +1,5 @@
 # Without a trust_bundle block no bundle is written and the manifest carries
-# no trust_bundle record. There is no implicit bundle (ADR-026 §2). Any
+# no trust_bundles record. There is no implicit bundle (ADR-026 §2). Any
 # declared CA may sign.
 
 exec nebula-pki
@@ -10,8 +10,9 @@ stderr '^signed cert "beta"$'
 ! stderr 'trust bundle'
 ! stdout .
 
+! exists out/bundles
 ! exists out/ca/bundle.crt
-! grep '"trust_bundle"' out/nebula-pki.json
+! grep '"trust_bundles"' out/nebula-pki.json
 
 # Dry run does not preview a bundle either.
 exec nebula-pki --dry-run

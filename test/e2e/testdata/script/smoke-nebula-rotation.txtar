@@ -7,11 +7,11 @@
 [!exec:nebula-cert] skip 'nebula-cert not in PATH'
 
 exec nebula-pki
-stderr '^wrote trust bundle'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
 stderr '^wrote manifest'
 
 # Cert signed by the new CA verifies against the bundle, not the old CA.
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/node.crt
+exec nebula-cert verify -ca out/bundles/main.crt -crt out/certs/node.crt
 exec nebula-cert verify -ca out/ca/new.crt -crt out/certs/node.crt
 ! exec nebula-cert verify -ca out/ca/old.crt -crt out/certs/node.crt
 
@@ -39,7 +39,7 @@ cert "node" {
 
 -- node.yml --
 pki:
-  ca: out/ca/bundle.crt
+  ca: out/bundles/main.crt
   cert: out/certs/node.crt
   key: out/certs/node.key
 listen:

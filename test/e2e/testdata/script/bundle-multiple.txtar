@@ -1,0 +1,119 @@
+# Any number of trust_bundle blocks may be declared, each its own trust set
+# with its own file and fan-out. A CA may be a member of several bundles, and
+# a CA in no bundle may still sign: bundles describe trust, they do not
+# restrict signing (ADR-026 §1, §3).
+
+exec nebula-pki
+stderr '^wrote trust bundle "lighthouses": out/bundles/lighthouses\.crt$'
+stderr '^wrote trust bundle "clients": out/bundles/clients\.crt$'
+stderr '^signed cert "lh"$'
+stderr '^signed cert "app"$'
+stderr '^signed cert "legacy"$'
+! stdout .
+
+# lighthouses trusts both CAs, clients only the new one.
+exec cat out/ca/old.crt out/ca/new.crt
+cp stdout expected.crt
+cmp out/bundles/lighthouses.crt expected.crt
+cmp out/bundles/clients.crt out/ca/new.crt
+
+# Each bundle fans out to its own directory under its own name.
+cmp out/lh/lighthouses.crt out/bundles/lighthouses.crt
+cmp out/app/clients.crt out/bundles/clients.crt
+
+# "solo" is in no bundle and signs anyway; its own link_crt distributes it.
+cmp out/legacy/solo.crt out/ca/solo.crt
+
+# The manifest holds one record per bundle, keyed by label.
+grep '"lighthouses": \{' out/nebula-pki.json
+grep '"clients": \{' out/nebula-pki.json
+
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+# Removing one bundle releases only that bundle.
+cp single.hcl nebula.hcl
+exec nebula-pki
+stderr '^notice: trust bundle "clients": out/bundles/clients\.crt is no longer managed; the file stays on disk$'
+stderr '^deleted link out/app/clients\.crt$'
+! stderr 'lighthouses'
+exists out/bundles/clients.crt
+! grep '"clients": \{' out/nebula-pki.json
+grep '"lighthouses": \{' out/nebula-pki.json
+
+-- nebula.hcl --
+trust_bundle "lighthouses" {
+  ca_refs  = [ca.old, ca.new]
+  link_crt = ["out/lh"]
+}
+
+trust_bundle "clients" {
+  ca_refs  = [ca.new]
+  link_crt = ["out/app"]
+}
+
+ca "old" {
+  name = "mesh-old"
+}
+
+ca "new" {
+  name    = "mesh-new"
+  default = true
+}
+
+ca "solo" {
+  name     = "mesh-solo"
+  link_crt = ["out/legacy"]
+}
+
+cert "lh" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out/lh"
+}
+
+cert "app" {
+  networks   = ["10.0.0.2/16"]
+  output_dir = "out/app"
+}
+
+cert "legacy" {
+  ca         = ca.solo
+  networks   = ["10.0.0.3/16"]
+  output_dir = "out/legacy"
+}
+
+-- single.hcl --
+trust_bundle "lighthouses" {
+  ca_refs  = [ca.old, ca.new]
+  link_crt = ["out/lh"]
+}
+
+ca "old" {
+  name = "mesh-old"
+}
+
+ca "new" {
+  name    = "mesh-new"
+  default = true
+}
+
+ca "solo" {
+  name     = "mesh-solo"
+  link_crt = ["out/legacy"]
+}
+
+cert "lh" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out/lh"
+}
+
+cert "app" {
+  networks   = ["10.0.0.2/16"]
+  output_dir = "out/app"
+}
+
+cert "legacy" {
+  ca         = ca.solo
+  networks   = ["10.0.0.3/16"]
+  output_dir = "out/legacy"
+}

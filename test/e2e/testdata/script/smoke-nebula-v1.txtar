@@ -11,8 +11,8 @@ stderr '^wrote manifest'
 # and against the mixed-curve trust bundle.
 exec nebula-cert verify -ca out/ca/mesh25519.crt -crt out/certs/alpha.crt
 exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/certs/beta.crt
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/alpha.crt
-exec nebula-cert verify -ca out/ca/bundle.crt -crt out/certs/beta.crt
+exec nebula-cert verify -ca out/bundles/main.crt -crt out/certs/alpha.crt
+exec nebula-cert verify -ca out/bundles/main.crt -crt out/certs/beta.crt
 
 # Negative control: a cert must not verify against the other CA alone.
 ! exec nebula-cert verify -ca out/ca/meshp256.crt -crt out/certs/alpha.crt
@@ -52,7 +52,7 @@ cert "beta" {
 
 -- alpha.yml --
 pki:
-  ca: out/ca/bundle.crt
+  ca: out/bundles/main.crt
   cert: out/certs/alpha.crt
   key: out/certs/alpha.key
 listen:
@@ -74,7 +74,7 @@ firewall:
 
 -- beta.yml --
 pki:
-  ca: out/ca/bundle.crt
+  ca: out/bundles/main.crt
   cert: out/certs/beta.crt
   key: out/certs/beta.key
 listen:

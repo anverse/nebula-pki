@@ -1,0 +1,63 @@
+# Deleting a reference-mode ca block deletes its link_crt symlinks and drops
+# its manifest record. Its cert_file and key_file were never managed by
+# nebula-pki, so no "no longer managed" notice is printed and the files are
+# untouched (ADR-021 2026-10-02 amendment, revised 2026-10-03).
+
+# Mint a CA to reference from a separate staging config.
+exec nebula-pki -c gen.hcl
+mkdir pki
+cp stage/ca/ext.crt pki/ca.crt
+cp stage/ca/ext.key pki/ca.key
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^using referenced CA "ref" \(ext-mesh\)$'
+stderr '^linked CA "ref"$'
+exists out/node/ref.crt
+
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ delete stale link out/node/ref\.crt$'
+stdout '^\+ write out/nebula-pki\.json$'
+! stdout 'stop managing'
+
+exec nebula-pki
+stderr '^deleted link out/node/ref\.crt$'
+! stderr 'notice'
+! stderr 'pki/ca'
+stderr '^wrote manifest: out/nebula-pki\.json$'
+
+! exists out/node/ref.crt
+cmp pki/ca.crt stage/ca/ext.crt
+cmp pki/ca.key stage/ca/ext.key
+! grep '"ext-mesh"' out/nebula-pki.json
+
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- gen.hcl --
+ca "ext" {
+  name = "ext-mesh"
+}
+
+storage {
+  out_dir = "stage"
+}
+
+-- v1.hcl --
+ca "ref" {
+  cert_file = "pki/ca.crt"
+  key_file  = "pki/ca.key"
+  link_crt  = ["out/node"]
+}
+
+ca "own" {
+  name    = "own-mesh"
+  default = true
+}
+
+-- v2.hcl --
+ca "own" {
+  name    = "own-mesh"
+  default = true
+}

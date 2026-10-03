@@ -1,46 +1,70 @@
 # trust_bundle.ca_refs states membership explicitly. The bundle carries only
-# the listed CAs, in ca_refs order. A declared CA that is not listed is still
-# generated and recorded, it is just not trusted (ADR-026 §1).
+# the listed CAs, in ca_refs order, and every membership edit rewrites it. A
+# declared CA that is not listed is still generated and recorded, it is just
+# not part of this trust set (ADR-026 §1).
+#
+# The bundle is a plain concatenation of PEM certificates. Each step checks the
+# number of certificates in it, compares it byte for byte with the member CA
+# certs concatenated in order (which proves exactly which CAs are in it), and
+# checks that it differs from the previous step's file.
 
 cp v1.hcl nebula.hcl
 exec nebula-pki
 stderr '^generated CA "a" \(mesh-a\)$'
 stderr '^generated CA "b" \(mesh-b\)$'
 stderr '^generated CA "c" \(mesh-c\)$'
-stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
 ! stdout .
 
-# Bundle is c then a, and b is left out.
+# Step 1: c then a; b is left out.
+grep -count=2 'BEGIN NEBULA CERTIFICATE' out/bundles/main.crt
 exec cat out/ca/c.crt out/ca/a.crt
 cp stdout expected.crt
-cmp out/ca/bundle.crt expected.crt
+cmp out/bundles/main.crt expected.crt
+cp out/bundles/main.crt step1.crt
 
 # The non-member CA keeps its manifest record.
 grep '"mesh-b"' out/nebula-pki.json
 
-# Reordering ca_refs rewrites the bundle in the new order.
+# Step 2: reordering ca_refs rewrites the bundle in the new order.
 cp v2.hcl nebula.hcl
 exec nebula-pki --dry-run
-stdout '^\+ write out/ca/bundle\.crt$'
+stdout '^\+ write out/bundles/main\.crt$'
 ! stdout 'out/ca/a\.crt'
 exec nebula-pki
-stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
 ! stderr 'generated CA'
+grep -count=2 'BEGIN NEBULA CERTIFICATE' out/bundles/main.crt
 exec cat out/ca/a.crt out/ca/c.crt
 cp stdout expected.crt
-cmp out/ca/bundle.crt expected.crt
+cmp out/bundles/main.crt expected.crt
+! cmp out/bundles/main.crt step1.crt
+cp out/bundles/main.crt step2.crt
 
-# Adding the third CA extends the bundle.
+# Step 3: adding the third CA extends the bundle.
 cp v3.hcl nebula.hcl
 exec nebula-pki
-stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
+grep -count=3 'BEGIN NEBULA CERTIFICATE' out/bundles/main.crt
 exec cat out/ca/a.crt out/ca/c.crt out/ca/b.crt
 cp stdout expected.crt
-cmp out/ca/bundle.crt expected.crt
+cmp out/bundles/main.crt expected.crt
+! cmp out/bundles/main.crt step2.crt
+cp out/bundles/main.crt step3.crt
 
-# And the next run is a no-op.
+# Step 4: dropping a member shrinks the bundle.
+cp v4.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
+grep -count=1 'BEGIN NEBULA CERTIFICATE' out/bundles/main.crt
+cmp out/bundles/main.crt out/ca/b.crt
+! cmp out/bundles/main.crt step3.crt
+
+# And the next run is a no-op that leaves the bundle untouched.
+cp out/bundles/main.crt step4.crt
 exec nebula-pki
 stderr '^up to date; nothing to do$'
+cmp out/bundles/main.crt step4.crt
 
 -- v1.hcl --
 trust_bundle "main" {
@@ -86,6 +110,24 @@ trust_bundle "main" {
 ca "a" {
   name    = "mesh-a"
   default = true
+}
+
+ca "b" {
+  name = "mesh-b"
+}
+
+ca "c" {
+  name = "mesh-c"
+}
+
+-- v4.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.b]
+}
+
+ca "a" {
+  name    = "mesh-a"
+  default = true         # the default CA need not be a member (no signing rule)
 }
 
 ca "b" {

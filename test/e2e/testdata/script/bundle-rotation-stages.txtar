@@ -19,7 +19,7 @@ stderr '^  key:  out/certs/alpha\.key$'
 stderr '^signed cert "beta"$'
 stderr '^  cert: out/certs/beta\.crt$'
 stderr '^  key:  out/certs/beta\.key$'
-stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 ! stdout .
 
@@ -27,10 +27,10 @@ exists out/ca/current.crt
 exists out/ca/current.key
 exists out/certs/alpha.crt
 exists out/certs/beta.crt
-exists out/ca/bundle.crt
+exists out/bundles/main.crt
 
 # Single-CA bundle equals the CA cert itself.
-cmp out/ca/bundle.crt out/ca/current.crt
+cmp out/bundles/main.crt out/ca/current.crt
 
 # Manifest records "current" CA and both certs.
 grep '"current"' out/nebula-pki.json
@@ -40,7 +40,7 @@ grep '"beta"' out/nebula-pki.json
 # Snapshot certs and bundle for later comparison.
 cp out/certs/alpha.crt alpha.step1.crt
 cp out/certs/beta.crt  beta.step1.crt
-cp out/ca/bundle.crt   bundle.step1.crt
+cp out/bundles/main.crt   bundle.step1.crt
 
 # ── Step 2: add "next" CA ─────────────────────────────────────────────────────
 cp step2.hcl nebula.hcl
@@ -60,9 +60,9 @@ cmp out/certs/alpha.crt alpha.step1.crt
 cmp out/certs/beta.crt  beta.step1.crt
 
 # Bundle now contains both CAs (not equal to either CA cert alone).
-! cmp out/ca/bundle.crt out/ca/current.crt
-! cmp out/ca/bundle.crt out/ca/next.crt
-grep 'NEBULA CERTIFICATE' out/ca/bundle.crt
+! cmp out/bundles/main.crt out/ca/current.crt
+! cmp out/bundles/main.crt out/ca/next.crt
+grep 'NEBULA CERTIFICATE' out/bundles/main.crt
 
 # Manifest records both CAs and both fingerprints in trust bundle.
 grep '"current"' out/nebula-pki.json
@@ -71,7 +71,7 @@ grep '"test-mesh-v2"' out/nebula-pki.json
 grep '"ca_fingerprints"' out/nebula-pki.json
 
 # Snapshot two-CA bundle for step 3.
-cp out/ca/bundle.crt bundle.step2.crt
+cp out/bundles/main.crt bundle.step2.crt
 
 # ── Step 3: promote "next" to default — certs re-sign ────────────────────────
 cp step3.hcl nebula.hcl
@@ -88,7 +88,7 @@ stderr '^wrote manifest'
 ! cmp out/certs/beta.crt  beta.step1.crt
 
 # Bundle unchanged: ca_refs did not change.
-cmp out/ca/bundle.crt bundle.step2.crt
+cmp out/bundles/main.crt bundle.step2.crt
 
 # Snapshot new certs.
 cp out/certs/alpha.crt alpha.step3.crt
@@ -103,7 +103,7 @@ stderr '^up to date; nothing to do$'
 
 cmp out/certs/alpha.crt alpha.step3.crt
 cmp out/certs/beta.crt  beta.step3.crt
-cmp out/ca/bundle.crt   bundle.step2.crt
+cmp out/bundles/main.crt   bundle.step2.crt
 
 # ── Step 4: drop "current" from ca_refs — bundle shrinks to "next" only ──────
 cp step4.hcl nebula.hcl
@@ -111,7 +111,7 @@ cp step4.hcl nebula.hcl
 # Dry-run must preview the bundle write even though no CA is generated
 # and all certs are already signed.
 exec nebula-pki --dry-run
-stdout '^\+ write out/ca/bundle\.crt$'
+stdout '^\+ write out/bundles/main\.crt$'
 stdout '^\+ write out/nebula-pki\.json$'
 stderr 'next deadline'
 ! stderr 'generated CA'
@@ -129,7 +129,7 @@ cmp out/certs/alpha.crt alpha.step3.crt
 cmp out/certs/beta.crt  beta.step3.crt
 
 # Bundle now equals just the "next" CA cert.
-cmp out/ca/bundle.crt out/ca/next.crt
+cmp out/bundles/main.crt out/ca/next.crt
 
 # The dropped CA keeps its manifest record; there is no archived flag.
 grep '"test-mesh"' out/nebula-pki.json
@@ -171,7 +171,7 @@ exists out/ca/current.key
 # Certs and bundle are byte-identical to end of step 4.
 cmp out/certs/alpha.crt alpha.step3.crt
 cmp out/certs/beta.crt  beta.step3.crt
-cmp out/ca/bundle.crt   out/ca/next.crt
+cmp out/bundles/main.crt   out/ca/next.crt
 
 ! grep '"test-mesh"' out/nebula-pki.json
 grep '"next"' out/nebula-pki.json

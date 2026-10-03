@@ -1,27 +1,54 @@
-# The bundle's identity is its path; the label is only recorded. Renaming the
-# label updates the manifest and rewrites no file or symlink
-# (ADR-026 "Detailed rules").
+# A bundle's label is its identity, as for ca and cert blocks. Renaming it is a
+# new bundle: the new one is written, the old file stays on disk with a
+# notice, and the symlinks move to the new name (ADR-026 "Detailed rules").
+
+[!exec:readlink] skip 'readlink not in PATH'
 
 cp v1.hcl nebula.hcl
 exec nebula-pki
-stderr '^linked trust bundle "main"$'
-grep '"label": "main"' out/nebula-pki.json
-cp out/ca/bundle.crt bundle.first
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
+stderr '^  out/node/main\.crt$'
+grep '"main": \{' out/nebula-pki.json
 
+# Rename with default paths: the file name follows the label.
 cp v2.hcl nebula.hcl
 exec nebula-pki --dry-run
-stdout '^\+ write out/nebula-pki\.json$'
-! stdout 'bundle'
-! stdout 'link'
+stdout '^\+ write out/bundles/primary\.crt$'
+stdout '^\+ create link out/node/primary\.crt → \.\./bundles/primary\.crt$'
+stdout '^\+ delete stale link out/node/main\.crt$'
+stdout '^\+ stop managing out/bundles/main\.crt \(file stays on disk\)$'
 
 exec nebula-pki
-! stderr 'wrote trust bundle'
-! stderr 'link'
-stderr '^wrote manifest: out/nebula-pki\.json$'
-grep '"label": "primary"' out/nebula-pki.json
-! grep '"label": "main"' out/nebula-pki.json
-grep '"path": "out/node/bundle.crt"' out/nebula-pki.json
-cmp out/ca/bundle.crt bundle.first
+stderr '^wrote trust bundle "primary": out/bundles/primary\.crt$'
+stderr '^linked trust bundle "primary"$'
+stderr '^  out/node/primary\.crt$'
+stderr '^deleted link out/node/main\.crt$'
+stderr '^notice: trust bundle "main": out/bundles/main\.crt is no longer managed; the file stays on disk$'
+
+cmp out/bundles/primary.crt out/bundles/main.crt
+exists out/bundles/main.crt
+! exists out/node/main.crt
+exec readlink out/node/primary.crt
+stdout '^\.\./bundles/primary\.crt$'
+grep '"primary": \{' out/nebula-pki.json
+! grep '"main": \{' out/nebula-pki.json
+
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+# Rename with an explicit, unchanged path: the bundle is rewritten in place,
+# nothing is released, and the symlink at the unchanged path stays.
+cp v3.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle "main": out/trust/pki\.crt$'
+cp v4.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle "secondary": out/trust/pki\.crt$'
+! stderr 'notice'
+! stderr 'deleted link out/node/pki\.crt'
+exists out/node/pki.crt
+grep '"secondary": \{' out/nebula-pki.json
+! grep '"main": \{' out/nebula-pki.json
 
 exec nebula-pki
 stderr '^up to date; nothing to do$'
@@ -39,6 +66,28 @@ ca "mesh" {
 -- v2.hcl --
 trust_bundle "primary" {
   ca_refs  = [ca.mesh]
+  link_crt = ["out/node"]
+}
+
+ca "mesh" {
+  name = "mesh"
+}
+
+-- v3.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  path     = "out/trust/pki.crt"
+  link_crt = ["out/node"]
+}
+
+ca "mesh" {
+  name = "mesh"
+}
+
+-- v4.hcl --
+trust_bundle "secondary" {
+  ca_refs  = [ca.mesh]
+  path     = "out/trust/pki.crt"
   link_crt = ["out/node"]
 }
 

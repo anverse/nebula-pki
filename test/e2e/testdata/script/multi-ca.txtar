@@ -26,6 +26,7 @@ exists out/ca/secondary.crt
 exists out/ca/secondary.key
 
 # No trust_bundle block is declared, so no bundle is written.
+! exists out/bundles
 ! exists out/ca/bundle.crt
 
 # Both cert/key pairs must exist.
@@ -51,7 +52,7 @@ grep '"secondary-mesh"' out/nebula-pki.json
 grep '"h1"' out/nebula-pki.json
 grep '"h2"' out/nebula-pki.json
 grep '"ca_fingerprint"' out/nebula-pki.json
-! grep '"trust_bundle"' out/nebula-pki.json
+! grep '"trust_bundles"' out/nebula-pki.json
 
 # Snapshot all artifacts for idempotency check.
 cp out/ca/primary.crt primary.crt.first

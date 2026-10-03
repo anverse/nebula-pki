@@ -189,8 +189,8 @@ cert "client" {
 }
 `
 	runHandshake(t, nebulaPath, hcl,
-		nodePKI{CA: "out/lh/bundle.crt", Cert: "out/lh/lh.crt", Key: "out/lh/lh.key"},
-		nodePKI{CA: "out/client/bundle.crt", Cert: "out/client/client.crt", Key: "out/client/client.key"},
+		nodePKI{CA: "out/lh/main.crt", Cert: "out/lh/lh.crt", Key: "out/lh/lh.key"},
+		nodePKI{CA: "out/client/main.crt", Cert: "out/client/client.crt", Key: "out/client/client.key"},
 	)
 }
 

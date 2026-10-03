@@ -1,5 +1,6 @@
 # Every ca_refs error carries the offending expression's source range, like
-# cert.ca errors (ADR-025, ADR-026 "Detailed rules").
+# cert.ca errors (ADR-025, ADR-026 "Detailed rules"). Bundle labels follow the
+# CA label pattern and are unique.
 
 # An element that is not a reference.
 ! exec nebula-pki check -c shape.hcl
@@ -29,9 +30,9 @@ stderr '^error: notlist\.hcl:2,13-17: trust_bundle "main": ca_refs must be a lis
 ! exec nebula-pki check -c missing.hcl
 stderr '^error: missing\.hcl:1,1-20: trust_bundle "main": missing required argument ca_refs$'
 
-# Only one trust_bundle block.
+# Bundle labels are unique.
 ! exec nebula-pki check -c two.hcl
-stderr '^error: two\.hcl:5,1-22: trust_bundle "second": only one trust_bundle block is allowed$'
+stderr '^error: trust_bundle "main": duplicate label$'
 
 # The label follows the CA label pattern.
 ! exec nebula-pki check -c label.hcl
@@ -104,7 +105,7 @@ trust_bundle "main" {
   ca_refs = [ca.a]
 }
 
-trust_bundle "second" {
+trust_bundle "main" {
   ca_refs = [ca.a]
 }
 

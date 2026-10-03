@@ -1,0 +1,200 @@
+# Every path the tool writes is unique across the whole config: CA cert and
+# key, cert cert and key, bundle files, link_crt symlinks and the manifest. No
+# write may target a referenced CA's cert_file or key_file. Paths are compared
+# after cleaning, and a clash names every owner (ADR-026 "Detailed rules").
+
+# CA symlink vs bundle symlink with the same file name.
+! exec nebula-pki check -c ca-bundle.hcl
+stderr '^error: path out/shared/main\.crt is used by ca "main" \(link_crt\) and trust_bundle "main" \(link_crt\)$'
+! exists out
+
+# Three owners of one symlink path are all named.
+! exec nebula-pki check -c three.hcl
+stderr '^error: path out/s/main\.crt is used by ca "a" \(link_crt\), ca "b" \(link_crt\) and trust_bundle "main" \(link_crt\)$'
+
+# The same directory spelled differently still collides.
+! exec nebula-pki check -c cleaned.hcl
+stderr '^error: path out/shared/main\.crt is used by ca "main" \(link_crt\) and trust_bundle "main" \(link_crt\)$'
+
+# A bundle path onto a CA certificate.
+! exec nebula-pki check -c bundle-onto-ca.hcl
+stderr '^error: path out/ca/current\.crt is used by ca "current" \(cert\) and trust_bundle "main" \(path\)$'
+
+# Two bundles writing one file.
+! exec nebula-pki check -c two-bundles.hcl
+stderr '^error: path out/trust\.crt is used by trust_bundle "a" \(path\) and trust_bundle "b" \(path\)$'
+
+# A bundle symlink in the bundle's own directory would replace the bundle.
+! exec nebula-pki check -c bundle-self-link.hcl
+stderr '^error: path out/bundles/main\.crt is used by trust_bundle "main" \(path\) and trust_bundle "main" \(link_crt\)$'
+
+# A CA symlink in the CA's own directory would replace the CA cert.
+! exec nebula-pki check -c ca-self-link.hcl
+stderr '^error: path out/ca/current\.crt is used by ca "current" \(cert\) and ca "current" \(link_crt\)$'
+
+# A bundle path onto a referenced CA's cert_file.
+! exec nebula-pki check -c onto-reference.hcl
+stderr '^error: path ref/ca\.crt is used by ca "shared" \(cert_file\) and trust_bundle "main" \(path\)$'
+
+# A cert written onto a CA certificate.
+! exec nebula-pki check -c cert-onto-ca.hcl
+stderr '^error: path out/ca/current\.crt is used by ca "current" \(cert\) and cert "current" \(cert\)$'
+
+# A bundle path onto the manifest.
+! exec nebula-pki check -c onto-manifest.hcl
+stderr '^error: path out/nebula-pki\.json is used by trust_bundle "main" \(path\) and storage \(manifest_file\)$'
+
+# Sharing a directory with different file names is fine.
+exec nebula-pki check -c shared-ok.hcl
+
+# Empty and duplicate entries in a bundle's own link_crt list.
+! exec nebula-pki check -c empty.hcl
+stderr '^error: trust_bundle "main": link_crt\[0\]: directory path must not be empty$'
+! exec nebula-pki check -c dup.hcl
+stderr '^error: trust_bundle "main": link_crt\[1\]: duplicate directory "out/a"$'
+
+-- ca-bundle.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.main]
+  link_crt = ["out/shared"]
+}
+
+ca "main" {
+  name     = "mesh"
+  link_crt = ["out/shared"]
+}
+
+-- three.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.a]
+  link_crt = ["out/s"]
+}
+
+ca "a" {
+  name     = "mesh-a"
+  default  = true
+  out_crt  = "out/a/main.crt"
+  out_key  = "out/a/main.key"
+  link_crt = ["out/s"]
+}
+
+ca "b" {
+  name     = "mesh-b"
+  out_crt  = "out/b/main.crt"
+  out_key  = "out/b/main.key"
+  link_crt = ["out/s"]
+}
+
+-- cleaned.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.main]
+  link_crt = ["out/shared/"]
+}
+
+ca "main" {
+  name     = "mesh"
+  link_crt = ["./out/shared"]
+}
+
+-- bundle-onto-ca.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.current]
+  path    = "out/ca/current.crt"
+}
+
+ca "current" {
+  name = "mesh"
+}
+
+-- two-bundles.hcl --
+trust_bundle "a" {
+  ca_refs = [ca.current]
+  path    = "out/trust.crt"
+}
+
+trust_bundle "b" {
+  ca_refs = [ca.current]
+  path    = "out/trust.crt"
+}
+
+ca "current" {
+  name = "mesh"
+}
+
+-- bundle-self-link.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/bundles"]
+}
+
+ca "current" {
+  name = "mesh"
+}
+
+-- ca-self-link.hcl --
+ca "current" {
+  name     = "mesh"
+  link_crt = ["out/ca"]
+}
+
+-- onto-reference.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.shared]
+  path    = "ref/ca.crt"
+}
+
+ca "shared" {
+  cert_file = "ref/ca.crt"
+  key_file  = "ref/ca.key"
+}
+
+-- cert-onto-ca.hcl --
+ca "current" {
+  name = "mesh"
+}
+
+cert "current" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out/ca"
+}
+
+-- onto-manifest.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.current]
+  path    = "out/nebula-pki.json"
+}
+
+ca "current" {
+  name = "mesh"
+}
+
+-- shared-ok.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/shared"]
+}
+
+ca "current" {
+  name     = "mesh"
+  link_crt = ["out/shared"]
+}
+
+-- empty.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = [""]
+}
+
+ca "current" {
+  name = "mesh"
+}
+
+-- dup.hcl --
+trust_bundle "main" {
+  ca_refs  = [ca.current]
+  link_crt = ["out/a", "out/a"]
+}
+
+ca "current" {
+  name = "mesh"
+}

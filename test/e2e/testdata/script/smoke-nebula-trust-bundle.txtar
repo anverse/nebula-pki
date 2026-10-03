@@ -8,13 +8,21 @@
 [!exec:nebula-cert] skip 'nebula-cert not in PATH'
 
 exec nebula-pki
-stderr '^wrote trust bundle: out/ca/bundle\.crt$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
 stderr '^linked trust bundle "main"$'
+stderr '^  out/alpha/main\.crt$'
+stderr '^  out/beta/main\.crt$'
+
+# The real nebula-cert reads the bundle as exactly the two member CAs, in
+# ca_refs order.
+exec nebula-cert print -json -path out/bundles/main.crt
+stdout -count=2 '"isCa":true'
+stdout '"name":"mesh-2026".*"name":"mesh-2027"'
 
 # Each cert verifies against the bundle reached through its own directory.
-exec nebula-cert verify -ca out/alpha/bundle.crt -crt out/alpha/alpha.crt
-exec nebula-cert verify -ca out/beta/bundle.crt -crt out/beta/beta.crt
-exec nebula-cert verify -ca out/alpha/bundle.crt -crt out/beta/beta.crt
+exec nebula-cert verify -ca out/alpha/main.crt -crt out/alpha/alpha.crt
+exec nebula-cert verify -ca out/beta/main.crt -crt out/beta/beta.crt
+exec nebula-cert verify -ca out/alpha/main.crt -crt out/beta/beta.crt
 
 # Negative control: a single member CA alone does not trust the other's cert.
 ! exec nebula-cert verify -ca out/ca/current.crt -crt out/beta/beta.crt
@@ -51,7 +59,7 @@ cert "beta" {
 
 -- alpha.yml --
 pki:
-  ca: out/alpha/bundle.crt
+  ca: out/alpha/main.crt
   cert: out/alpha/alpha.crt
   key: out/alpha/alpha.key
 listen:
@@ -73,7 +81,7 @@ firewall:
 
 -- beta.yml --
 pki:
-  ca: out/beta/bundle.crt
+  ca: out/beta/main.crt
   cert: out/beta/beta.crt
   key: out/beta/beta.key
 listen:

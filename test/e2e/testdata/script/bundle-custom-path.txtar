@@ -7,10 +7,10 @@
 
 cp v1.hcl nebula.hcl
 exec nebula-pki
-stderr '^wrote trust bundle: out/trust/mesh-trust\.crt$'
+stderr '^wrote trust bundle "main": out/trust/mesh-trust\.crt$'
 stderr '^linked trust bundle "main"$'
 stderr '^  out/node/mesh-trust\.crt$'
-! exists out/ca/bundle.crt
+! exists out/bundles
 cmp out/trust/mesh-trust.crt out/ca/mesh.crt
 exec readlink out/node/mesh-trust.crt
 stdout '^\.\./trust/mesh-trust\.crt$'
@@ -28,10 +28,10 @@ stdout '^\+ delete stale link out/node/mesh-trust\.crt$'
 stdout '^\+ create link out/node/pki-ca\.crt → \.\./trust/pki-ca\.crt$'
 
 exec nebula-pki
-stderr '^wrote trust bundle: out/trust/pki-ca\.crt$'
+stderr '^wrote trust bundle "main": out/trust/pki-ca\.crt$'
 stderr '^deleted link out/node/mesh-trust\.crt$'
 stderr '^  out/node/pki-ca\.crt$'
-stderr '^notice: trust bundle out/trust/mesh-trust\.crt is no longer managed; the file stays on disk$'
+stderr '^notice: trust bundle "main": out/trust/mesh-trust\.crt is no longer managed; the file stays on disk$'
 
 # The old file stays; the old symlink is gone.
 exists out/trust/mesh-trust.crt

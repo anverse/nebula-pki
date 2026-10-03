@@ -4,24 +4,24 @@
 
 cp v1.hcl nebula.hcl
 exec nebula-pki
-stderr '^wrote trust bundle: out/ca/bundle\.crt$'
-exists out/node/bundle.crt
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
+exists out/node/main.crt
 
 cp v2.hcl nebula.hcl
 exec nebula-pki --dry-run
-stdout '^\+ stop managing out/ca/bundle\.crt \(file stays on disk\)$'
-stdout '^\+ delete stale link out/node/bundle\.crt$'
+stdout '^\+ stop managing out/bundles/main\.crt \(file stays on disk\)$'
+stdout '^\+ delete stale link out/node/main\.crt$'
 stdout '^\+ write out/nebula-pki\.json$'
 
 exec nebula-pki
-stderr '^deleted link out/node/bundle\.crt$'
-stderr '^notice: trust bundle out/ca/bundle\.crt is no longer managed; the file stays on disk$'
+stderr '^deleted link out/node/main\.crt$'
+stderr '^notice: trust bundle "main": out/bundles/main\.crt is no longer managed; the file stays on disk$'
 ! stderr 'wrote trust bundle'
 stderr '^wrote manifest: out/nebula-pki\.json$'
 
-exists out/ca/bundle.crt
-! exists out/node/bundle.crt
-! grep '"trust_bundle"' out/nebula-pki.json
+exists out/bundles/main.crt
+! exists out/node/main.crt
+! grep '"trust_bundles"' out/nebula-pki.json
 
 # The next run is a no-op and the notice is not repeated.
 exec nebula-pki
