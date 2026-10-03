@@ -84,8 +84,11 @@ business/
     ca/
       acme-mesh.crt
       acme-mesh.key.enc
+    bundles/
+      acme.crt             ← trust bundle for pki.ca
     sites/
       hq/
+        acme.crt → ../../bundles/acme.crt
         lh_hq_1.crt        + .key.enc
         lh_hq_2.crt        + .key.enc
         app_hq_1.crt       + .key.enc
@@ -95,10 +98,12 @@ business/
         db_hq_replica.crt  + .key.enc
         router_hq.crt      + .key.enc
       eu-west/
+        acme.crt → ../../bundles/acme.crt
         lh_euw_1.crt       + .key.enc
         app_euw_1..3.crt   + .key.enc
         ci_euw_1..2.crt    + .key.enc
       us-east/
+        acme.crt → ../../bundles/acme.crt
         lh_use_1.crt       + .key.enc
         app_use_1..2.crt   + .key.enc
     certs/

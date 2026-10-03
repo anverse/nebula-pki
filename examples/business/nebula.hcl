@@ -52,6 +52,14 @@ ca "acme-mesh" {
   ]
 }
 
+# The trust bundle every node uses as pki.ca. Declared from day one, even
+# with a single CA, so pki.ca keeps one stable path when a second CA joins
+# during a rotation. Each site directory gets a relative acme.crt symlink.
+trust_bundle "acme" {
+  ca_refs  = [ca.acme-mesh]
+  link_crt = ["out/sites/hq", "out/sites/eu-west", "out/sites/us-east"]
+}
+
 storage {
   out_dir = "out"
 }
