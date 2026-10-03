@@ -89,7 +89,10 @@ The manifest records every managed link. On each run the planner diffs the manif
 > are no longer declared and emits `DeleteSymlink` for every recorded link. The deleted CA's
 > certificate and key files are **not** removed: they stay on disk and the run prints a notice
 > that they are no longer managed (the same policy as stale cert artifacts and a removed trust
-> bundle, see [ADR-026](./026-trust-bundle-block.md)). Only symlinks are cleaned up.
+> bundle, see [ADR-026](./026-trust-bundle-block.md)). A reference-mode CA's `cert_file` and
+> `key_file` were never managed, so deleting such a block prints no notice (revised
+> 2026-10-03). A recorded link whose path a current block now declares (e.g. after a label
+> rename) is left to that block instead of being deleted. Only symlinks are cleaned up.
 
 ### Manifest representation
 
