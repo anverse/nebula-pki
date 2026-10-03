@@ -42,11 +42,8 @@ const (
 	// OpDeleteSymlink means a managed symlink must be removed because its
 	// directory was removed from link_crt. Used for link_crt stale cleanup.
 	OpDeleteSymlink Op = "delete_symlink"
-	// OpWrite means the trust bundle file must be (re)written.
+	// OpWrite means a trust bundle file must be (re)written.
 	OpWrite Op = "write"
-	// OpRelabel means only the trust bundle's recorded label changed; the
-	// manifest is rewritten, no file or symlink is touched (ADR-026).
-	OpRelabel Op = "relabel"
 	// OpRelease means files the manifest tracked are no longer managed by
 	// the config. They stay on disk; only the manifest record is dropped
 	// and a notice is printed (ADR-021, ADR-026).
@@ -142,15 +139,16 @@ func (p Plan) CertActions() []Action {
 	return certs
 }
 
-// TrustBundleAction returns the trust bundle action, if a trust_bundle block
-// is declared.
-func (p Plan) TrustBundleAction() (Action, bool) {
+// TrustBundleActions returns one action per declared trust_bundle block, in
+// config order.
+func (p Plan) TrustBundleActions() []Action {
+	var tbs []Action
 	for _, a := range p.Actions {
 		if a.Kind == KindTrustBundle {
-			return a, true
+			tbs = append(tbs, a)
 		}
 	}
-	return Action{}, false
+	return tbs
 }
 
 // ReleaseActions returns the actions for artifacts that are no longer
@@ -194,6 +192,12 @@ type Options struct {
 	// Readlink returns the stored target string for a symlink. Only called
 	// when Lstat reports os.ModeSymlink set on the same path.
 	Readlink func(realPath string) (string, error)
+
+	// Fingerprint returns the fingerprint of the certificate at the absolute
+	// filesystem path. Used read-only for reference-mode members of a trust
+	// bundle, whose referenced file may have changed since the last run.
+	// When nil, the manifest's recorded fingerprint is used.
+	Fingerprint func(realPath string) (string, error)
 }
 
 // Build computes the reconcile plan for cfg given the current manifest m,
@@ -224,17 +228,21 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		actions = append(actions, ha)
 	}
 
-	for _, src := range linkSources(cfg, m) {
-		linkActions, err := planLinks(cfg, src, opts)
+	srcs := linkSources(cfg, m)
+	declared := declaredLinkPaths(srcs)
+	for _, src := range srcs {
+		linkActions, err := planLinks(cfg, src, declared, opts)
 		if err != nil {
 			return Plan{}, err
 		}
 		actions = append(actions, linkActions...)
 	}
 
-	if a, ok := planTrustBundle(cfg, m, actions, exists); ok {
-		actions = append(actions, a)
+	tbActions, err := planTrustBundles(cfg, m, actions, exists, opts)
+	if err != nil {
+		return Plan{}, err
 	}
+	actions = append(actions, tbActions...)
 	actions = append(actions, planReleases(cfg, m)...)
 
 	return Plan{Actions: actions}, nil
@@ -470,8 +478,8 @@ func (s linkSource) desc() string {
 
 // linkSources lists every link owner: the declared CAs in config order, CAs
 // recorded in the manifest but no longer declared (sorted by label, so their
-// stale links are deleted, ADR-021 amendment), and the trust bundle, whether
-// declared or only recorded.
+// stale links are deleted, ADR-021 amendment), the declared trust bundles,
+// and trust bundles only recorded in the manifest.
 func linkSources(cfg *config.Config, m *manifest.Manifest) []linkSource {
 	var srcs []linkSource
 	for i := range cfg.CAs {
@@ -492,23 +500,53 @@ func linkSources(cfg *config.Config, m *manifest.Manifest) []linkSource {
 		srcs = append(srcs, linkSource{owner: KindCA, label: label, recorded: m.CAs[label].Links})
 	}
 
-	var recorded []manifest.CertLink
-	if m != nil && m.TrustBundle != nil {
-		recorded = m.TrustBundle.Links
-	}
-	if tb := cfg.TrustBundle; tb != nil {
-		srcs = append(srcs, linkSource{
+	for i := range cfg.TrustBundles {
+		tb := cfg.TrustBundles[i]
+		src := linkSource{
 			owner:    KindTrustBundle,
 			label:    tb.Label,
 			dirs:     tb.LinkCrt,
-			filename: cfg.TrustBundleFilename(),
-			target:   cfg.TrustBundlePath(),
-			recorded: recorded,
-		})
-	} else if m != nil && m.TrustBundle != nil {
-		srcs = append(srcs, linkSource{owner: KindTrustBundle, label: m.TrustBundle.Label, recorded: recorded})
+			filename: cfg.TrustBundleFilename(tb),
+			target:   cfg.TrustBundlePath(tb),
+		}
+		if m != nil && m.TrustBundles[tb.Label] != nil {
+			src.recorded = m.TrustBundles[tb.Label].Links
+		}
+		srcs = append(srcs, src)
+	}
+	for _, label := range removedBundleLabels(cfg, m) {
+		srcs = append(srcs, linkSource{owner: KindTrustBundle, label: label, recorded: m.TrustBundles[label].Links})
 	}
 	return srcs
+}
+
+// declaredLinkPaths returns every symlink path some current block declares.
+// A stale link at such a path belongs to its new owner now (e.g. after a
+// label rename) and must not be deleted.
+func declaredLinkPaths(srcs []linkSource) map[string]bool {
+	declared := make(map[string]bool)
+	for _, src := range srcs {
+		for _, dir := range src.dirs {
+			declared[filepath.Join(dir, src.filename)] = true
+		}
+	}
+	return declared
+}
+
+// removedBundleLabels returns the labels of trust bundles recorded in the
+// manifest but no longer declared, sorted for deterministic output.
+func removedBundleLabels(cfg *config.Config, m *manifest.Manifest) []string {
+	if m == nil {
+		return nil
+	}
+	var labels []string
+	for label := range m.TrustBundles {
+		if cfg.TrustBundleByLabel(label) == nil {
+			labels = append(labels, label)
+		}
+	}
+	sort.Strings(labels)
+	return labels
 }
 
 // removedCALabels returns the labels of CAs recorded in the manifest but no
@@ -530,9 +568,10 @@ func removedCALabels(cfg *config.Config, m *manifest.Manifest) []string {
 // planLinks computes the symlink actions for one link owner. For each
 // declared directory it checks the current symlink state via opts.Lstat /
 // opts.Readlink and emits CreateSymlink, Noop, or an error. Symlinks
-// recorded in the manifest but no longer declared emit DeleteSymlink for
-// stale-link cleanup.
-func planLinks(cfg *config.Config, src linkSource, opts Options) ([]Action, error) {
+// recorded in the manifest but no longer declared by this owner emit
+// DeleteSymlink for stale-link cleanup, unless another current block now
+// declares the same path (declared), which then manages it.
+func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opts Options) ([]Action, error) {
 	absTarget := cfg.Resolve(src.target)
 
 	// expectedPaths tracks which logical link paths are currently declared,
@@ -602,7 +641,7 @@ func planLinks(cfg *config.Config, src linkSource, opts Options) ([]Action, erro
 	}
 
 	for _, link := range src.recorded {
-		if _, ok := expectedPaths[link.Path]; ok {
+		if _, ok := expectedPaths[link.Path]; ok || declared[link.Path] {
 			continue
 		}
 		actions = append(actions, Action{
@@ -617,53 +656,74 @@ func planLinks(cfg *config.Config, src linkSource, opts Options) ([]Action, erro
 	return actions, nil
 }
 
-// planTrustBundle decides the trust bundle action when a trust_bundle block
-// is declared (ADR-026 "Detailed rules"). The bundle is written when it is
-// not recorded yet, its path changed, the file is missing, a member CA is
-// generated in this run, or the members' recorded fingerprints (in ca_refs
-// order) differ from the bundle's. A changed label alone only rewrites the
-// manifest. Reference-mode CAs are re-read on every run, so apply re-checks
-// the actual fingerprints before deciding not to write.
-func planTrustBundle(cfg *config.Config, m *manifest.Manifest, caActions []Action, exists func(string) bool) (Action, bool) {
-	tb := cfg.TrustBundle
-	if tb == nil {
-		return Action{}, false
-	}
-	path := cfg.TrustBundlePath()
-	write := Action{Op: OpWrite, Kind: KindTrustBundle, Label: tb.Label, Path: path, Desc: fmt.Sprintf("write trust bundle %s", path)}
-
-	if m == nil || m.TrustBundle == nil || m.TrustBundle.Path != path || !exists(path) {
-		return write, true
-	}
+// planTrustBundles decides one action per declared trust_bundle block
+// (ADR-026 "Detailed rules"). This is the only place that decides whether a
+// bundle is written; apply carries the decision out. A bundle is written when
+// its label is not recorded yet, its path changed, the file is missing, a
+// member CA is generated in this run, or the members' fingerprints (in
+// ca_refs order) differ from the recorded ones. Reference-mode members are
+// read through opts.Fingerprint, because the referenced file may have been
+// swapped since the last run.
+func planTrustBundles(cfg *config.Config, m *manifest.Manifest, caActions []Action, exists func(string) bool, opts Options) ([]Action, error) {
 	generated := make(map[string]bool)
 	for _, a := range caActions {
 		if a.Kind == KindCA && a.Op == OpGenerate {
 			generated[a.Label] = true
 		}
 	}
+	var actions []Action
+	for i := range cfg.TrustBundles {
+		tb := cfg.TrustBundles[i]
+		write, err := bundleNeedsWrite(cfg, m, tb, generated, exists, opts)
+		if err != nil {
+			return nil, err
+		}
+		path := cfg.TrustBundlePath(tb)
+		a := Action{Op: OpNoop, Kind: KindTrustBundle, Label: tb.Label, Path: path, Desc: fmt.Sprintf("trust bundle %q up to date", tb.Label)}
+		if write {
+			a.Op = OpWrite
+			a.Desc = fmt.Sprintf("write trust bundle %q %s", tb.Label, path)
+		}
+		actions = append(actions, a)
+	}
+	return actions, nil
+}
+
+func bundleNeedsWrite(cfg *config.Config, m *manifest.Manifest, tb config.TrustBundle, generated map[string]bool, exists func(string) bool, opts Options) (bool, error) {
+	path := cfg.TrustBundlePath(tb)
+	if m == nil || m.TrustBundles[tb.Label] == nil {
+		return true, nil
+	}
+	rec := m.TrustBundles[tb.Label]
+	if rec.Path != path || !exists(path) {
+		return true, nil
+	}
 	fps := make([]string, 0, len(tb.CARefs))
 	for _, label := range tb.CARefs {
-		rec := m.CAs[label]
-		if generated[label] || rec == nil {
-			return write, true
+		caRec := m.CAs[label]
+		if generated[label] || caRec == nil {
+			return true, nil
 		}
-		fps = append(fps, rec.Fingerprint)
+		fp := caRec.Fingerprint
+		if ca := cfg.CAByLabel(label); ca.Mode == config.CAModeReference && opts.Fingerprint != nil {
+			current, err := opts.Fingerprint(cfg.Resolve(cfg.CACertPathForCA(*ca)))
+			if err != nil {
+				return false, fmt.Errorf("trust_bundle %q: ca %q: %w", tb.Label, label, err)
+			}
+			fp = current
+		}
+		fps = append(fps, fp)
 	}
-	if !slices.Equal(fps, m.TrustBundle.CAFingerprints) {
-		return write, true
-	}
-	if m.TrustBundle.Label != tb.Label {
-		return Action{Op: OpRelabel, Kind: KindTrustBundle, Label: tb.Label, Path: path,
-			Desc: fmt.Sprintf("relabel trust bundle %q → %q", m.TrustBundle.Label, tb.Label)}, true
-	}
-	return Action{Op: OpNoop, Kind: KindTrustBundle, Label: tb.Label, Path: path, Desc: "trust bundle up to date"}, true
+	return !slices.Equal(fps, rec.CAFingerprints), nil
 }
 
 // planReleases emits OpRelease actions for files the manifest tracked that
-// the config no longer manages: the cert and key of every removed ca block,
-// and the bundle file when the trust_bundle block was removed or its path
-// changed. The files stay on disk (ADR-021 amendment, ADR-026). A path that
-// is still managed by the current config is never reported.
+// the config no longer manages: the cert and key of every removed
+// generate-mode ca block, and the file of every trust bundle whose label was
+// removed or renamed or whose path changed. The files stay on disk (ADR-021
+// amendment, ADR-026). A removed reference-mode CA releases no paths: its
+// files were never managed. A path still managed by the current config is
+// never reported.
 func planReleases(cfg *config.Config, m *manifest.Manifest) []Action {
 	if m == nil {
 		return nil
@@ -675,36 +735,47 @@ func planReleases(cfg *config.Config, m *manifest.Manifest) []Action {
 		managed[cfg.CAKeyPathForCA(cfg.CAs[i])] = true
 		managed[cfg.CAKeyPathForCA(cfg.CAs[i])+suffix] = true
 	}
-	if cfg.TrustBundle != nil {
-		managed[cfg.TrustBundlePath()] = true
+	for i := range cfg.TrustBundles {
+		managed[cfg.TrustBundlePath(cfg.TrustBundles[i])] = true
 	}
 
-	var actions []Action
-	release := func(owner Kind, label string, paths ...string) {
+	keep := func(paths ...string) []string {
 		var kept []string
 		for _, p := range paths {
 			if p != "" && !managed[p] {
 				kept = append(kept, p)
 			}
 		}
-		if len(kept) == 0 && owner == KindTrustBundle {
-			return
-		}
-		actions = append(actions, Action{
-			Op:    OpRelease,
-			Kind:  KindRelease,
-			Owner: owner,
-			Label: label,
-			Paths: kept,
-			Desc:  fmt.Sprintf("release %s %q", owner, label),
-		})
+		return kept
 	}
+
+	var actions []Action
 	for _, label := range removedCALabels(cfg, m) {
 		rec := m.CAs[label]
-		release(KindCA, label, rec.CertPath, rec.KeyPath)
+		var paths []string
+		if rec.Mode != "reference" {
+			paths = keep(rec.CertPath, rec.KeyPath)
+		}
+		// Emitted even without paths: the manifest drops the record.
+		actions = append(actions, Action{
+			Op: OpRelease, Kind: KindRelease, Owner: KindCA, Label: label, Paths: paths,
+			Desc: fmt.Sprintf("release ca %q", label),
+		})
 	}
-	if m.TrustBundle != nil {
-		release(KindTrustBundle, m.TrustBundle.Label, m.TrustBundle.Path)
+	labels := make([]string, 0, len(m.TrustBundles))
+	for label := range m.TrustBundles {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	for _, label := range labels {
+		paths := keep(m.TrustBundles[label].Path)
+		if len(paths) == 0 {
+			continue
+		}
+		actions = append(actions, Action{
+			Op: OpRelease, Kind: KindRelease, Owner: KindTrustBundle, Label: label, Paths: paths,
+			Desc: fmt.Sprintf("release trust bundle %q", label),
+		})
 	}
 	return actions
 }

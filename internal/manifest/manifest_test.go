@@ -312,23 +312,31 @@ func TestArtifactDirOmitEmpty(t *testing.T) {
 	}
 }
 
-// TestTrustBundleRoundTrip pins the JSON shape of the trust_bundle record
-// and verifies it survives a marshal/unmarshal cycle.
-func TestTrustBundleRoundTrip(t *testing.T) {
+// TestTrustBundlesRoundTrip pins the JSON shape of the trust_bundles map
+// (keyed by bundle label) and verifies it survives a marshal/unmarshal cycle.
+func TestTrustBundlesRoundTrip(t *testing.T) {
 	t0 := time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC)
 	orig := New()
 	orig.GeneratedAt = t0
-	orig.TrustBundle = &TrustBundle{
-		Label:          "main",
-		Path:           "out/ca/bundle.crt",
-		CAFingerprints: []string{"fp1", "fp2"},
-		Links:          []CertLink{{Path: "out/node/bundle.crt", Target: "../ca/bundle.crt"}},
+	orig.TrustBundles = map[string]*TrustBundle{
+		"main": {
+			Path:           "out/bundles/main.crt",
+			CAFingerprints: []string{"fp1", "fp2"},
+			Links:          []CertLink{{Path: "out/node/main.crt", Target: "../bundles/main.crt"}},
+		},
+		"clients": {Path: "out/bundles/clients.crt", CAFingerprints: []string{"fp2"}},
 	}
 	orig.CAs["mesh"] = &CA{Mode: "generate", Name: "mesh", Fingerprint: "fp1"}
 
 	data, err := Marshal(orig)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"trust_bundles"`) || !strings.Contains(string(data), `"main": {`) {
+		t.Errorf("JSON must key bundles by label under trust_bundles:\n%s", data)
+	}
+	if strings.Contains(string(data), `"archived"`) || strings.Contains(string(data), `"label"`) {
+		t.Errorf("JSON must carry neither archived nor a label field:\n%s", data)
 	}
 
 	path := filepath.Join(t.TempDir(), "nebula-pki.json")
@@ -339,40 +347,20 @@ func TestTrustBundleRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.TrustBundle == nil {
-		t.Fatal("TrustBundle = nil after round-trip")
-	}
-	if got.TrustBundle.Label != "main" {
-		t.Errorf("TrustBundle.Label = %q, want main", got.TrustBundle.Label)
-	}
-	if want := []CertLink{{Path: "out/node/bundle.crt", Target: "../ca/bundle.crt"}}; !reflect.DeepEqual(got.TrustBundle.Links, want) {
-		t.Errorf("TrustBundle.Links = %v, want %v", got.TrustBundle.Links, want)
-	}
-	if !strings.Contains(string(data), `"label": "main"`) {
-		t.Errorf("JSON must carry the bundle label:\n%s", data)
-	}
-	if strings.Contains(string(data), `"archived"`) {
-		t.Errorf("JSON must not carry an archived field:\n%s", data)
-	}
-	if got.TrustBundle.Path != "out/ca/bundle.crt" {
-		t.Errorf("TrustBundle.Path = %q, want out/ca/bundle.crt", got.TrustBundle.Path)
-	}
-	if len(got.TrustBundle.CAFingerprints) != 2 || got.TrustBundle.CAFingerprints[0] != "fp1" || got.TrustBundle.CAFingerprints[1] != "fp2" {
-		t.Errorf("TrustBundle.CAFingerprints = %v, want [fp1 fp2]", got.TrustBundle.CAFingerprints)
+	if !reflect.DeepEqual(got.TrustBundles, orig.TrustBundles) {
+		t.Errorf("TrustBundles = %+v, want %+v", got.TrustBundles, orig.TrustBundles)
 	}
 }
 
-// TestTrustBundleOmittedWhenNil verifies the trust_bundle key is absent from
-// JSON when the field is nil (manifests without the key load cleanly).
-func TestTrustBundleOmittedWhenNil(t *testing.T) {
-	m := New()
-	// TrustBundle deliberately left nil
-	data, err := Marshal(m)
+// TestTrustBundlesOmittedWhenEmpty verifies the trust_bundles key is absent
+// from JSON when no bundle is declared.
+func TestTrustBundlesOmittedWhenEmpty(t *testing.T) {
+	data, err := Marshal(New())
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	if strings.Contains(string(data), `"trust_bundle"`) {
-		t.Errorf("JSON must not contain trust_bundle key when nil:\n%s", data)
+	if strings.Contains(string(data), `"trust_bundles"`) {
+		t.Errorf("JSON must not contain trust_bundles when empty:\n%s", data)
 	}
 }
 

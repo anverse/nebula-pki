@@ -30,24 +30,21 @@ const GeneratorName = "nebula-pki"
 
 // Manifest is the top-level nebula-pki.json document.
 type Manifest struct {
-	SchemaVersion int             `json:"schema_version"`
-	GeneratedAt   time.Time       `json:"generated_at"`
-	Generator     Generator       `json:"generator"`
-	ConfigPath    string          `json:"config_path"`
-	TrustBundle   *TrustBundle    `json:"trust_bundle,omitempty"`
-	CAs           map[string]*CA  `json:"cas"`
-	Certs         map[string]Cert `json:"certs"`
+	SchemaVersion int                     `json:"schema_version"`
+	GeneratedAt   time.Time               `json:"generated_at"`
+	Generator     Generator               `json:"generator"`
+	ConfigPath    string                  `json:"config_path"`
+	TrustBundles  map[string]*TrustBundle `json:"trust_bundles,omitempty"`
+	CAs           map[string]*CA          `json:"cas"`
+	Certs         map[string]Cert         `json:"certs"`
 }
 
-// TrustBundle records the emitted CA trust bundle artifact.
-// Path is where bundle.crt was written (logical, relative to manifest dir when
-// possible). CAFingerprints lists, in bundle order, the SHA-256 fingerprint of
-// every active CA cert included; lets downstream tooling verify Nebula network trust
-// without parsing PEM.
+// TrustBundle records one emitted CA trust bundle, keyed by its label in
+// Manifest.TrustBundles (ADR-026). Path is where the bundle was written
+// (logical, relative to the manifest dir when possible). CAFingerprints lists,
+// in ca_refs order, the SHA-256 fingerprint of every member CA cert; lets
+// downstream tooling verify Nebula network trust without parsing PEM.
 type TrustBundle struct {
-	// Label is the trust_bundle block label. It is recorded only; the
-	// bundle's identity is its path (ADR-026 "Detailed rules").
-	Label          string   `json:"label"`
 	Path           string   `json:"path"`
 	CAFingerprints []string `json:"ca_fingerprints"`
 	// Links records the managed trust_bundle link_crt symlinks.

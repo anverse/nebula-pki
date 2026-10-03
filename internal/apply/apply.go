@@ -131,14 +131,9 @@ type Report struct {
 
 	ManifestPath string
 
-	// TrustBundlePath is the logical path of the trust bundle. Set after a
-	// real reconcile; empty on dry-runs, which return before this field is
-	// populated.
-	TrustBundlePath string
-
-	// TrustBundleWritten is true when the bundle was written (or rewritten)
-	// this run. False on a noop run.
-	TrustBundleWritten bool
+	// TrustBundlesWritten lists the trust bundles written (or rewritten)
+	// this run, in config order. Empty on a noop run and on dry-runs.
+	TrustBundlesWritten []BundleReport
 
 	// SignedCerts is the set of certs that were signed this run, in config
 	// order. Empty on a noop run.
@@ -165,6 +160,12 @@ type Report struct {
 	// and key of a removed ca block, or a removed or moved trust bundle.
 	// The files stay on disk (ADR-021 amendment, ADR-026).
 	Released []ReleaseReport
+}
+
+// BundleReport names one trust bundle written this run.
+type BundleReport struct {
+	Label string
+	Path  string
 }
 
 // ReleaseReport names files that are no longer managed and stay on disk.
@@ -226,6 +227,13 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 			return info.Mode(), nil
 		},
 		Readlink: os.Readlink,
+		Fingerprint: func(realPath string) (string, error) {
+			pem, err := os.ReadFile(realPath)
+			if err != nil {
+				return "", err
+			}
+			return pki.CertFingerprint(pem)
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -239,7 +247,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	checkEncryptionMismatches(current, enc, opts.Warn)
 
 	if opts.DryRun {
-		writeDryRunPlan(coalesceWriter(opts.Out), cfg, enc, p, current, exists)
+		writeDryRunPlan(coalesceWriter(opts.Out), cfg, enc, p)
 		report.Deadlines = computeDeadlines(cfg, current, opts.Now)
 		return report, nil
 	}
@@ -287,11 +295,11 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	if diskChanged {
 		hasAnyChange = true
 	}
-	// planCALinkStale only emits OpDeleteSymlink for entries recorded in the
+	// planLinks only emits OpDeleteSymlink for entries recorded in the
 	// current manifest, so any planned delete always changes the manifest content
 	// — even when the symlink was already absent from disk (ErrNotExist path in
 	// applyLinks) and therefore didn't mutate disk (diskChanged stays false).
-	// Without this check the hasAnyChange early-return at line 300 would fire
+	// Without this check the hasAnyChange early return below would fire
 	// before manifestUnchanged is consulted, leaving the stale CertLink record
 	// in the manifest permanently.
 	for _, la := range p.LinkActions() {
@@ -311,18 +319,15 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 		hasAnyChange = true
 	}
 
-	bundleWritten, err := reconcileTrustBundle(cfg, caKeys, current, next, bundleLinks, exists)
+	bundlesWritten, err := reconcileTrustBundles(cfg, p.TrustBundleActions(), caKeys, next, bundleLinks)
 	if err != nil {
 		return nil, err
 	}
-	if bundleWritten {
+	if len(bundlesWritten) > 0 {
 		// A rewritten bundle mutated disk even when the manifest content is
 		// unchanged (e.g. the file was deleted by hand).
 		hasAnyChange = true
 		diskChanged = true
-	}
-	if a, ok := p.TrustBundleAction(); ok && a.Op == plan.OpRelabel {
-		hasAnyChange = true
 	}
 
 	// Removed ca blocks and a removed or moved trust bundle: the files stay
@@ -334,8 +339,7 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 			released = append(released, ReleaseReport{Owner: a.Owner, Label: a.Label, Paths: a.Paths})
 		}
 	}
-	report.TrustBundlePath = cfg.TrustBundlePath()
-	report.TrustBundleWritten = bundleWritten
+	report.TrustBundlesWritten = bundlesWritten
 
 	// Compute deadline advisory from the candidate manifest (already fully
 	// populated at this point). This covers no-op runs too: the candidate
@@ -699,13 +703,13 @@ type linkOwner struct {
 }
 
 // applyLinks executes link_crt symlink actions and updates next.CAs with the
-// resulting links array. The trust bundle's links are returned separately
-// (bundleLinks) because its manifest record is built afterwards by
-// reconcileTrustBundle. Returns the lists of created and deleted link paths
+// resulting links array. Trust bundle links are returned separately
+// (bundleLinks, keyed by bundle label) because the bundle records are built
+// afterwards by reconcileTrustBundles. Returns the lists of created and deleted link paths
 // for the report. Parent directories are created as needed. A regular file
 // (non-symlink) at a link path is an error for CreateSymlink; for
 // DeleteSymlink it is a notice printed to warn and the file is left alone.
-func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Manifest, warn io.Writer) (created []LinkReport, deleted []string, bundleLinks []manifest.CertLink, err error) {
+func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Manifest, warn io.Writer) (created []LinkReport, deleted []string, bundleLinks map[string][]manifest.CertLink, err error) {
 	// activeLinks tracks the post-run links for each owner. Every owner that
 	// appears in any link action is added here (including delete-only cases,
 	// where the value stays nil to clear the manifest links array).
@@ -795,9 +799,10 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 
 	// Propagate the active links array to the candidate manifest for every CA
 	// that had link actions (including noop-only runs where no change occurred).
+	bundleLinks = make(map[string][]manifest.CertLink)
 	for owner, links := range activeLinks {
 		if owner.kind == plan.KindTrustBundle {
-			bundleLinks = links
+			bundleLinks[owner.label] = links
 			continue
 		}
 		if rec := next.CAs[owner.label]; rec != nil {
@@ -808,62 +813,41 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 	return created, deleted, bundleLinks, nil
 }
 
-// reconcileTrustBundle builds the concatenated-PEM trust bundle from the
-// declared trust_bundle members in ca_refs order. It populates
-// next.TrustBundle and writes the bundle file when the content has changed.
-// Without a trust_bundle block nothing is written and next.TrustBundle stays
-// nil (ADR-026 §2). Returns true when the file was written.
-func reconcileTrustBundle(cfg *config.Config, caKeys map[string]caPEMs, current, next *manifest.Manifest, links []manifest.CertLink, exists func(string) bool) (bool, error) {
-	tb := cfg.TrustBundle
-	if tb == nil {
-		next.TrustBundle = nil
-		return false, nil
-	}
-	bundlePath := cfg.TrustBundlePath()
-
-	var bundle []byte
-	fps := make([]string, 0, len(tb.CARefs))
-	for _, label := range tb.CARefs {
-		ca := cfg.CAByLabel(label)
-		bundle = append(bundle, caKeys[ca.Label].cert...)
-		if rec := next.CAs[ca.Label]; rec != nil {
-			fps = append(fps, rec.Fingerprint)
+// reconcileTrustBundles builds each declared trust bundle from its members'
+// certificates in ca_refs order, records it in next.TrustBundles under its
+// label, and writes the file exactly when the plan says so: the planner is
+// the only place that decides (ADR-026 "Detailed rules"). Without
+// trust_bundle blocks next.TrustBundles stays empty (ADR-026 §2). Returns the
+// bundles written.
+func reconcileTrustBundles(cfg *config.Config, actions []plan.Action, caKeys map[string]caPEMs, next *manifest.Manifest, links map[string][]manifest.CertLink) ([]BundleReport, error) {
+	var written []BundleReport
+	for _, a := range actions {
+		tb := cfg.TrustBundleByLabel(a.Label)
+		var bundle []byte
+		fps := make([]string, 0, len(tb.CARefs))
+		for _, label := range tb.CARefs {
+			bundle = append(bundle, caKeys[label].cert...)
+			if rec := next.CAs[label]; rec != nil {
+				fps = append(fps, rec.Fingerprint)
+			}
 		}
-	}
-
-	next.TrustBundle = &manifest.TrustBundle{
-		Label:          tb.Label,
-		Path:           bundlePath,
-		CAFingerprints: fps,
-		Links:          links,
-	}
-
-	// Idempotency: skip the write when the bundle file already exists at the
-	// recorded path and the manifest records the same CA fingerprints in the
-	// same order.
-	if current.TrustBundle != nil && current.TrustBundle.Path == bundlePath && exists(bundlePath) {
-		if fingerprintsEqual(current.TrustBundle.CAFingerprints, fps) {
-			return false, nil
+		if next.TrustBundles == nil {
+			next.TrustBundles = make(map[string]*manifest.TrustBundle)
 		}
-	}
-
-	if err := fsutil.WriteFile(cfg.Resolve(bundlePath), bundle, certMode); err != nil {
-		return false, fmt.Errorf("write trust bundle: %w", err)
-	}
-	return true, nil
-}
-
-// fingerprintsEqual reports whether two fingerprint slices are equal.
-func fingerprintsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+		next.TrustBundles[tb.Label] = &manifest.TrustBundle{
+			Path:           a.Path,
+			CAFingerprints: fps,
+			Links:          links[tb.Label],
 		}
+		if a.Op != plan.OpWrite {
+			continue
+		}
+		if err := fsutil.WriteFile(cfg.Resolve(a.Path), bundle, certMode); err != nil {
+			return nil, fmt.Errorf("write trust bundle %q: %w", tb.Label, err)
+		}
+		written = append(written, BundleReport{Label: tb.Label, Path: a.Path})
 	}
-	return true
+	return written, nil
 }
 
 // prefixesToStrings converts a slice of netip.Prefix to their string
@@ -934,7 +918,7 @@ func writeManifest(manifestReal string, m *manifest.Manifest) error {
 // writeDryRunPlan writes a human-readable preview of what a real reconcile
 // would write. Each file is prefixed with "+ write ". When the plan has no
 // mutations (all noops), it prints "up to date; nothing to do".
-func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p plan.Plan, current *manifest.Manifest, exists func(string) bool) {
+func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p plan.Plan) {
 	var writes []string
 	var linkLines []string
 
@@ -981,18 +965,15 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 		}
 	}
 
-	// The trust bundle is a planned action (ADR-026 "Detailed rules"); a
-	// relabel changes only the manifest.
-	manifestOnly := false
-	if a, ok := p.TrustBundleAction(); ok {
-		switch a.Op {
-		case plan.OpWrite:
+	// Trust bundles are planned actions (ADR-026 "Detailed rules").
+	for _, a := range p.TrustBundleActions() {
+		if a.Op == plan.OpWrite {
 			writes = append(writes, a.Path)
-		case plan.OpRelabel:
-			manifestOnly = true
 		}
 	}
 
+	// A release changes only the manifest (and prints its own lines).
+	manifestOnly := false
 	var releaseLines []string
 	for _, a := range p.ReleaseActions() {
 		manifestOnly = true

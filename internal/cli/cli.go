@@ -145,7 +145,7 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 	for _, r := range rep.Released {
 		if r.Owner == plan.KindTrustBundle {
 			for _, p := range r.Paths {
-				fmt.Fprintf(w, "notice: trust bundle %s is no longer managed; the file stays on disk\n", p)
+				fmt.Fprintf(w, "notice: trust bundle %q: %s is no longer managed; the file stays on disk\n", r.Label, p)
 			}
 			continue
 		}
@@ -154,8 +154,8 @@ func writeReconcileSummary(w io.Writer, rep *apply.Report) {
 			fmt.Fprintf(w, "  %s\n", p)
 		}
 	}
-	if rep.TrustBundleWritten {
-		fmt.Fprintf(w, "wrote trust bundle: %s\n", rep.TrustBundlePath)
+	for _, b := range rep.TrustBundlesWritten {
+		fmt.Fprintf(w, "wrote trust bundle %q: %s\n", b.Label, b.Path)
 	}
 	fmt.Fprintf(w, "wrote manifest: %s\n", rep.ManifestPath)
 }

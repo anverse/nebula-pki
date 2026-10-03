@@ -266,7 +266,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 	if !strings.Contains(out, "+ write out/certs/alpha.crt") {
 		t.Errorf("stdout = %q, want it to contain '+ write out/certs/alpha.crt'", out)
 	}
-	if !strings.Contains(out, "+ write out/ca/bundle.crt") {
+	if !strings.Contains(out, "+ write out/bundles/main.crt") {
 		t.Errorf("stdout = %q, want it to contain '+ write out/ca/bundle.crt'", out)
 	}
 	if stderr.String() != "" {
@@ -521,13 +521,13 @@ func TestWriteReconcileSummary(t *testing.T) {
 				Changed:      true,
 				ManifestPath: "out/nebula-pki.json",
 				CreatedLinks: []apply.LinkReport{
-					{Owner: plan.KindTrustBundle, Label: "main", Path: "out/a/bundle.crt"},
-					{Owner: plan.KindTrustBundle, Label: "main", Path: "out/b/bundle.crt"},
+					{Owner: plan.KindTrustBundle, Label: "main", Path: "out/a/main.crt"},
+					{Owner: plan.KindTrustBundle, Label: "main", Path: "out/b/main.crt"},
 					{Owner: plan.KindCA, Label: "mesh", Path: "out/a/mesh.crt"},
 				},
 			},
 			wantContain: []string{
-				"linked trust bundle \"main\"\n  out/a/bundle.crt\n  out/b/bundle.crt\nlinked CA \"mesh\"\n  out/a/mesh.crt\n",
+				"linked trust bundle \"main\"\n  out/a/main.crt\n  out/b/main.crt\nlinked CA \"mesh\"\n  out/a/mesh.crt\n",
 			},
 		},
 		{
@@ -538,12 +538,12 @@ func TestWriteReconcileSummary(t *testing.T) {
 				ManifestPath: "out/nebula-pki.json",
 				Released: []apply.ReleaseReport{
 					{Owner: plan.KindCA, Label: "old", Paths: []string{"out/ca/old.crt", "out/ca/old.key"}},
-					{Owner: plan.KindTrustBundle, Label: "main", Paths: []string{"out/ca/bundle.crt"}},
+					{Owner: plan.KindTrustBundle, Label: "main", Paths: []string{"out/bundles/main.crt"}},
 				},
 			},
 			wantContain: []string{
 				"notice: ca \"old\" was removed from the config; its files stay on disk and are no longer managed:\n  out/ca/old.crt\n  out/ca/old.key\n",
-				"notice: trust bundle out/ca/bundle.crt is no longer managed; the file stays on disk\n",
+				"notice: trust bundle \"main\": out/bundles/main.crt is no longer managed; the file stays on disk\n",
 			},
 		},
 		{
@@ -556,14 +556,16 @@ func TestWriteReconcileSummary(t *testing.T) {
 			wantNot:     []string{"generated CA", "signed cert"},
 		},
 		{
-			// Trust bundle written: summary must include "wrote trust bundle" line
-			// before "wrote manifest".
-			name: "changed_with_trust_bundle",
+			// Trust bundles written: summary names each one, before
+			// "wrote manifest".
+			name: "changed_with_trust_bundles",
 			rep: apply.Report{
-				Changed:            true,
-				ManifestPath:       "out/nebula-pki.json",
-				TrustBundlePath:    "out/ca/bundle.crt",
-				TrustBundleWritten: true,
+				Changed:      true,
+				ManifestPath: "out/nebula-pki.json",
+				TrustBundlesWritten: []apply.BundleReport{
+					{Label: "main", Path: "out/bundles/main.crt"},
+					{Label: "clients", Path: "out/bundles/clients.crt"},
+				},
 				CAs: []apply.CAReport{{
 					Label:    "mesh",
 					Mode:     "generate",
@@ -574,20 +576,17 @@ func TestWriteReconcileSummary(t *testing.T) {
 			},
 			wantContain: []string{
 				`generated CA "mesh"`,
-				"wrote trust bundle: out/ca/bundle.crt",
-				"wrote manifest: out/nebula-pki.json",
+				"wrote trust bundle \"main\": out/bundles/main.crt\nwrote trust bundle \"clients\": out/bundles/clients.crt\nwrote manifest: out/nebula-pki.json",
 			},
 			wantNot: []string{"up to date"},
 		},
 		{
 			// Bundle present but not written this run (idempotent): must not
-			// appear in the summary even though TrustBundlePath is set.
+			// appear in the summary.
 			name: "noop_run_bundle_not_written",
 			rep: apply.Report{
-				Changed:            false,
-				ManifestPath:       "out/nebula-pki.json",
-				TrustBundlePath:    "out/ca/bundle.crt",
-				TrustBundleWritten: false,
+				Changed:      false,
+				ManifestPath: "out/nebula-pki.json",
 			},
 			wantContain: []string{"up to date; nothing to do"},
 			wantNot:     []string{"wrote trust bundle"},

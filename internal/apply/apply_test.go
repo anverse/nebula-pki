@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -1130,18 +1131,18 @@ func TestReconcile_NoBundleBlockWritesNoBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if rep.TrustBundleWritten {
-		t.Error("TrustBundleWritten = true without a trust_bundle block")
+	if len(rep.TrustBundlesWritten) > 0 {
+		t.Error("TrustBundlesWritten: true without a trust_bundle block")
 	}
-	if _, err := os.Stat(cfg.Resolve(filepath.Join("out", "ca", "bundle.crt"))); err == nil {
-		t.Error("bundle.crt written without a trust_bundle block")
+	if _, err := os.Stat(cfg.Resolve(filepath.Join("out", "bundles"))); err == nil {
+		t.Error("out/bundles written without a trust_bundle block")
 	}
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.TrustBundle != nil {
-		t.Errorf("manifest.TrustBundle = %+v, want nil", m.TrustBundle)
+	if len(m.TrustBundles) != 0 {
+		t.Errorf("manifest.TrustBundles = %+v, want none", m.TrustBundles)
 	}
 }
 
@@ -1154,14 +1155,11 @@ func TestReconcile_BundleWritten(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if !rep.TrustBundleWritten {
-		t.Error("TrustBundleWritten = false, want true on first run")
-	}
-	if rep.TrustBundlePath == "" {
-		t.Error("TrustBundlePath is empty")
+	if want := []BundleReport{{Label: "main", Path: "out/bundles/main.crt"}}; !reflect.DeepEqual(rep.TrustBundlesWritten, want) {
+		t.Errorf("TrustBundlesWritten = %+v, want %+v", rep.TrustBundlesWritten, want)
 	}
 
-	bundleReal := cfg.Resolve(cfg.TrustBundlePath())
+	bundleReal := cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0]))
 	if _, err := os.Stat(bundleReal); err != nil {
 		t.Fatalf("bundle.crt missing: %v", err)
 	}
@@ -1179,7 +1177,7 @@ func TestReconcile_BundleEqualsCACert(t *testing.T) {
 
 	ca0 := cfg.CAs[0]
 	caCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(ca0)))
-	bundle := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	bundle := mustRead(t, cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0])))
 
 	if !bytes.Equal(caCert, bundle) {
 		t.Error("single-CA bundle does not equal CA cert PEM")
@@ -1199,18 +1197,18 @@ func TestReconcile_BundleManifestRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.TrustBundle == nil {
+	if m.TrustBundles["main"] == nil {
 		t.Fatal("manifest.TrustBundle = nil")
 	}
-	if m.TrustBundle.Path != cfg.TrustBundlePath() {
-		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundle.Path, cfg.TrustBundlePath())
+	if m.TrustBundles["main"].Path != cfg.TrustBundlePath(cfg.TrustBundles[0]) {
+		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundles["main"].Path, cfg.TrustBundlePath(cfg.TrustBundles[0]))
 	}
-	if len(m.TrustBundle.CAFingerprints) != 1 {
-		t.Fatalf("TrustBundle.CAFingerprints len = %d, want 1", len(m.TrustBundle.CAFingerprints))
+	if len(m.TrustBundles["main"].CAFingerprints) != 1 {
+		t.Fatalf("TrustBundle.CAFingerprints len = %d, want 1", len(m.TrustBundles["main"].CAFingerprints))
 	}
 	caFP := m.CAs["mesh"].Fingerprint
-	if m.TrustBundle.CAFingerprints[0] != caFP {
-		t.Errorf("TrustBundle.CAFingerprints[0] = %q, want CA fingerprint %q", m.TrustBundle.CAFingerprints[0], caFP)
+	if m.TrustBundles["main"].CAFingerprints[0] != caFP {
+		t.Errorf("TrustBundle.CAFingerprints[0] = %q, want CA fingerprint %q", m.TrustBundles["main"].CAFingerprints[0], caFP)
 	}
 }
 
@@ -1223,7 +1221,7 @@ func TestReconcile_BundleIdempotent(t *testing.T) {
 		t.Fatalf("first Reconcile: %v", err)
 	}
 
-	bundle1 := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	bundle1 := mustRead(t, cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0])))
 
 	rep, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
 	if err != nil {
@@ -1232,11 +1230,11 @@ func TestReconcile_BundleIdempotent(t *testing.T) {
 	if rep.Changed {
 		t.Error("Changed = true on idempotent run, want false")
 	}
-	if rep.TrustBundleWritten {
-		t.Error("TrustBundleWritten = true on idempotent run, want false")
+	if len(rep.TrustBundlesWritten) > 0 {
+		t.Error("TrustBundlesWritten: true on idempotent run, want false")
 	}
 
-	bundle2 := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	bundle2 := mustRead(t, cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0])))
 	if !bytes.Equal(bundle1, bundle2) {
 		t.Error("bundle.crt changed on idempotent run")
 	}
@@ -1256,26 +1254,23 @@ trust_bundle "main" {
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if !rep.TrustBundleWritten {
-		t.Error("TrustBundleWritten = false, want true")
-	}
-	if rep.TrustBundlePath != "out/ca/mesh-trust.crt" {
-		t.Errorf("TrustBundlePath = %q, want out/ca/mesh-trust.crt", rep.TrustBundlePath)
+	if len(rep.TrustBundlesWritten) != 1 || rep.TrustBundlesWritten[0].Path != "out/ca/mesh-trust.crt" {
+		t.Errorf("TrustBundlesWritten = %+v, want out/ca/mesh-trust.crt", rep.TrustBundlesWritten)
 	}
 	if _, err := os.Stat(cfg.Resolve("out/ca/mesh-trust.crt")); err != nil {
 		t.Fatalf("custom bundle path missing: %v", err)
 	}
 	// Default path must not exist.
-	if _, err := os.Stat(cfg.Resolve("out/ca/bundle.crt")); err == nil {
-		t.Error("default bundle.crt exists but should not when trust_bundle.path is set")
+	if _, err := os.Stat(cfg.Resolve("out/bundles/main.crt")); err == nil {
+		t.Error("default main.crt exists but should not when trust_bundle.path is set")
 	}
 
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.TrustBundle == nil || m.TrustBundle.Path != "out/ca/mesh-trust.crt" {
-		t.Errorf("manifest TrustBundle.Path = %v, want out/ca/mesh-trust.crt", m.TrustBundle)
+	if m.TrustBundles["main"] == nil || m.TrustBundles["main"].Path != "out/ca/mesh-trust.crt" {
+		t.Errorf("manifest TrustBundle.Path = %v, want out/ca/mesh-trust.crt", m.TrustBundles["main"])
 	}
 }
 
@@ -1304,7 +1299,7 @@ cert "h2" {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	bundle := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	bundle := mustRead(t, cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0])))
 	primaryCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
 	secondaryCert := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[1])))
 
@@ -1318,46 +1313,39 @@ cert "h2" {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.TrustBundle == nil {
+	if m.TrustBundles["main"] == nil {
 		t.Fatal("TrustBundle = nil")
 	}
-	if len(m.TrustBundle.CAFingerprints) != 2 {
-		t.Fatalf("CAFingerprints len = %d, want 2", len(m.TrustBundle.CAFingerprints))
+	if len(m.TrustBundles["main"].CAFingerprints) != 2 {
+		t.Fatalf("CAFingerprints len = %d, want 2", len(m.TrustBundles["main"].CAFingerprints))
 	}
-	if m.TrustBundle.CAFingerprints[0] != m.CAs["primary"].Fingerprint {
-		t.Errorf("CAFingerprints[0] = %q, want primary fingerprint %q", m.TrustBundle.CAFingerprints[0], m.CAs["primary"].Fingerprint)
+	if m.TrustBundles["main"].CAFingerprints[0] != m.CAs["primary"].Fingerprint {
+		t.Errorf("CAFingerprints[0] = %q, want primary fingerprint %q", m.TrustBundles["main"].CAFingerprints[0], m.CAs["primary"].Fingerprint)
 	}
-	if m.TrustBundle.CAFingerprints[1] != m.CAs["secondary"].Fingerprint {
-		t.Errorf("CAFingerprints[1] = %q, want secondary fingerprint %q", m.TrustBundle.CAFingerprints[1], m.CAs["secondary"].Fingerprint)
+	if m.TrustBundles["main"].CAFingerprints[1] != m.CAs["secondary"].Fingerprint {
+		t.Errorf("CAFingerprints[1] = %q, want secondary fingerprint %q", m.TrustBundles["main"].CAFingerprints[1], m.CAs["secondary"].Fingerprint)
 	}
 }
 
-// TestReconcile_BundleReport verifies the TrustBundlePath and
-// TrustBundleWritten fields on the Report struct across two runs.
+// TestReconcile_BundleReport verifies TrustBundlesWritten on the Report
+// across two runs: the first writes the bundle, the second writes nothing.
 func TestReconcile_BundleReport(t *testing.T) {
 	cfg := writeConfig(t, meshBundleHCL)
-	expected := cfg.TrustBundlePath()
 
 	rep1, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion})
 	if err != nil {
 		t.Fatalf("first Reconcile: %v", err)
 	}
-	if rep1.TrustBundlePath != expected {
-		t.Errorf("first run TrustBundlePath = %q, want %q", rep1.TrustBundlePath, expected)
-	}
-	if !rep1.TrustBundleWritten {
-		t.Error("first run TrustBundleWritten = false, want true")
+	if want := []BundleReport{{Label: "main", Path: "out/bundles/main.crt"}}; !reflect.DeepEqual(rep1.TrustBundlesWritten, want) {
+		t.Errorf("first run TrustBundlesWritten = %+v, want %+v", rep1.TrustBundlesWritten, want)
 	}
 
 	rep2, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
 	if err != nil {
 		t.Fatalf("second Reconcile: %v", err)
 	}
-	if rep2.TrustBundlePath != expected {
-		t.Errorf("second run TrustBundlePath = %q, want %q", rep2.TrustBundlePath, expected)
-	}
-	if rep2.TrustBundleWritten {
-		t.Error("second run TrustBundleWritten = true, want false")
+	if len(rep2.TrustBundlesWritten) != 0 {
+		t.Errorf("second run TrustBundlesWritten = %+v, want none", rep2.TrustBundlesWritten)
 	}
 }
 

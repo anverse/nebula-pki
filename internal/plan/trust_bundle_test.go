@@ -1,9 +1,10 @@
 package plan
 
-// Tests for the trust bundle action, bundle links, and released artifacts
+// Tests for trust bundle actions, bundle links, and released artifacts
 // (ADR-026 "Detailed rules", ADR-021 amendment).
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -33,31 +34,35 @@ func upToDate(cfg *config.Config) (*manifest.Manifest, func(string) bool) {
 		m.CAs[ca.Label] = &manifest.CA{Mode: "generate", Name: ca.Name, Fingerprint: "fp-" + ca.Label}
 		present = append(present, cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca))
 	}
-	m.TrustBundle = &manifest.TrustBundle{
-		Label:          "main",
-		Path:           cfg.TrustBundlePath(),
-		CAFingerprints: []string{"fp-b", "fp-a"},
-		Links:          []manifest.CertLink{{Path: "out/node/bundle.crt", Target: "../ca/bundle.crt"}},
+	tb := cfg.TrustBundles[0]
+	m.TrustBundles = map[string]*manifest.TrustBundle{
+		"main": {
+			Path:           cfg.TrustBundlePath(tb),
+			CAFingerprints: []string{"fp-b", "fp-a"},
+			Links:          []manifest.CertLink{{Path: "out/node/main.crt", Target: "../bundles/main.crt"}},
+		},
 	}
-	present = append(present, cfg.TrustBundlePath())
+	present = append(present, cfg.TrustBundlePath(tb))
 	return m, existsSet(present...)
 }
 
 func bundleOpts(cfg *config.Config) Options {
-	link := cfg.Resolve("out/node/bundle.crt")
+	link := cfg.Resolve("out/node/main.crt")
 	return Options{
 		Lstat:    mockLstat(map[string]os.FileMode{link: os.ModeSymlink}),
-		Readlink: mockReadlink(map[string]string{link: "../ca/bundle.crt"}),
+		Readlink: mockReadlink(map[string]string{link: "../bundles/main.crt"}),
 	}
 }
 
-func bundleOp(t *testing.T, p Plan) Op {
+func bundleOp(t *testing.T, p Plan, label string) Op {
 	t.Helper()
-	a, ok := p.TrustBundleAction()
-	if !ok {
-		t.Fatal("no trust bundle action planned")
+	for _, a := range p.TrustBundleActions() {
+		if a.Label == label {
+			return a.Op
+		}
 	}
-	return a.Op
+	t.Fatalf("no trust bundle action planned for %q", label)
+	return ""
 }
 
 func TestBuild_TrustBundle_UpToDateIsNoop(t *testing.T) {
@@ -67,7 +72,7 @@ func TestBuild_TrustBundle_UpToDateIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if op := bundleOp(t, p); op != OpNoop {
+	if op := bundleOp(t, p, "main"); op != OpNoop {
 		t.Errorf("bundle op = %q, want noop", op)
 	}
 	if p.Changes() {
@@ -78,46 +83,39 @@ func TestBuild_TrustBundle_UpToDateIsNoop(t *testing.T) {
 func TestBuild_TrustBundle_WriteTriggers(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(cfg *config.Config, m *manifest.Manifest) func(string) bool
+		mutate func(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) func(string) bool
 	}{
-		{"not recorded", func(cfg *config.Config, m *manifest.Manifest) func(string) bool {
-			_, exists := upToDate(cfg)
-			m.TrustBundle = nil
+		{"label not recorded", func(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) func(string) bool {
+			m.TrustBundles = nil
 			return exists
 		}},
-		{"file missing", func(cfg *config.Config, m *manifest.Manifest) func(string) bool {
-			var present []string
-			for i := range cfg.CAs {
-				present = append(present, cfg.CACertPathForCA(cfg.CAs[i]), cfg.CAKeyPathForCA(cfg.CAs[i]))
-			}
-			return existsSet(present...)
+		{"file missing", func(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) func(string) bool {
+			path := cfg.TrustBundlePath(cfg.TrustBundles[0])
+			return func(p string) bool { return p != path && exists(p) }
 		}},
-		{"members reordered", func(cfg *config.Config, m *manifest.Manifest) func(string) bool {
-			_, exists := upToDate(cfg)
-			m.TrustBundle.CAFingerprints = []string{"fp-a", "fp-b"}
+		{"members reordered", func(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) func(string) bool {
+			m.TrustBundles["main"].CAFingerprints = []string{"fp-a", "fp-b"}
 			return exists
 		}},
-		{"member fingerprint changed", func(cfg *config.Config, m *manifest.Manifest) func(string) bool {
-			_, exists := upToDate(cfg)
+		{"member fingerprint changed", func(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) func(string) bool {
 			m.CAs["a"].Fingerprint = "fp-a2"
 			return exists
 		}},
-		{"path changed", func(cfg *config.Config, m *manifest.Manifest) func(string) bool {
-			_, exists := upToDate(cfg)
-			m.TrustBundle.Path = "out/old/bundle.crt"
+		{"path changed", func(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) func(string) bool {
+			m.TrustBundles["main"].Path = "out/old/main.crt"
 			return exists
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := parseCfg(t, bundleHCL)
-			m, _ := upToDate(cfg)
-			exists := tt.mutate(cfg, m)
+			m, exists := upToDate(cfg)
+			exists = tt.mutate(cfg, m, exists)
 			p, err := Build(cfg, m, testNow, exists, bundleOpts(cfg))
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
-			if op := bundleOp(t, p); op != OpWrite {
+			if op := bundleOp(t, p, "main"); op != OpWrite {
 				t.Errorf("bundle op = %q, want write", op)
 			}
 		})
@@ -129,40 +127,78 @@ func TestBuild_TrustBundle_MemberGeneratedWrites(t *testing.T) {
 	m, _ := upToDate(cfg)
 	// CA "b" files are missing, so it is generated this run.
 	a := cfg.CAs[0]
-	exists := existsSet(cfg.CACertPathForCA(a), cfg.CAKeyPathForCA(a), cfg.TrustBundlePath())
+	exists := existsSet(cfg.CACertPathForCA(a), cfg.CAKeyPathForCA(a), cfg.TrustBundlePath(cfg.TrustBundles[0]))
 	delete(m.CAs, "b")
 	p, err := Build(cfg, m, testNow, exists, bundleOpts(cfg))
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if op := bundleOp(t, p); op != OpWrite {
+	if op := bundleOp(t, p, "main"); op != OpWrite {
 		t.Errorf("bundle op = %q, want write", op)
 	}
 }
 
-func TestBuild_TrustBundle_LabelChangeIsRelabel(t *testing.T) {
-	cfg := parseCfg(t, bundleHCL)
-	m, exists := upToDate(cfg)
-	m.TrustBundle.Label = "old"
-	p, err := Build(cfg, m, testNow, exists, bundleOpts(cfg))
+func TestBuild_TrustBundle_ReferenceMemberSwapped(t *testing.T) {
+	// A referenced CA file swapped since the last run is seen by the plan
+	// through the Fingerprint probe, so --dry-run and the run agree.
+	cfg := parseCfg(t, `
+trust_bundle "main" { ca_refs = [ca.r] }
+ca "r" {
+  cert_file = "ref/ca.crt"
+  key_file  = "ref/ca.key"
+}
+`)
+	tb := cfg.TrustBundles[0]
+	m := manifest.New()
+	m.CAs["r"] = &manifest.CA{Mode: "reference", Fingerprint: "fp-old"}
+	m.TrustBundles = map[string]*manifest.TrustBundle{"main": {Path: cfg.TrustBundlePath(tb), CAFingerprints: []string{"fp-old"}}}
+	exists := existsSet("ref/ca.crt", "ref/ca.key", cfg.TrustBundlePath(tb))
+
+	for _, tt := range []struct {
+		fp   string
+		want Op
+	}{{"fp-old", OpNoop}, {"fp-new", OpWrite}} {
+		fp := tt.fp
+		p, err := Build(cfg, m, testNow, exists, Options{Fingerprint: func(string) (string, error) { return fp, nil }})
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if op := bundleOp(t, p, "main"); op != tt.want {
+			t.Errorf("fingerprint %s: bundle op = %q, want %q", fp, op, tt.want)
+		}
+	}
+
+	_, err := Build(cfg, m, testNow, exists, Options{Fingerprint: func(string) (string, error) { return "", errors.New("boom") }})
+	if err == nil {
+		t.Error("Build succeeded, want the fingerprint error")
+	}
+}
+
+func TestBuild_TrustBundle_Multiple(t *testing.T) {
+	cfg := parseCfg(t, `
+trust_bundle "x" { ca_refs = [ca.a] }
+trust_bundle "y" {
+  ca_refs  = [ca.a]
+  link_crt = ["out/node"]
+}
+ca "a" { name = "a" }
+`)
+	p, err := Build(cfg, manifest.New(), testNow, existsSet(), Options{Lstat: mockLstat(nil)})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if op := bundleOp(t, p); op != OpRelabel {
-		t.Errorf("bundle op = %q, want relabel", op)
+	tbs := p.TrustBundleActions()
+	if len(tbs) != 2 || tbs[0].Path != "out/bundles/x.crt" || tbs[1].Path != "out/bundles/y.crt" {
+		t.Fatalf("TrustBundleActions = %+v, want x and y at their label paths", tbs)
 	}
-	for _, l := range p.LinkActions() {
-		if l.Op != OpNoop {
-			t.Errorf("link action %+v, want noop: a relabel touches no symlink", l)
-		}
-	}
-	if len(p.ReleaseActions()) != 0 {
-		t.Errorf("ReleaseActions = %+v, want none", p.ReleaseActions())
+	links := p.LinkActions()
+	if len(links) != 1 || links[0].Path != "out/node/y.crt" || links[0].Label != "y" {
+		t.Errorf("LinkActions = %+v, want out/node/y.crt owned by y", links)
 	}
 }
 
 func TestBuild_TrustBundle_LinksOwnedByBundle(t *testing.T) {
-	// A CA and the bundle share the label "main"; their links stay apart.
+	// A CA and a bundle may share a label; their links stay apart.
 	cfg := parseCfg(t, `
 trust_bundle "main" {
   ca_refs  = [ca.main]
@@ -170,6 +206,8 @@ trust_bundle "main" {
 }
 ca "main" {
   name     = "m"
+  out_crt  = "out/ca/m.crt"
+  out_key  = "out/ca/m.key"
   link_crt = ["out/node"]
 }
 `)
@@ -181,11 +219,11 @@ ca "main" {
 	for _, l := range p.LinkActions() {
 		owners[l.Path] = l.Owner
 	}
-	if owners["out/node/main.crt"] != KindCA {
-		t.Errorf("out/node/main.crt owner = %q, want ca", owners["out/node/main.crt"])
+	if owners["out/node/m.crt"] != KindCA {
+		t.Errorf("out/node/m.crt owner = %q, want ca", owners["out/node/m.crt"])
 	}
-	if owners["out/node/bundle.crt"] != KindTrustBundle {
-		t.Errorf("out/node/bundle.crt owner = %q, want trust_bundle", owners["out/node/bundle.crt"])
+	if owners["out/node/main.crt"] != KindTrustBundle {
+		t.Errorf("out/node/main.crt owner = %q, want trust_bundle", owners["out/node/main.crt"])
 	}
 }
 
@@ -203,11 +241,11 @@ ca "b" { name = "b" }
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if _, ok := p.TrustBundleAction(); ok {
+	if len(p.TrustBundleActions()) != 0 {
 		t.Error("trust bundle action planned without a trust_bundle block")
 	}
 	rel := p.ReleaseActions()
-	if len(rel) != 1 || rel[0].Owner != KindTrustBundle || len(rel[0].Paths) != 1 || rel[0].Paths[0] != full.TrustBundlePath() {
+	if len(rel) != 1 || rel[0].Owner != KindTrustBundle || rel[0].Label != "main" || len(rel[0].Paths) != 1 || rel[0].Paths[0] != "out/bundles/main.crt" {
 		t.Fatalf("ReleaseActions = %+v, want the bundle file released", rel)
 	}
 	links := p.LinkActions()
@@ -216,17 +254,84 @@ ca "b" { name = "b" }
 	}
 }
 
-func TestBuild_TrustBundle_PathChangeReleasesOldFile(t *testing.T) {
-	cfg := parseCfg(t, bundleHCL)
-	m, exists := upToDate(cfg)
-	m.TrustBundle.Path = "out/old/bundle.crt"
-	p, err := Build(cfg, m, testNow, exists, bundleOpts(cfg))
+func TestBuild_TrustBundle_LabelRenameIsNewBundle(t *testing.T) {
+	full := parseCfg(t, bundleHCL)
+	m, exists := upToDate(full)
+	cfg := parseCfg(t, `
+trust_bundle "primary" {
+  ca_refs  = [ca.b, ca.a]
+  link_crt = ["out/node"]
+}
+ca "a" {
+  name    = "a"
+  default = true
+}
+ca "b" { name = "b" }
+`)
+	p, err := Build(cfg, m, testNow, exists, Options{Lstat: mockLstat(nil)})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
+	if op := bundleOp(t, p, "primary"); op != OpWrite {
+		t.Errorf("bundle op = %q, want write for the renamed bundle", op)
+	}
 	rel := p.ReleaseActions()
-	if len(rel) != 1 || rel[0].Paths[0] != "out/old/bundle.crt" {
-		t.Fatalf("ReleaseActions = %+v, want out/old/bundle.crt released", rel)
+	if len(rel) != 1 || rel[0].Label != "main" || rel[0].Paths[0] != "out/bundles/main.crt" {
+		t.Fatalf("ReleaseActions = %+v, want the old main.crt released", rel)
+	}
+	var created, deleted []string
+	for _, l := range p.LinkActions() {
+		switch l.Op {
+		case OpCreateSymlink:
+			created = append(created, l.Path)
+		case OpDeleteSymlink:
+			deleted = append(deleted, l.Path)
+		}
+	}
+	if len(created) != 1 || created[0] != "out/node/primary.crt" || len(deleted) != 1 || deleted[0] != "out/node/main.crt" {
+		t.Errorf("created %v, deleted %v; want primary.crt created and main.crt deleted", created, deleted)
+	}
+}
+
+func TestBuild_TrustBundle_LabelRenameSamePathKeepsLink(t *testing.T) {
+	// With an explicit, unchanged path the renamed bundle owns the same file
+	// and symlink: nothing is released and the symlink is not deleted.
+	src := func(label string) string {
+		return `
+trust_bundle "` + label + `" {
+  ca_refs  = [ca.a]
+  path     = "out/pki.crt"
+  link_crt = ["out/node"]
+}
+ca "a" { name = "a" }
+`
+	}
+	cfg := parseCfg(t, src("new"))
+	m := manifest.New()
+	m.CAs["a"] = &manifest.CA{Mode: "generate", Name: "a", Fingerprint: "fp-a"}
+	m.TrustBundles = map[string]*manifest.TrustBundle{"old": {
+		Path: "out/pki.crt", CAFingerprints: []string{"fp-a"},
+		Links: []manifest.CertLink{{Path: "out/node/pki.crt", Target: "../pki.crt"}},
+	}}
+	link := cfg.Resolve("out/node/pki.crt")
+	ca := cfg.CAs[0]
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca), "out/pki.crt"), Options{
+		Lstat:    mockLstat(map[string]os.FileMode{link: os.ModeSymlink}),
+		Readlink: mockReadlink(map[string]string{link: "../pki.crt"}),
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if op := bundleOp(t, p, "new"); op != OpWrite {
+		t.Errorf("bundle op = %q, want write (new label)", op)
+	}
+	if rel := p.ReleaseActions(); len(rel) != 0 {
+		t.Errorf("ReleaseActions = %+v, want none: the path is still managed", rel)
+	}
+	for _, l := range p.LinkActions() {
+		if l.Op == OpDeleteSymlink {
+			t.Errorf("link action %+v deletes a symlink the renamed bundle still declares", l)
+		}
 	}
 }
 
@@ -257,6 +362,24 @@ func TestBuild_RemovedCA_ReleasesFilesAndDeletesLinks(t *testing.T) {
 	}
 	if len(p.CAActions()) != 1 {
 		t.Errorf("CAActions = %+v, want only the declared CA", p.CAActions())
+	}
+}
+
+func TestBuild_RemovedReferenceCA_ReleasesNoPaths(t *testing.T) {
+	// A reference CA's files were never managed: removing the block drops
+	// the record and its links, but releases no paths (no notice).
+	cfg := parseCfg(t, `ca "own" { name = "own" }`)
+	ca := cfg.CAs[0]
+	m := manifest.New()
+	m.CAs["own"] = &manifest.CA{Mode: "generate", Name: "own"}
+	m.CAs["ref"] = &manifest.CA{Mode: "reference", Name: "ext", CertPath: "pki/ca.crt", KeyPath: "pki/ca.key"}
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	rel := p.ReleaseActions()
+	if len(rel) != 1 || rel[0].Label != "ref" || len(rel[0].Paths) != 0 {
+		t.Fatalf("ReleaseActions = %+v, want ref released without paths", rel)
 	}
 }
 

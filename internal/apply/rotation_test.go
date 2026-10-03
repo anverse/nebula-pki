@@ -51,20 +51,20 @@ ca "next" {
 	if m.CAs["current"] == nil {
 		t.Error("manifest CAs[current] = nil, want the non-member CA recorded")
 	}
-	if m.TrustBundle == nil || m.TrustBundle.Label != "main" {
-		t.Errorf("TrustBundle = %+v, want label main", m.TrustBundle)
+	if m.TrustBundles["main"] == nil {
+		t.Errorf("TrustBundles = %+v, want a record keyed main", m.TrustBundles)
 	}
 
 	// Bundle fingerprints must list only "next".
-	if m.TrustBundle == nil {
+	if m.TrustBundles["main"] == nil {
 		t.Fatal("TrustBundle is nil")
 	}
-	if len(m.TrustBundle.CAFingerprints) != 1 {
-		t.Fatalf("CAFingerprints len = %d, want 1 (only 'next')", len(m.TrustBundle.CAFingerprints))
+	if len(m.TrustBundles["main"].CAFingerprints) != 1 {
+		t.Fatalf("CAFingerprints len = %d, want 1 (only 'next')", len(m.TrustBundles["main"].CAFingerprints))
 	}
-	if m.TrustBundle.CAFingerprints[0] != m.CAs["next"].Fingerprint {
+	if m.TrustBundles["main"].CAFingerprints[0] != m.CAs["next"].Fingerprint {
 		t.Errorf("CAFingerprints[0] = %q, want 'next' fingerprint %q",
-			m.TrustBundle.CAFingerprints[0], m.CAs["next"].Fingerprint)
+			m.TrustBundles["main"].CAFingerprints[0], m.CAs["next"].Fingerprint)
 	}
 }
 
@@ -455,8 +455,8 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatal("step2: 'next' CA not in manifest")
 	}
 	// Bundle must contain both CAs.
-	if len(m2.TrustBundle.CAFingerprints) != 2 {
-		t.Fatalf("step2: bundle has %d fingerprints, want 2", len(m2.TrustBundle.CAFingerprints))
+	if len(m2.TrustBundles["main"].CAFingerprints) != 2 {
+		t.Fatalf("step2: bundle has %d fingerprints, want 2", len(m2.TrustBundles["main"].CAFingerprints))
 	}
 	// alpha still signed under "current"
 	m2alpha := m2.Certs["alpha"]
@@ -514,10 +514,10 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatal("step4: Changed = false, want true (bundle dropped 'current')")
 	}
 	m4, _ := manifest.Load(cfg4.Resolve(cfg4.ManifestPath()))
-	if len(m4.TrustBundle.CAFingerprints) != 1 {
-		t.Fatalf("step4: bundle has %d fingerprints, want 1 (only 'next')", len(m4.TrustBundle.CAFingerprints))
+	if len(m4.TrustBundles["main"].CAFingerprints) != 1 {
+		t.Fatalf("step4: bundle has %d fingerprints, want 1 (only 'next')", len(m4.TrustBundles["main"].CAFingerprints))
 	}
-	if m4.TrustBundle.CAFingerprints[0] != m4.CAs["next"].Fingerprint {
+	if m4.TrustBundles["main"].CAFingerprints[0] != m4.CAs["next"].Fingerprint {
 		t.Error("step4: bundle fingerprint is not 'next', want 'next' only")
 	}
 	if m4.CAs["current"] == nil {
@@ -617,13 +617,13 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("crypto.New: %v", err)
 	}
 	var buf bytes.Buffer
-	writeDryRunPlan(&buf, cfgDrop, dropEnc, p, current, exists)
+	writeDryRunPlan(&buf, cfgDrop, dropEnc, p)
 	out := buf.String()
 	if strings.Contains(out, "up to date; nothing to do") {
 		t.Errorf("dry-run = %q; want bundle write listed (dropped member shrinks bundle)", out)
 	}
-	if !strings.Contains(out, cfgDrop.TrustBundlePath()) {
-		t.Errorf("dry-run = %q; want %q in output", out, cfgDrop.TrustBundlePath())
+	if !strings.Contains(out, cfgDrop.TrustBundlePath(cfgDrop.TrustBundles[0])) {
+		t.Errorf("dry-run = %q; want %q in output", out, cfgDrop.TrustBundlePath(cfgDrop.TrustBundles[0]))
 	}
 
 	// After the real run the manifest records 1 member; dry-run must be a noop.
@@ -637,7 +637,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Fatalf("plan.Build: %v", err)
 	}
 	var buf2 bytes.Buffer
-	writeDryRunPlan(&buf2, cfgDrop, dropEnc, p2, current2, exists)
+	writeDryRunPlan(&buf2, cfgDrop, dropEnc, p2)
 	if !strings.Contains(buf2.String(), "up to date; nothing to do") {
 		t.Errorf("post-run dry-run = %q; want 'up to date; nothing to do'", buf2.String())
 	}
@@ -681,8 +681,8 @@ ca "mesh" {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if got := m.TrustBundle.Links; len(got) != 1 || got[0].Path != "out/node/bundle.crt" || got[0].Target != "../ca/bundle.crt" {
-		t.Errorf("TrustBundle.Links = %+v, want out/node/bundle.crt → ../ca/bundle.crt", got)
+	if got := m.TrustBundles["main"].Links; len(got) != 1 || got[0].Path != "out/node/main.crt" || got[0].Target != "../bundles/main.crt" {
+		t.Errorf("TrustBundles[main].Links = %+v, want out/node/main.crt → ../bundles/main.crt", got)
 	}
 	if got := m.CAs["mesh"].Links; len(got) != 1 || got[0].Path != "out/node/mesh.crt" {
 		t.Errorf("CAs[mesh].Links = %+v, want only out/node/mesh.crt", got)

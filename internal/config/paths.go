@@ -15,8 +15,9 @@ import "path/filepath"
 // CA artifact sub-directory under storage.out_dir.
 const caSubdir = "ca"
 
-// bundleFile is the default trust bundle filename under the CA sub-directory.
-const bundleFile = "bundle.crt"
+// bundlesSubdir is the default trust bundle directory under storage.out_dir.
+// Each bundle is written there as <label>.crt.
+const bundlesSubdir = "bundles"
 
 // Cert artifact defaults.
 const (
@@ -77,24 +78,20 @@ func (c *Config) ManifestPath() string {
 	return c.Storage.ManifestFile
 }
 
-// TrustBundlePath returns the logical path of the declared trust bundle:
-// trust_bundle.path when set, otherwise the default <out_dir>/ca/bundle.crt.
-// Returns "" when no trust_bundle block is declared (no implicit bundle,
-// ADR-026 §2).
-func (c *Config) TrustBundlePath() string {
-	if c.TrustBundle == nil {
-		return ""
+// TrustBundlePath returns the logical path of a declared trust bundle:
+// trust_bundle.path when set, otherwise the default
+// <out_dir>/bundles/<label>.crt (ADR-026 "Detailed rules").
+func (c *Config) TrustBundlePath(tb TrustBundle) string {
+	if tb.Path != "" {
+		return tb.Path
 	}
-	if c.TrustBundle.Path != "" {
-		return c.TrustBundle.Path
-	}
-	return filepath.Join(c.Storage.OutDir, caSubdir, bundleFile)
+	return filepath.Join(c.Storage.OutDir, bundlesSubdir, tb.Label+defaultCertExt)
 }
 
-// TrustBundleFilename returns the basename of the trust bundle path. This is
+// TrustBundleFilename returns the basename of a trust bundle's path. This is
 // the filename used for the bundle's link_crt symlinks (ADR-026 §4).
-func (c *Config) TrustBundleFilename() string {
-	return filepath.Base(c.TrustBundlePath())
+func (c *Config) TrustBundleFilename(tb TrustBundle) string {
+	return filepath.Base(c.TrustBundlePath(tb))
 }
 
 // ArtifactPath is the single (cert, key) destination for a cert block.

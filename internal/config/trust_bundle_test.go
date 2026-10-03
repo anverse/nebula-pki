@@ -21,10 +21,10 @@ ca "next" {
   default = true
 }
 `)
-	tb := cfg.TrustBundle
-	if tb == nil {
-		t.Fatal("TrustBundle = nil, want the declared block")
+	if len(cfg.TrustBundles) != 1 {
+		t.Fatalf("TrustBundles = %+v, want the declared block", cfg.TrustBundles)
 	}
+	tb := cfg.TrustBundles[0]
 	if tb.Label != "main" {
 		t.Errorf("Label = %q, want main", tb.Label)
 	}
@@ -54,23 +54,54 @@ cert "alpha" {
   networks = ["10.0.0.1/16"]
 }
 `)
-	if cfg.TrustBundle != nil {
-		t.Fatalf("TrustBundle = %+v, want nil without a trust_bundle block", cfg.TrustBundle)
+	if len(cfg.TrustBundles) != 0 {
+		t.Fatalf("TrustBundles = %+v, want none without a trust_bundle block", cfg.TrustBundles)
 	}
 }
 
-func TestTrustBundle_NonMemberCAIsValid(t *testing.T) {
+func TestTrustBundle_NonMemberCAMaySign(t *testing.T) {
+	// Bundles do not restrict signing (ADR-026 §3): the default CA and a
+	// cert's explicit CA may both be outside every bundle.
 	cfg := mustParse(t, "t.hcl", `
 trust_bundle "main" { ca_refs = [ca.next] }
-ca "current" { name = "old" }
-ca "next" {
-  name    = "new"
+ca "current" {
+  name    = "old"
   default = true
 }
+ca "next" { name = "new" }
+ca "solo" { name = "solo" }
 cert "alpha" { networks = ["10.0.0.1/16"] }
+cert "beta" {
+  ca       = ca.solo
+  networks = ["10.0.0.2/16"]
+}
 `)
-	if got := cfg.SigningCA(cfg.Certs[0]); got == nil || got.Label != "next" {
-		t.Errorf("SigningCA = %v, want next", got)
+	if got := cfg.SigningCA(cfg.Certs[0]); got == nil || got.Label != "current" {
+		t.Errorf("SigningCA(alpha) = %v, want current", got)
+	}
+	if got := cfg.SigningCA(cfg.Certs[1]); got == nil || got.Label != "solo" {
+		t.Errorf("SigningCA(beta) = %v, want solo", got)
+	}
+}
+
+func TestTrustBundle_Multiple(t *testing.T) {
+	cfg := mustParse(t, "t.hcl", `
+trust_bundle "lighthouses" { ca_refs = [ca.a, ca.b] }
+trust_bundle "clients" { ca_refs = [ca.b] }
+ca "a" { name = "a" }
+ca "b" {
+  name    = "b"
+  default = true
+}
+`)
+	if len(cfg.TrustBundles) != 2 {
+		t.Fatalf("TrustBundles = %d, want 2", len(cfg.TrustBundles))
+	}
+	if tb := cfg.TrustBundleByLabel("clients"); tb == nil || !reflect.DeepEqual(tb.CARefs, []string{"b"}) {
+		t.Errorf("TrustBundleByLabel(clients) = %+v, want members [b]", tb)
+	}
+	if cfg.TrustBundleByLabel("missing") != nil {
+		t.Error("TrustBundleByLabel(missing) != nil")
 	}
 }
 
@@ -153,13 +184,13 @@ ca "a" { name = "a" }
 			want: `t.hcl:2,1-20: trust_bundle "main": missing required argument ca_refs`,
 		},
 		{
-			name: "two blocks",
+			name: "duplicate bundle label",
 			src: `
 trust_bundle "main" { ca_refs = [ca.a] }
-trust_bundle "other" { ca_refs = [ca.a] }
+trust_bundle "main" { ca_refs = [ca.a] }
 ca "a" { name = "a" }
 `,
-			want: `t.hcl:3,1-21: trust_bundle "other": only one trust_bundle block is allowed`,
+			want: `trust_bundle "main": duplicate label`,
 		},
 		{
 			name: "bad label",
@@ -168,34 +199,6 @@ trust_bundle "1bad" { ca_refs = [ca.a] }
 ca "a" { name = "a" }
 `,
 			want: `trust_bundle "1bad": label must match`,
-		},
-		{
-			name: "non-member default",
-			src: `
-trust_bundle "main" { ca_refs = [ca.a] }
-ca "a" { name = "a" }
-ca "b" {
-  name    = "b"
-  default = true
-}
-`,
-			want: `ca "b": default = true requires the CA to be in trust_bundle "main" ca_refs`,
-		},
-		{
-			name: "non-member signing CA via reference",
-			src: `
-trust_bundle "main" { ca_refs = [ca.a] }
-ca "a" {
-  name    = "a"
-  default = true
-}
-ca "b" { name = "b" }
-cert "x" {
-  ca       = ca.b
-  networks = ["10.0.0.1/16"]
-}
-`,
-			want: `t.hcl:9,14-18: cert "x": ca "b" is not in trust_bundle "main" ca_refs and may not sign certs`,
 		},
 		{
 			name: "removed archived field",
@@ -251,14 +254,14 @@ ca "a" { name = "a" }
 	}
 }
 
-func TestLinkPaths_Collisions(t *testing.T) {
+func TestArtifactPaths_Collisions(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
 		want string // empty: valid
 	}{
 		{
-			name: "ca vs ca",
+			name: "ca vs ca symlink",
 			src: `
 ca "one" {
   name     = "one"
@@ -274,54 +277,44 @@ ca "two" {
   link_crt = ["out/shared"]
 }
 `,
-			want: `link_crt: ca "one" and ca "two" both write symlink out/shared/ca.crt`,
+			want: `path out/shared/ca.crt is used by ca "one" (link_crt) and ca "two" (link_crt)`,
 		},
 		{
-			name: "ca vs bundle",
+			name: "three owners",
 			src: `
 trust_bundle "main" {
   ca_refs  = [ca.a]
-  link_crt = ["out/shared"]
+  link_crt = ["out/s"]
 }
 ca "a" {
   name     = "a"
-  out_crt  = "out/x/bundle.crt"
-  out_key  = "out/x/bundle.key"
-  link_crt = ["out/shared"]
+  default  = true
+  out_crt  = "out/a/main.crt"
+  out_key  = "out/a/main.key"
+  link_crt = ["out/s"]
+}
+ca "b" {
+  name     = "b"
+  out_crt  = "out/b/main.crt"
+  out_key  = "out/b/main.key"
+  link_crt = ["out/s"]
 }
 `,
-			want: `link_crt: ca "a" and trust_bundle "main" both write symlink out/shared/bundle.crt`,
-		},
-		{
-			name: "bundle vs ca",
-			src: `
-trust_bundle "main" {
-  ca_refs  = [ca.a]
-  path     = "out/trust/a.crt"
-  link_crt = ["out/shared"]
-}
-ca "a" {
-  name     = "a"
-  link_crt = ["out/shared"]
-}
-`,
-			want: `link_crt: ca "a" and trust_bundle "main" both write symlink out/shared/a.crt`,
+			want: `path out/s/main.crt is used by ca "a" (link_crt), ca "b" (link_crt) and trust_bundle "main" (link_crt)`,
 		},
 		{
 			name: "cleaned directories collide",
 			src: `
 trust_bundle "main" {
-  ca_refs  = [ca.a]
+  ca_refs  = [ca.main]
   link_crt = ["out/shared/"]
 }
-ca "a" {
+ca "main" {
   name     = "a"
-  out_crt  = "out/x/bundle.crt"
-  out_key  = "out/x/bundle.key"
   link_crt = ["./out/shared"]
 }
 `,
-			want: `link_crt: ca "a" and trust_bundle "main" both write symlink out/shared/bundle.crt`,
+			want: `path out/shared/main.crt is used by ca "main" (link_crt) and trust_bundle "main" (link_crt)`,
 		},
 		{
 			name: "same source spelled twice",
@@ -331,7 +324,126 @@ ca "a" {
   link_crt = ["out/shared", "out/shared/"]
 }
 `,
-			want: `ca "a": link_crt: directory "out/shared/" repeats another entry`,
+			want: `path out/shared/a.crt is used by ca "a" (link_crt) and ca "a" (link_crt)`,
+		},
+		{
+			name: "bundle onto ca cert",
+			src: `
+trust_bundle "main" {
+  ca_refs = [ca.a]
+  path    = "out/ca/a.crt"
+}
+ca "a" { name = "a" }
+`,
+			want: `path out/ca/a.crt is used by ca "a" (cert) and trust_bundle "main" (path)`,
+		},
+		{
+			name: "bundle symlink onto its own file",
+			src: `
+trust_bundle "main" {
+  ca_refs  = [ca.a]
+  link_crt = ["out/bundles"]
+}
+ca "a" { name = "a" }
+`,
+			want: `path out/bundles/main.crt is used by trust_bundle "main" (path) and trust_bundle "main" (link_crt)`,
+		},
+		{
+			name: "ca symlink onto its own cert",
+			src: `
+ca "a" {
+  name     = "a"
+  link_crt = ["out/ca"]
+}
+`,
+			want: `path out/ca/a.crt is used by ca "a" (cert) and ca "a" (link_crt)`,
+		},
+		{
+			name: "bundle onto referenced cert_file",
+			src: `
+trust_bundle "main" {
+  ca_refs = [ca.r]
+  path    = "ref/ca.crt"
+}
+ca "r" {
+  cert_file = "ref/ca.crt"
+  key_file  = "ref/ca.key"
+}
+`,
+			want: `path ref/ca.crt is used by ca "r" (cert_file) and trust_bundle "main" (path)`,
+		},
+		{
+			name: "two reference cas may share input files",
+			src: `
+ca "r1" {
+  cert_file = "ref/ca.crt"
+  key_file  = "ref/ca.key"
+  default   = true
+}
+ca "r2" {
+  cert_file = "ref/ca.crt"
+  key_file  = "ref/ca.key"
+}
+`,
+		},
+		{
+			name: "cert onto ca cert",
+			src: `
+ca "a" { name = "a" }
+cert "a" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out/ca"
+}
+`,
+			want: `path out/ca/a.crt is used by ca "a" (cert) and cert "a" (cert)`,
+		},
+		{
+			name: "encrypted key suffix compared",
+			src: `
+ca "a" {
+  name    = "a"
+  out_key = "out/x.key"
+}
+cert "c" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out"
+  out_key    = "x.key"
+}
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+    output_suffix   = ".enc"
+  }
+}
+`,
+			want: `path out/x.key.enc is used by ca "a" (key) and cert "c" (key)`,
+		},
+		{
+			name: "bundle onto manifest",
+			src: `
+trust_bundle "main" {
+  ca_refs = [ca.a]
+  path    = "out/nebula-pki.json"
+}
+ca "a" { name = "a" }
+`,
+			want: `path out/nebula-pki.json is used by trust_bundle "main" (path) and storage (manifest_file)`,
+		},
+		{
+			name: "two bundles writing one file",
+			src: `
+trust_bundle "x" {
+  ca_refs = [ca.a]
+  path    = "out/t.crt"
+}
+trust_bundle "y" {
+  ca_refs = [ca.a]
+  path    = "out/t.crt"
+}
+ca "a" { name = "a" }
+`,
+			want: `path out/t.crt is used by trust_bundle "x" (path) and trust_bundle "y" (path)`,
 		},
 		{
 			name: "shared directory with different file names",

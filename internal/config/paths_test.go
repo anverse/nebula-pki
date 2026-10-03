@@ -223,23 +223,17 @@ cert "node" {
 	}
 }
 
-func TestTrustBundlePathNoBlock(t *testing.T) {
-	cfg := mustParse(t, "nebula.hcl", `ca "m" { name = "m" }`)
-	if got := cfg.TrustBundlePath(); got != "" {
-		t.Errorf("TrustBundlePath() = %q, want empty without a trust_bundle block", got)
-	}
-}
-
 func TestTrustBundlePathDefault(t *testing.T) {
 	cfg := mustParse(t, "nebula.hcl", `
 trust_bundle "main" { ca_refs = [ca.m] }
 ca "m" { name = "m" }
 `)
-	if got, want := cfg.TrustBundlePath(), filepath.Join("out", "ca", "bundle.crt"); got != want {
+	tb := cfg.TrustBundles[0]
+	if got, want := cfg.TrustBundlePath(tb), filepath.Join("out", "bundles", "main.crt"); got != want {
 		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
 	}
-	if got := cfg.TrustBundleFilename(); got != "bundle.crt" {
-		t.Errorf("TrustBundleFilename() = %q, want bundle.crt", got)
+	if got := cfg.TrustBundleFilename(tb); got != "main.crt" {
+		t.Errorf("TrustBundleFilename() = %q, want main.crt", got)
 	}
 }
 
@@ -249,7 +243,7 @@ trust_bundle "main" { ca_refs = [ca.m] }
 ca "m" { name = "m" }
 storage { out_dir = "pki" }
 `)
-	if got, want := cfg.TrustBundlePath(), filepath.Join("pki", "ca", "bundle.crt"); got != want {
+	if got, want := cfg.TrustBundlePath(cfg.TrustBundles[0]), filepath.Join("pki", "bundles", "main.crt"); got != want {
 		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
 	}
 }
@@ -262,10 +256,11 @@ trust_bundle "main" {
 }
 ca "m" { name = "m" }
 `)
-	if got, want := cfg.TrustBundlePath(), "shared/mesh-trust.crt"; got != want {
+	tb := cfg.TrustBundles[0]
+	if got, want := cfg.TrustBundlePath(tb), "shared/mesh-trust.crt"; got != want {
 		t.Errorf("TrustBundlePath() = %q, want %q", got, want)
 	}
-	if got := cfg.TrustBundleFilename(); got != "mesh-trust.crt" {
+	if got := cfg.TrustBundleFilename(tb); got != "mesh-trust.crt" {
 		t.Errorf("TrustBundleFilename() = %q, want mesh-trust.crt", got)
 	}
 }

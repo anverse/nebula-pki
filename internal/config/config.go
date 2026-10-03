@@ -42,9 +42,21 @@ type Config struct {
 	Storage Storage
 	Certs   []Cert
 
-	// TrustBundle is the declared trust_bundle block, or nil when the config
-	// declares none. There is no implicit bundle (ADR-026 §2).
-	TrustBundle *TrustBundle
+	// TrustBundles holds the declared trust_bundle blocks in declaration
+	// order. Empty when the config declares none; there is no implicit
+	// bundle (ADR-026 §2).
+	TrustBundles []TrustBundle
+}
+
+// TrustBundleByLabel returns a pointer to the trust bundle with the given
+// label, or nil if no such bundle is declared.
+func (c *Config) TrustBundleByLabel(label string) *TrustBundle {
+	for i := range c.TrustBundles {
+		if c.TrustBundles[i].Label == label {
+			return &c.TrustBundles[i]
+		}
+	}
+	return nil
 }
 
 // TrustBundle is the parsed trust_bundle block (ADR-026). It states trust
@@ -58,7 +70,7 @@ type TrustBundle struct {
 	// point membership errors at the offending HCL.
 	CARefRanges []hcl.Range
 	// Path is trust_bundle.path as written; empty means the default
-	// <out_dir>/ca/bundle.crt. Use Config.TrustBundlePath.
+	// <out_dir>/bundles/<label>.crt. Use Config.TrustBundlePath.
 	Path string
 	// LinkCrt is a list of directories where a relative symlink to the
 	// bundle is created. The symlink name is the bundle file's basename.
@@ -496,16 +508,12 @@ func decode(filename string, raw *rawConfig) (*Config, error) {
 	}
 	cfg.Storage = *storage
 
-	if len(raw.TrustBundles) > 1 {
-		second := raw.TrustBundles[1]
-		return nil, fmt.Errorf("%s: trust_bundle %q: only one trust_bundle block is allowed", second.Range, second.Label)
-	}
-	if len(raw.TrustBundles) == 1 {
-		tb, err := decodeTrustBundle(&raw.TrustBundles[0])
+	for i := range raw.TrustBundles {
+		tb, err := decodeTrustBundle(&raw.TrustBundles[i])
 		if err != nil {
 			return nil, err
 		}
-		cfg.TrustBundle = tb
+		cfg.TrustBundles = append(cfg.TrustBundles, *tb)
 	}
 
 	certs := make([]Cert, 0, len(raw.Certs))
@@ -902,13 +910,14 @@ func validate(cfg *Config) error {
 	if err := validateCAs(cfg); err != nil {
 		return err
 	}
-	if err := validateTrustBundle(cfg); err != nil {
+	if err := validateTrustBundles(cfg); err != nil {
 		return err
 	}
-	if err := validateLinkPaths(cfg); err != nil {
+	if err := validateCerts(cfg); err != nil {
 		return err
 	}
-	return validateCerts(cfg)
+	// Last, so the more specific label and name errors win.
+	return validateArtifactPaths(cfg)
 }
 
 func validateCAs(cfg *Config) error {
@@ -1015,69 +1024,129 @@ func validateLinkCrt(owner string, dirs []string) error {
 	return nil
 }
 
-// validateTrustBundle checks the trust_bundle block, when declared: label
-// shape, resolvable and duplicate-free members, its own link_crt list, and
-// that the default CA is a member (ADR-026).
-func validateTrustBundle(cfg *Config) error {
-	tb := cfg.TrustBundle
-	if tb == nil {
-		return nil
-	}
-	if !caLabelRe.MatchString(tb.Label) {
-		return fmt.Errorf("trust_bundle %q: label must match ^[A-Za-z_][A-Za-z0-9_-]*$", tb.Label)
-	}
-	seen := make(map[string]struct{}, len(tb.CARefs))
-	for i, label := range tb.CARefs {
-		if cfg.CAByLabel(label) == nil {
-			return fmt.Errorf("%s: trust_bundle %q: ca_refs[%d]: ca %q is not declared", tb.CARefRanges[i], tb.Label, i, label)
+// validateTrustBundles checks every trust_bundle block: label shape and
+// uniqueness, resolvable and duplicate-free members, and its own link_crt
+// list (ADR-026). Bundles do not restrict signing (ADR-026 §3).
+func validateTrustBundles(cfg *Config) error {
+	seenLabels := make(map[string]struct{}, len(cfg.TrustBundles))
+	for b := range cfg.TrustBundles {
+		tb := &cfg.TrustBundles[b]
+		if !caLabelRe.MatchString(tb.Label) {
+			return fmt.Errorf("trust_bundle %q: label must match ^[A-Za-z_][A-Za-z0-9_-]*$", tb.Label)
 		}
-		if _, dup := seen[label]; dup {
-			return fmt.Errorf("%s: trust_bundle %q: ca_refs[%d]: duplicate member ca %q", tb.CARefRanges[i], tb.Label, i, label)
+		if _, dup := seenLabels[tb.Label]; dup {
+			return fmt.Errorf("trust_bundle %q: duplicate label", tb.Label)
 		}
-		seen[label] = struct{}{}
-	}
-	if err := validateLinkCrt(fmt.Sprintf("trust_bundle %q", tb.Label), tb.LinkCrt); err != nil {
-		return err
-	}
-	for i := range cfg.CAs {
-		ca := &cfg.CAs[i]
-		if ca.Default && !tb.Has(ca.Label) {
-			return fmt.Errorf("ca %q: default = true requires the CA to be in trust_bundle %q ca_refs", ca.Label, tb.Label)
+		seenLabels[tb.Label] = struct{}{}
+
+		seen := make(map[string]struct{}, len(tb.CARefs))
+		for i, label := range tb.CARefs {
+			if cfg.CAByLabel(label) == nil {
+				return fmt.Errorf("%s: trust_bundle %q: ca_refs[%d]: ca %q is not declared", tb.CARefRanges[i], tb.Label, i, label)
+			}
+			if _, dup := seen[label]; dup {
+				return fmt.Errorf("%s: trust_bundle %q: ca_refs[%d]: duplicate member ca %q", tb.CARefRanges[i], tb.Label, i, label)
+			}
+			seen[label] = struct{}{}
+		}
+		if err := validateLinkCrt(fmt.Sprintf("trust_bundle %q", tb.Label), tb.LinkCrt); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// validateLinkPaths checks that no two link_crt sources (any ca block or the
-// trust_bundle) write the same symlink path. Directories are compared after
-// cleaning, so "out/x/" and "out/x" are the same (ADR-026 §3).
-func validateLinkPaths(cfg *Config) error {
-	owners := make(map[string]string) // cleaned symlink path -> owner
-	check := func(owner string, dirs []string, filename string) error {
-		for _, d := range dirs {
-			p := filepath.Join(d, filename)
-			other, dup := owners[p]
-			if !dup {
-				owners[p] = owner
-				continue
-			}
-			if other == owner {
-				return fmt.Errorf("%s: link_crt: directory %q repeats another entry", owner, d)
-			}
-			return fmt.Errorf("link_crt: %s and %s both write symlink %s", other, owner, p)
-		}
-		return nil
+// pathUse is one use of a path by a block: owner names the block (e.g.
+// `ca "mesh"`), role the field that produces the path (e.g. "link_crt").
+type pathUse struct {
+	owner string
+	role  string
+	// read is true for referenced CA files: they are inputs, read in place.
+	read bool
+}
+
+func (u pathUse) String() string { return fmt.Sprintf("%s (%s)", u.owner, u.role) }
+
+// validateArtifactPaths checks that every path the tool writes is unique
+// across the config: CA certs and keys, cert certs and keys, bundle files,
+// link_crt symlinks and the manifest. A referenced CA's cert_file and
+// key_file are inputs and may be shared between reference CAs, but must not
+// be the target of any write. Paths are compared after resolving against the
+// config directory and cleaning. A clash names every owner of the path
+// (ADR-026 "Detailed rules").
+func validateArtifactPaths(cfg *Config) error {
+	type entry struct {
+		logical string
+		uses    []pathUse
 	}
+	var order []string
+	byPath := make(map[string]*entry)
+	add := func(logical string, use pathUse) {
+		if logical == "" {
+			return
+		}
+		key := filepath.Clean(cfg.Resolve(logical))
+		e, ok := byPath[key]
+		if !ok {
+			e = &entry{logical: filepath.Clean(logical)}
+			byPath[key] = e
+			order = append(order, key)
+		}
+		e.uses = append(e.uses, use)
+	}
+
+	suffix := cfg.Storage.Encryption.KeySuffix()
 	for i := range cfg.CAs {
 		ca := cfg.CAs[i]
-		if err := check(fmt.Sprintf("ca %q", ca.Label), ca.LinkCrt, cfg.CACertFilename(ca)); err != nil {
-			return err
+		owner := fmt.Sprintf("ca %q", ca.Label)
+		if ca.Mode == CAModeReference {
+			add(ca.CertFile, pathUse{owner: owner, role: "cert_file", read: true})
+			add(ca.KeyFile, pathUse{owner: owner, role: "key_file", read: true})
+		} else {
+			add(cfg.CACertPathForCA(ca), pathUse{owner: owner, role: "cert"})
+			add(cfg.CAKeyPathForCA(ca)+suffix, pathUse{owner: owner, role: "key"})
+		}
+		for _, d := range ca.LinkCrt {
+			add(filepath.Join(d, cfg.CACertFilename(ca)), pathUse{owner: owner, role: "link_crt"})
 		}
 	}
-	if tb := cfg.TrustBundle; tb != nil {
-		if err := check(fmt.Sprintf("trust_bundle %q", tb.Label), tb.LinkCrt, cfg.TrustBundleFilename()); err != nil {
-			return err
+	for i := range cfg.TrustBundles {
+		tb := cfg.TrustBundles[i]
+		owner := fmt.Sprintf("trust_bundle %q", tb.Label)
+		add(cfg.TrustBundlePath(tb), pathUse{owner: owner, role: "path"})
+		for _, d := range tb.LinkCrt {
+			add(filepath.Join(d, cfg.TrustBundleFilename(tb)), pathUse{owner: owner, role: "link_crt"})
 		}
+	}
+	for i := range cfg.Certs {
+		h := cfg.Certs[i]
+		owner := fmt.Sprintf("cert %q", h.Label)
+		art := cfg.CertArtifactPath(h)
+		add(art.CertPath, pathUse{owner: owner, role: "cert"})
+		if h.InPub == "" {
+			add(art.KeyPath+suffix, pathUse{owner: owner, role: "key"})
+		}
+	}
+	add(cfg.ManifestPath(), pathUse{owner: "storage", role: "manifest_file"})
+
+	for _, key := range order {
+		e := byPath[key]
+		writes := 0
+		for _, u := range e.uses {
+			if !u.read {
+				writes++
+			}
+		}
+		// Reference CAs may share their input files; a clash needs a write.
+		if len(e.uses) < 2 || writes == 0 {
+			continue
+		}
+		names := make([]string, len(e.uses))
+		for i, u := range e.uses {
+			names[i] = u.String()
+		}
+		list := strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+		return fmt.Errorf("path %s is used by %s", e.logical, list)
 	}
 	return nil
 }
@@ -1198,8 +1267,8 @@ func validateCertRenewBefore(h *Cert, signingCA *CA) error {
 }
 
 // resolveSigningCA returns the CA that signs h, or an error if the
-// signing CA is ambiguous, undeclared, or not a member of the declared
-// trust_bundle. This is the single
+// signing CA is ambiguous or undeclared. Trust bundles do not restrict
+// signing (ADR-026 §3). This is the single
 // point of CA-selection logic shared by validate and the callers in
 // plan/apply.
 func resolveSigningCA(cfg *Config, h *Cert) (*CA, error) {
@@ -1224,13 +1293,6 @@ func resolveSigningCA(cfg *Config, h *Cert) (*CA, error) {
 				h.Label, len(cfg.CAs),
 			)
 		}
-	}
-	if tb := cfg.TrustBundle; tb != nil && !tb.Has(ca.Label) {
-		err := fmt.Errorf("cert %q: ca %q is not in trust_bundle %q ca_refs and may not sign certs", h.Label, ca.Label, tb.Label)
-		if h.CARef != "" {
-			return nil, fmt.Errorf("%s: %w", h.CARefRange, err)
-		}
-		return nil, err
 	}
 	return ca, nil
 }

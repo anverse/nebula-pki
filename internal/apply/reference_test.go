@@ -157,12 +157,12 @@ func TestReconcile_ReferenceBundleContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if !rep.TrustBundleWritten {
-		t.Error("TrustBundleWritten = false on first reference run, want true")
+	if len(rep.TrustBundlesWritten) == 0 {
+		t.Error("TrustBundlesWritten: false on first reference run, want true")
 	}
 
 	// Bundle content must equal the referenced CA cert exactly.
-	bundleReal := cfg.Resolve(cfg.TrustBundlePath())
+	bundleReal := cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0]))
 	if _, err := os.Stat(bundleReal); err != nil {
 		t.Fatalf("bundle.crt missing: %v", err)
 	}
@@ -177,14 +177,14 @@ func TestReconcile_ReferenceBundleContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifest.Load: %v", err)
 	}
-	if m.TrustBundle == nil {
+	if m.TrustBundles["main"] == nil {
 		t.Fatal("manifest.TrustBundle = nil")
 	}
-	if m.TrustBundle.Path != cfg.TrustBundlePath() {
-		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundle.Path, cfg.TrustBundlePath())
+	if m.TrustBundles["main"].Path != cfg.TrustBundlePath(cfg.TrustBundles[0]) {
+		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundles["main"].Path, cfg.TrustBundlePath(cfg.TrustBundles[0]))
 	}
-	if len(m.TrustBundle.CAFingerprints) != 1 || m.TrustBundle.CAFingerprints[0] != seed.Fingerprint {
-		t.Errorf("TrustBundle.CAFingerprints = %v, want [%s]", m.TrustBundle.CAFingerprints, seed.Fingerprint)
+	if len(m.TrustBundles["main"].CAFingerprints) != 1 || m.TrustBundles["main"].CAFingerprints[0] != seed.Fingerprint {
+		t.Errorf("TrustBundle.CAFingerprints = %v, want [%s]", m.TrustBundles["main"].CAFingerprints, seed.Fingerprint)
 	}
 
 	// Second run: bundle must not be rewritten (idempotent).
@@ -192,8 +192,8 @@ func TestReconcile_ReferenceBundleContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Reconcile: %v", err)
 	}
-	if rep2.TrustBundleWritten {
-		t.Error("TrustBundleWritten = true on second reference run, want false (idempotent)")
+	if len(rep2.TrustBundlesWritten) > 0 {
+		t.Error("TrustBundlesWritten: true on second reference run, want false (idempotent)")
 	}
 	if !bytes.Equal(mustRead(t, bundleReal), bundleBytes) {
 		t.Error("bundle.crt changed on idempotent reference rerun")
@@ -267,10 +267,10 @@ func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
 	}
 
 	// The trust bundle must have been rewritten to contain the second CA's cert.
-	if !rep.TrustBundleWritten {
-		t.Error("TrustBundleWritten = false after CA swap, want true")
+	if len(rep.TrustBundlesWritten) == 0 {
+		t.Error("TrustBundlesWritten: false after CA swap, want true")
 	}
-	bundleBytes := mustRead(t, cfg.Resolve(cfg.TrustBundlePath()))
+	bundleBytes := mustRead(t, cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0])))
 	secondCertBytes := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
 	if !bytes.Equal(bundleBytes, secondCertBytes) {
 		t.Error("trust bundle does not contain the swapped-in CA cert")
