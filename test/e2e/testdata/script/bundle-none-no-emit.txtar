@@ -11,7 +11,6 @@ stderr '^signed cert "beta"$'
 ! stdout .
 
 ! exists out/bundles
-! exists out/ca/bundle.crt
 ! grep '"trust_bundles"' out/nebula-pki.json
 
 # Dry run does not preview a bundle either.

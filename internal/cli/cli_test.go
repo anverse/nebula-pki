@@ -267,7 +267,7 @@ cert "alpha" { networks = ["10.0.0.1/16"] }
 		t.Errorf("stdout = %q, want it to contain '+ write out/certs/alpha.crt'", out)
 	}
 	if !strings.Contains(out, "+ write out/bundles/main.crt") {
-		t.Errorf("stdout = %q, want it to contain '+ write out/ca/bundle.crt'", out)
+		t.Errorf("stdout = %q, want it to contain '+ write out/bundles/main.crt'", out)
 	}
 	if stderr.String() != "" {
 		t.Errorf("stderr = %q, want empty (dry-run emits no progress)", stderr.String())

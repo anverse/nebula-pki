@@ -27,7 +27,6 @@ exists out/ca/secondary.key
 
 # No trust_bundle block is declared, so no bundle is written.
 ! exists out/bundles
-! exists out/ca/bundle.crt
 
 # Both cert/key pairs must exist.
 exists out/certs/h1.crt
