@@ -14,9 +14,8 @@
       "items": { "$ref": "#/$defs/ca" }
     },
     "trust_bundle": {
-      "description": "At most one labelled trust_bundle block. Without it no trust bundle is written. See ADR-026.",
+      "description": "Any number of labelled trust_bundle blocks with unique labels. Without any, no trust bundle is written. See ADR-026.",
       "type": "array",
-      "maxItems": 1,
       "items": { "$ref": "#/$defs/trustBundle" }
     },
     "storage": { "$ref": "#/$defs/storage" },
@@ -49,7 +48,7 @@
       "type": "array",
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 },
-      "description": "Directories that receive a relative symlink to the artifact (ADR-021). No two link_crt sources may write the same symlink path."
+      "description": "Directories that receive a relative symlink to the artifact (ADR-021). Every path the tool writes, symlinks included, must be unique."
     },
     "trustBundle": {
       "type": "object",
@@ -57,8 +56,8 @@
       "additionalProperties": false,
       "properties": {
         "label":    { "type": "string", "minLength": 1, "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
-        "ca_refs":  { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/caRef" }, "description": "Member CAs in bundle order. Every reference must name a declared ca block; the signing CA of every cert and the default CA must be members." },
-        "path":     { "type": "string", "minLength": 1, "description": "Bundle path. Default <storage.out_dir>/ca/bundle.crt." },
+        "ca_refs":  { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/caRef" }, "description": "Member CAs in bundle order. Every reference must name a declared ca block. Membership does not restrict signing." },
+        "path":     { "type": "string", "minLength": 1, "description": "Bundle path. Default <storage.out_dir>/bundles/<label>.crt." },
         "link_crt": { "$ref": "#/$defs/linkCrt" }
       }
     },

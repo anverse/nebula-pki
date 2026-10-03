@@ -159,31 +159,33 @@ out/
 
 The manifest records each managed link under `cas.<label>.links` so the tool can detect stale links across runs.
 
-## Trust bundle
+## Trust bundles
 
-A `trust_bundle` block writes `out/ca/bundle.crt`, a concatenated PEM of the CA certificates it lists, suitable for `pki.ca` in each node's Nebula `config.yaml`. Membership is explicit: `ca_refs` lists the trusted CAs by reference, and the bundle holds them in that order.
+A `trust_bundle` block writes a concatenated PEM of the CA certificates it lists, suitable for `pki.ca` in each node's Nebula `config.yaml`. The file is named after the label: `trust_bundle "main"` writes `out/bundles/main.crt`. Membership is explicit: `ca_refs` lists the trusted CAs by reference, and the bundle holds them in that order.
 
 ```hcl
 trust_bundle "main" {
   ca_refs  = [ca.current]
-  path     = "out/ca/bundle.crt"            # default
-  link_crt = ["out/hetzner", "out/aws"]     # bundle.crt symlink in each directory
+  path     = "out/bundles/main.crt"         # default
+  link_crt = ["out/hetzner", "out/aws"]     # main.crt symlink in each directory
 }
 ```
 
-Without a `trust_bundle` block no bundle is written; point `pki.ca` at a CA certificate directly. If the network may ever rotate its CA, declare the bundle from the start, even with a single CA: `pki.ca` then keeps one stable path, and the bundle's `link_crt` symlinks stay correct through the whole rotation.
+Without a `trust_bundle` block no bundle is written; point `pki.ca` at a CA certificate directly. If the network may ever rotate its CA, declare a bundle from the start, even with a single CA: `pki.ca` then keeps one stable path, and the bundle's `link_crt` symlinks stay correct through the whole rotation.
 
-With a single member the bundle equals that CA's certificate. During rotation it holds both the old and new CA so nodes can authenticate against either. When a bundle is declared, every cert must be signed by a member CA, and the `default = true` CA must be a member; anything else is a validation error.
+You can declare several bundles, for example a separate trust set for lighthouses and for clients, and a CA can be in any number of them. Bundles only describe trust: any declared CA may sign, in a bundle or not, and `default = true` just picks the signing CA for certs that don't set `ca`.
 
-Removing the `trust_bundle` block, or changing its `path`, leaves the old bundle file on disk with a notice; its symlinks are deleted.
+With a single member the bundle equals that CA's certificate. During rotation it holds both the old and new CA so nodes can authenticate against either.
+
+The label is the bundle's identity. Renaming it, removing the block, or changing `path` writes the new bundle (if any) and leaves the old file on disk with a notice; the old symlinks are deleted.
 
 ## CA rotation
 
-Rotating a CA is four edits to `nebula.hcl`, each followed by a rerun. Declare the `trust_bundle` before you start (see above).
+Rotating a CA is four edits to `nebula.hcl`, each followed by a rerun. Declare a `trust_bundle` before you start (see above).
 
-1. **Add the new CA** and list it in `ca_refs`. The bundle now contains both; distribute `bundle.crt` and reload nodes (they trust both, certs still signed by the old CA).
+1. **Add the new CA** and list it in `ca_refs`. The bundle now contains both; distribute `main.crt` and reload nodes (they trust both, certs still signed by the old CA).
 2. **Promote the new CA** to `default = true`. Certs are re-signed under the new CA on the next run; distribute the new certs and reload.
-3. **Drop the old CA from `ca_refs`.** The bundle shrinks to the new CA; distribute the slimmer `bundle.crt` and reload. The old CA keeps its manifest record but may no longer sign.
+3. **Drop the old CA from `ca_refs`.** The bundle shrinks to the new CA; distribute the slimmer `main.crt` and reload. The old CA keeps its manifest record; after step 2 no cert uses it, and since nodes no longer trust it, keep it that way.
 4. **Delete the old `ca` block** once satisfied. Its symlinks are deleted; its cert and key files stay on disk with a notice, for you to delete.
 
 ```hcl

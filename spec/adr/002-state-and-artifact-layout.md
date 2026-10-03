@@ -4,7 +4,7 @@
 
 accepted
 
-> **Trust bundle (amended by [ADR-026](./026-trust-bundle-block.md)).** `bundle.crt` is emitted only when a `trust_bundle` block is declared, and the CA record's `archived` field is removed. The body below reflects this.
+> **Trust bundles (amended by [ADR-026](./026-trust-bundle-block.md)).** A bundle is emitted only for each declared `trust_bundle` block, at `bundles/<label>.crt` by default; the manifest records them in a `trust_bundles` map keyed by label, and the CA record's `archived` field is removed. The body below reflects this.
 
 ## Context
 
@@ -22,7 +22,8 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
   ca/
     <label>.crt
     <label>.key[.enc]
-    bundle.crt        # only when a trust_bundle block is declared; path via trust_bundle.path (ADR-026)
+  bundles/
+    <label>.crt       # one per trust_bundle block; path via trust_bundle.path (ADR-026)
   certs/
     <name>.crt
     <name>.key[.enc]
@@ -30,7 +31,7 @@ Artifacts live under paths chosen by the HCL configuration. The defaults — whe
 
 `.enc` is appended by the active encryption backend (`none` writes plain `.key`). The suffix is configurable via `storage.encryption.<backend>.output_suffix`.
 
-Every `ca` block must carry a label ([ADR-015](./015-multiple-cas-per-config.md)), so CA cert/key paths are always `ca/<label>.crt` and `ca/<label>.key[.enc]`. `bundle.crt` holds the concatenation of the CA certs listed in `trust_bundle.ca_refs`, in that order, and is written only when a `trust_bundle` block is declared. Declaring it from the start gives downstream `pki.ca` one stable path before, during, and after a rotation. See [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-026](./026-trust-bundle-block.md).
+Every `ca` block must carry a label ([ADR-015](./015-multiple-cas-per-config.md)), so CA cert/key paths are always `ca/<label>.crt` and `ca/<label>.key[.enc]`. `bundles/<label>.crt` holds the concatenation of the CA certs listed in that bundle's `ca_refs`, in that order, and is written only for a declared `trust_bundle` block. Declaring one from the start gives downstream `pki.ca` one stable path before, during, and after a rotation. See [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-026](./026-trust-bundle-block.md).
 
 ### File modes
 
@@ -67,13 +68,14 @@ Default filename is `nebula-pki.json`, written at `<storage.out_dir>/nebula-pki.
     "age": ["age1xyz..."],
     "output_suffix": ".enc"
   },
-  "trust_bundle": {
-    "label": "main",
-    "path": "out/ca/bundle.crt",
-    "ca_fingerprints": ["f2a1c9...", "ab77e0..."],
-    "links": [
-      { "path": "out/hetzner/bundle.crt", "target": "../ca/bundle.crt" }
-    ]
+  "trust_bundles": {
+    "main": {
+      "path": "out/bundles/main.crt",
+      "ca_fingerprints": ["f2a1c9...", "ab77e0..."],
+      "links": [
+        { "path": "out/hetzner/main.crt", "target": "../bundles/main.crt" }
+      ]
+    }
   },
   "cas": {
     "current": {
@@ -141,9 +143,9 @@ The manifest always uses the `cas` map — there is no legacy single-CA `ca` obj
 - `schema_version` — integer. Bumped only when the manifest format changes incompatibly. Currently `1`.
 - `generator.nebula_library_version` — the `slackhq/nebula` Go module version pinned at build time. Matches the value reported by `nebula-pki --version`. See [ADR-012](./012-upstream-nebula-coupling.md). Optional in older manifests; written by all current builds.
 - `config_path` — path to the HCL config that produced this manifest, relative to the manifest's directory when possible (absolute fallback). Lets future tooling detect "wrong config writing to my manifest" without enforcing it at runtime.
-- `cas` — map of CA label → CA record. Always present; always has at least one entry. Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, validity window, and paths. A CA declared in the config but not listed in `trust_bundle.ca_refs` keeps its record; the record is dropped when the `ca` block is deleted (its files stay on disk). See [ADR-015](./015-multiple-cas-per-config.md).
+- `cas` — map of CA label → CA record. Always present; always has at least one entry. Each record carries `mode`, `name`, `fingerprint`, `curve`, `version`, `default`, validity window, and paths. A CA declared in the config but listed in no `trust_bundle.ca_refs` keeps its record; the record is dropped when the `ca` block is deleted (its files stay on disk). See [ADR-015](./015-multiple-cas-per-config.md).
 - `cas.<label>.default` — `true` for the one CA marked `default = true` in HCL (the signer for certs that omit `cert.ca`); `false` for the rest. At most one record has `true`. Absent in the legacy single-CA `ca` object. This replaces the earlier top-level `default_ca` field. See [ADR-015](./015-multiple-cas-per-config.md).
-- `trust_bundle` — `{ label, path, ca_fingerprints, links }`, present only when a `trust_bundle` block is declared. `label` is the block label (recorded only; the bundle's identity is its path). `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in `ca_refs` order, the fingerprint of every member CA cert. `links` records the bundle's managed `link_crt` symlinks, same shape as `cas.<label>.links`. Lets downstream tooling verify what the Nebula network currently trusts without parsing the PEM; a CA whose fingerprint is absent from `ca_fingerprints` is not trusted. See [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-026](./026-trust-bundle-block.md).
+- `trust_bundles` — map of bundle label → `{ path, ca_fingerprints, links }`, one entry per declared `trust_bundle` block; absent when none is declared. `path` is where the concatenated-PEM bundle was written (relative to the manifest dir when possible). `ca_fingerprints` lists, in `ca_refs` order, the fingerprint of every member CA cert. `links` records the bundle's managed `link_crt` symlinks, same shape as `cas.<label>.links`. Lets downstream tooling verify what each trust set contains without parsing the PEM. See [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-026](./026-trust-bundle-block.md).
 - `cas.<label>.mode` — `"generate"` or `"reference"`.
 - `*.fingerprint` (on `ca`, `cas.*`, and `certs.*`) — the certificate's SHA256 fingerprint as lowercase hex, **no prefix**, exactly as `nebula-cert print -path <crt> -json` emits in its `fingerprint` field. This is the SHA256 of the marshalled certificate (a public artifact handed to every node), not of the public key and not of any private material — so it is always safe to commit.
 - `certs.*.name` — the cert Common Name. Equal to the cert's HCL label unless `cert.name` overrides it (see [ADR-009](./009-cert-label-vs-cert-name.md)).
@@ -185,7 +187,7 @@ Existing files are not overwritten silently — Nebula refuses to overwrite, so 
 
 - The manifest is the single comparator; no separate state file.
 - Per-cert output placement is recorded explicitly so downstream tooling can locate artifacts without inferring paths.
-- Multiple CAs and rotation progress are observable from `cas` + `certs.*.ca`; the emitted `trust_bundle` records exactly what the Nebula network trusts. See [ADR-015](./015-multiple-cas-per-config.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md).
+- Multiple CAs and rotation progress are observable from `cas` + `certs.*.ca`; the `trust_bundles` records state exactly what each trust set contains. See [ADR-015](./015-multiple-cas-per-config.md), [ADR-016](./016-ca-rotation-and-trust-bundles.md).
 - Reference-mode CA is fully supported: the tool does not touch the existing CA files.
 - Renaming a cert counts as remove + add. The old fingerprint is still in the previous git commit if needed for an external blocklist.
 - If a user deletes any artifact for a cert, the next run reissues that cert's certificate (and key, unless `in_pub`).

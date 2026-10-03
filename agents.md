@@ -8,7 +8,7 @@ Companion to [`readme.md`](./readme.md). This file holds operational detail, ful
 - HCL fields mirror `nebula-cert ca` and `nebula-cert sign` flags 1:1 with underscores.
 - Adds: declarative config, per-cert `output_dir` for custom certificate placement, optional at-rest encryption of private keys (`sops` or any external command), a JSON manifest.
 - One or more labelled `ca "<label>" {}` blocks per HCL file, for rotation and multi-CA Nebula networks ([ADR-015](./spec/adr/015-multiple-cas-per-config.md), supersedes [ADR-010](./spec/adr/010-single-ca-per-config.md)). Isolated environments may still use one file each.
-- Emits a CA trust bundle for `pki.ca` when a `trust_bundle` block declares one ([ADR-026](./spec/adr/026-trust-bundle-block.md)) and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-cert-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
+- Emits a CA trust bundle for `pki.ca` for each declared `trust_bundle` block ([ADR-026](./spec/adr/026-trust-bundle-block.md)) and supports declarative CA rotation ([ADR-016](./spec/adr/016-ca-rotation-and-trust-bundles.md)), time-based renewal via `renew_before` ([ADR-017](./spec/adr/017-cert-renewal-threshold.md)), and air-gapped `in_pub` signing ([ADR-018](./spec/adr/018-in-pub-air-gapped-signing.md)).
 - Does not render `config.yaml`, does not push files (including during rotation), does not implement lighthouse/blocklist/firewall.
 
 > Capability detail for the four areas above (multi-CA, rotation/bundle, `renew_before`, `in_pub`) is also covered in [`spec/`](./spec/readme.md) and the cited ADRs. Where anything conflicts, `spec/hcl-schema.md` is the final authority.
@@ -115,21 +115,21 @@ ca "label" {
 }
 ```
 
-## Trust bundle
+## Trust bundles
 
 ```hcl
 trust_bundle "main" {
   ca_refs  = [ca.current, ca.next]        # required; members in bundle order
-  path     = "out/ca/bundle.crt"          # default <storage.out_dir>/ca/bundle.crt
-  link_crt = ["out/hetzner", "out/aws"]   # relative bundle.crt symlinks (basename of path)
+  path     = "out/bundles/main.crt"       # default <storage.out_dir>/bundles/<label>.crt
+  link_crt = ["out/hetzner", "out/aws"]   # relative main.crt symlinks (basename of path)
 }
 ```
 
-- At most one `trust_bundle` block. Without it no bundle is written and the manifest has no `trust_bundle` record; there is no implicit bundle.
-- When declared, every cert's signing CA and the `default = true` CA must be in `ca_refs`. A declared CA left out is still generated and recorded, it just is not trusted and may not sign.
+- Any number of `trust_bundle` blocks, labels unique. Without any, no bundle is written and the manifest has no `trust_bundles` record; there is no implicit bundle.
+- Bundles describe trust only. A CA may be in several bundles or none, and any declared CA may sign; `default = true` only picks the signing CA for certs that omit `cert.ca`.
 - Rotation: add the new CA to `ca_refs`, move `default = true`, drop the old CA from `ca_refs`, then delete its `ca` block.
-- The bundle's identity is its `path`; renaming the label only updates the manifest. Removing the block or changing `path` leaves the old file on disk with a notice and deletes the bundle's symlinks.
-- Deleting a `ca` block deletes its `link_crt` symlinks and drops its manifest record; its cert and key files stay on disk with a notice.
+- The label is the identity and the default file name (`trust_bundle "main"` → `out/bundles/main.crt`, symlinks `main.crt`). Renaming the label, removing the block or changing `path` writes the new bundle and leaves the old file on disk with a notice; old symlinks are deleted unless a current block declares the same path.
+- Deleting a `ca` block deletes its `link_crt` symlinks and drops its manifest record; a generate-mode CA's cert and key files stay on disk with a notice, a reference-mode CA's files were never managed (no notice).
 
 ## Full cert options
 
@@ -236,7 +236,8 @@ out/                    # storage.out_dir; safe to commit when encryption is on
   ca/
     <label>.crt
     <label>.key         # <label>.key.enc when encryption is on
-    bundle.crt          # only with a trust_bundle block; path via trust_bundle.path
+  bundles/
+    <label>.crt         # one per trust_bundle block; path via trust_bundle.path
   certs/                # default location for certs without an `output_dir`
 <custom-dir>/           # any directory set via cert.output_dir
 ```
@@ -249,7 +250,7 @@ The specification lives in [`spec/`](./spec/readme.md): `hcl-schema.md`, `hcl-sc
 
 - `schema_version` — integer, currently `1`.
 - `generated_at`, `generator`, `config_path` — provenance of the run.
-- `trust_bundle` — present only when a `trust_bundle` block is declared: its label, path, the fingerprints of its member CAs in `ca_refs` order, and its `links`.
+- `trust_bundles` — map keyed by bundle label, one entry per declared `trust_bundle` block: path, the fingerprints of its member CAs in `ca_refs` order, and its `links`. Absent when no bundle is declared.
 - `cas` — map keyed by CA label; each record carries `mode` (`"generate"` or `"reference"`), name, fingerprint, curve, version, validity, paths, `default`, and, when set, `links` and an `encryption` record.
 - `certs` — map keyed by cert label; each record carries cert name, signing CA, fingerprint, validity, the literal HCL `duration`, groups, networks, and exactly one `artifacts` entry with `cert_path`, `key_path` (absent for `in_pub` certs), and an `encryption` record when the key is encrypted.
 
@@ -275,10 +276,9 @@ The manifest already carries an explicit `schema_version` field from day one —
 - `ca` reference mode with only one of `cert_file`/`key_file` → error.
 - `ca` reference mode whose `cert_file`/`key_file` do not exist on disk → error (at reconcile/`check`, not parse time).
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
-- More than one `trust_bundle` block → error.
+- Two `trust_bundle` blocks share a label → error.
 - `trust_bundle.ca_refs` empty, not a list of `ca.<label>` references, naming an undeclared CA, or repeating a member → error with source range.
-- A `trust_bundle` is declared and a cert's signing CA or the `default = true` CA is not in its `ca_refs` → error.
-- Two `link_crt` sources (any `ca` block or the `trust_bundle`) write the same symlink path → error.
+- Two things write the same path (CA cert/key, cert cert/key, bundle file, `link_crt` symlink, manifest), or a write targets a referenced CA's `cert_file`/`key_file` → error naming every owner.
 - More than one `ca` block sets `default = true` → error.
 - `cert.ca` is not a `ca.<label>` reference → error.
 - `cert.ca` references a CA that is not declared → error.
