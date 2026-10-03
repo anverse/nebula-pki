@@ -195,7 +195,7 @@ Declaring the `trust_bundle` at step 0 (not only when membership first diverges)
 
 ### A. Signing default moves into the `trust_bundle` block (`default_ca = ca.next`)
 
-Would make the `trust_bundle` block a single "rotation control panel" and structurally force the default to be a member. Rejected: the default decides which CA signs each cert — a signing concern that has nothing to do with the trust bundle, so the `ca` declarations are its natural home. The `trust_bundle` block would then own both axes ADR-016 was careful to separate; the signing default is meaningful even in configs with no `trust_bundle` block; and under the deferred multiple-bundles future a per-bundle default becomes ambiguous, while a default among the CA declarations does not. The membership constraint is enforced by validation instead.
+Would make the `trust_bundle` block a single "rotation control panel" and structurally force the default to be a member. Rejected: the default decides which CA signs each cert — a signing concern that has nothing to do with the trust bundle, so the `ca` declarations are its natural home. The `trust_bundle` block would then own both axes ADR-016 was careful to separate; the signing default is meaningful even in configs with no `trust_bundle` block; and with multiple bundles a per-bundle default becomes ambiguous, while a default among the CA declarations does not. The membership constraint is enforced by validation instead.
 
 ### B. Keep `archived` alongside the `trust_bundle` block
 

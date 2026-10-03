@@ -91,7 +91,7 @@ Rules:
 
 > **Amendment (2026-10-02) — CAs and expiry warnings.** Every **declared** CA counts towards the
 > report, independent of trust-bundle membership (the `archived` flag that used to exclude CAs is
-> gone, see [ADR-026](./026-trust-bundle-block.md), and with future multiple bundles membership
+> gone, see [ADR-026](./026-trust-bundle-block.md), and with multiple bundles membership
 > would be meaningless as a filter). An **expired** CA is not a deadline anymore, since running
 > again cannot fix it. It is printed as a separate warning, `warning: CA "<label>" expired <n>d
 > ago (<date>)`, and excluded from the "next deadline" computation, so a retired but still
