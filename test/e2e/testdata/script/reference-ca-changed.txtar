@@ -1,0 +1,100 @@
+# A reference-mode CA is pinned to its label by the fingerprint the manifest
+# records. Moving the same CA to another path is fine. A different CA under
+# the same label is an error before anything is written, in --dry-run too:
+# certs signed by the old CA and the trust bundles would otherwise fall out of
+# step without notice. Switching CAs takes a new label.
+
+# Two independent CAs to reference.
+mkdir gen1 gen2
+cp gen1.hcl gen1/nebula.hcl
+cp gen2.hcl gen2/nebula.hcl
+exec nebula-pki -c gen1/nebula.hcl
+exec nebula-pki -c gen2/nebula.hcl
+
+mkdir ext
+cp gen1/out/ca/x.crt ext/ca.crt
+cp gen1/out/ca/x.key ext/ca.key
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^signed cert "app"$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
+
+# The same CA at a new path: recorded, no cert re-signed, bundle unchanged.
+mkdir moved
+cp ext/ca.crt moved/ca.crt
+cp ext/ca.key moved/ca.key
+cp moved.hcl nebula.hcl
+exec nebula-pki
+! stderr 'signed cert'
+! stderr 'wrote trust bundle'
+grep '"cert_path": "moved/ca.crt"' out/nebula-pki.json
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+# A different CA swapped in under the same label is refused.
+cp out/nebula-pki.json manifest.before
+cp out/bundles/main.crt bundle.before
+cp gen2/out/ca/x.crt moved/ca.crt
+cp gen2/out/ca/x.key moved/ca.key
+! exec nebula-pki --dry-run
+stderr '^error: ca "x": referenced CA changed: cert_file moved/ca\.crt has fingerprint [0-9a-f]+, but the manifest records [0-9a-f]+ for this label; restore the recorded CA, or declare the new CA under a new label'
+! exec nebula-pki
+stderr 'referenced CA changed'
+cmp out/nebula-pki.json manifest.before
+cmp out/bundles/main.crt bundle.before
+
+# Declaring it under a new label switches CAs: the cert is re-signed and the
+# bundle rewritten.
+cp new-label.hcl nebula.hcl
+exec nebula-pki
+stderr '^signed cert "app"$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
+cmp out/bundles/main.crt moved/ca.crt
+
+-- gen1.hcl --
+ca "x" { name = "mesh-one" }
+
+-- gen2.hcl --
+ca "x" { name = "mesh-two" }
+
+-- v1.hcl --
+ca "x" {
+  cert_file = "ext/ca.crt"
+  key_file  = "ext/ca.key"
+}
+
+trust_bundle "main" {
+  ca_refs = [ca.x]
+}
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- moved.hcl --
+ca "x" {
+  cert_file = "moved/ca.crt"
+  key_file  = "moved/ca.key"
+}
+
+trust_bundle "main" {
+  ca_refs = [ca.x]
+}
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- new-label.hcl --
+ca "y" {
+  cert_file = "moved/ca.crt"
+  key_file  = "moved/ca.key"
+}
+
+trust_bundle "main" {
+  ca_refs = [ca.y]
+}
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}

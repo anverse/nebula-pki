@@ -6,6 +6,7 @@ package plan
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/anverse/nebula-pki/internal/config"
@@ -138,9 +139,11 @@ func TestBuild_TrustBundle_MemberGeneratedWrites(t *testing.T) {
 	}
 }
 
-func TestBuild_TrustBundle_ReferenceMemberSwapped(t *testing.T) {
-	// A referenced CA file swapped since the last run is seen by the plan
-	// through the Fingerprint probe, so --dry-run and the run agree.
+func TestBuild_ReferenceCAChanged(t *testing.T) {
+	// The planner checks a referenced CA against the fingerprint the
+	// manifest recorded under its label. The same CA, wherever it lives now,
+	// passes; a different CA under the same label is an error, so --dry-run
+	// and the run both stop before anything is written.
 	cfg := parseCfg(t, `
 trust_bundle "main" { ca_refs = [ca.r] }
 ca "r" {
@@ -153,24 +156,36 @@ ca "r" {
 	m.CAs["r"] = &manifest.CA{Mode: "reference", Fingerprint: "fp-old"}
 	m.TrustBundles = map[string]*manifest.TrustBundle{"main": {Path: cfg.TrustBundlePath(tb), CAFingerprints: []string{"fp-old"}}}
 	exists := existsSet("ref/ca.crt", "ref/ca.key", cfg.TrustBundlePath(tb))
+	probe := func(fp string, err error) Options {
+		return Options{Fingerprint: func(string) (string, error) { return fp, err }}
+	}
 
-	for _, tt := range []struct {
-		fp   string
-		want Op
-	}{{"fp-old", OpNoop}, {"fp-new", OpWrite}} {
-		fp := tt.fp
-		p, err := Build(cfg, m, testNow, exists, Options{Fingerprint: func(string) (string, error) { return fp, nil }})
-		if err != nil {
-			t.Fatalf("Build: %v", err)
-		}
-		if op := bundleOp(t, p, "main"); op != tt.want {
-			t.Errorf("fingerprint %s: bundle op = %q, want %q", fp, op, tt.want)
+	p, err := Build(cfg, m, testNow, exists, probe("fp-old", nil))
+	if err != nil {
+		t.Fatalf("Build with the recorded CA: %v", err)
+	}
+	if op := bundleOp(t, p, "main"); op != OpNoop {
+		t.Errorf("bundle op = %q, want noop", op)
+	}
+
+	_, err = Build(cfg, m, testNow, exists, probe("fp-new", nil))
+	if err == nil {
+		t.Fatal("Build with a different CA under the same label succeeded, want an error")
+	}
+	for _, want := range []string{`ca "r": referenced CA changed`, "fp-new", "fp-old", "new label"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err, want)
 		}
 	}
 
-	_, err := Build(cfg, m, testNow, exists, Options{Fingerprint: func(string) (string, error) { return "", errors.New("boom") }})
-	if err == nil {
-		t.Error("Build succeeded, want the fingerprint error")
+	if _, err := Build(cfg, m, testNow, exists, probe("", errors.New("boom"))); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("Build error = %v, want the fingerprint error", err)
+	}
+
+	// Without a recorded fingerprint (first run, or a new label) there is
+	// nothing to compare against.
+	if _, err := Build(cfg, manifest.New(), testNow, exists, probe("fp-new", nil)); err != nil {
+		t.Errorf("Build without a manifest record: %v", err)
 	}
 }
 

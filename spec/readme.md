@@ -76,6 +76,7 @@ The tool:
 - [`adr/024-rename-host-to-cert.md`](./adr/024-rename-host-to-cert.md) — rename the `host` block to `cert` (pre-1.0 hard switch, shipped first); carries the two-dialects naming rationale.
 - [`adr/025-ca-references.md`](./adr/025-ca-references.md) — terraform-style `ca.<label>` references for `cert.ca`: one spelling, no evaluation, source-ranged errors; the reserved-root convention.
 - [`adr/026-trust-bundle-block.md`](./adr/026-trust-bundle-block.md) — explicit `trust_bundle` block: declared trust membership via `ca_refs`, bundle `link_crt`, removal of `archived`; carries the `trust_bundle`/`ca_refs` naming rationale. Amends ADR-016.
+- [`adr/027-reference-ca-pinned-to-label.md`](./adr/027-reference-ca-pinned-to-label.md) — a reference-mode CA swapped under an unchanged label is an error; switching CAs takes a new label.
 
 ## Operating model
 

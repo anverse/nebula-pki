@@ -75,7 +75,9 @@ In reference mode, generate-only fields (`name`, `duration`, `curve`, `version`,
 
 On a run, nebula-pki loads the referenced pair and verifies it before recording anything: the certificate must be a CA (`IsCA`), its self-signature must verify, the key's curve must match the certificate, and the key must correspond to the certificate's public key. A missing `cert_file`/`key_file` is a hard error. An **expired** referenced CA is recorded anyway with a warning on stderr; the operator owns the CA in reference mode. The manifest records `cas.<label>.mode = "reference"` with the CA's fingerprint, validity window, and the referenced paths; `out/ca/` is never written. `nebula-pki check` additionally reads the referenced files and prints the CA fingerprint.
 
-Reference-mode reconcile is idempotent: a second run against an unchanged referenced CA writes nothing (the manifest stays byte-identical). Pointing `cert_file`/`key_file` at a different CA updates the manifest's recorded fingerprint on the next run.
+Reference-mode reconcile is idempotent: a second run against an unchanged referenced CA writes nothing (the manifest stays byte-identical). Moving the same CA to another path just updates the recorded paths.
+
+> **A reference CA is pinned to its label.** If the certificate behind `cert_file` has a different fingerprint than the manifest records for the label (a new CA at the same path, the wrong branch or environment), the run and `--dry-run` fail before writing anything. To switch to a different CA, declare it under a new label (move `default = true`, update `ca_refs`); its certs are then re-signed. See [ADR-027](./spec/adr/027-reference-ca-pinned-to-label.md).
 
 ## Full CA options (generate mode)
 
@@ -276,6 +278,7 @@ The manifest already carries an explicit `schema_version` field from day one —
 - `ca` reference mode with only one of `cert_file`/`key_file` → error.
 - `ca` reference mode whose `cert_file`/`key_file` do not exist on disk → error (at reconcile/`check`, not parse time).
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
+- `ca` reference mode whose certificate fingerprint differs from the one the manifest records for the label → error at reconcile and `--dry-run` (not `check`).
 - Two `trust_bundle` blocks share a label → error.
 - `trust_bundle.ca_refs` empty, not a list of `ca.<label>` references, naming an undeclared CA, or repeating a member → error with source range.
 - Two things write the same path (CA cert/key, cert cert/key, bundle file, `link_crt` symlink, manifest), or a write targets a referenced CA's `cert_file`/`key_file` → error naming every owner.

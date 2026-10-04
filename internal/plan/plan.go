@@ -198,9 +198,9 @@ type Options struct {
 	Readlink func(realPath string) (string, error)
 
 	// Fingerprint returns the fingerprint of the certificate at the absolute
-	// filesystem path. Used read-only for reference-mode members of a trust
-	// bundle, whose referenced file may have changed since the last run.
-	// When nil, the manifest's recorded fingerprint is used.
+	// filesystem path. Used read-only to check that a reference-mode CA is
+	// still the CA the manifest recorded under its label. When nil, the check
+	// is skipped.
 	Fingerprint func(realPath string) (string, error)
 }
 
@@ -217,7 +217,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		var a Action
 		var err error
 		if ca.Mode == config.CAModeReference {
-			a, err = planReferenceCA(cfg, ca, exists)
+			a, err = planReferenceCA(cfg, ca, m, exists, opts)
 		} else {
 			a, err = planCA(cfg, ca, m, exists)
 		}
@@ -242,11 +242,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		actions = append(actions, linkActions...)
 	}
 
-	tbActions, err := planTrustBundles(cfg, m, actions, exists, opts)
-	if err != nil {
-		return Plan{}, err
-	}
-	actions = append(actions, tbActions...)
+	actions = append(actions, planTrustBundles(cfg, m, actions, exists)...)
 	actions = append(actions, planReleases(cfg, m)...)
 
 	return Plan{Actions: actions}, nil
@@ -331,7 +327,12 @@ func planCert(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 //
 //   - either file missing -> error (the operator named a path that is not
 //     there; fail loudly rather than silently ignoring it);
-//   - both files present -> reference.
+//   - both files present -> reference;
+//   - the certificate's fingerprint differs from the one the manifest
+//     recorded under this label -> error. A different CA under the same
+//     label would leave the certs it signed, and the trust bundles, out of
+//     step without notice; switching CAs takes a new label. Moving the same
+//     CA to another path keeps its fingerprint and is fine.
 //
 // plan is pure and cannot read the certificate, so it always emits a
 // reference action when the files are present and defers the real
@@ -341,7 +342,7 @@ func planCert(cfg *config.Config, m *manifest.Manifest, h *config.Cert, now time
 // a byte-identical tree, while a swapped reference file is detected via
 // its changed fingerprint. Keeping plan pure (no cert parsing) is the
 // reason the OpReference action is not collapsed to a noop here.
-func planReferenceCA(cfg *config.Config, ca *config.CA, exists func(string) bool) (Action, error) {
+func planReferenceCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func(string) bool, opts Options) (Action, error) {
 	certPath := cfg.CACertPathForCA(*ca)
 	keyPath := cfg.CAKeyPathForCA(*ca)
 	haveCert := exists(certPath)
@@ -351,6 +352,20 @@ func planReferenceCA(cfg *config.Config, ca *config.CA, exists func(string) bool
 		return Action{}, referenceMissingError(ca.Label, haveCert, haveKey, certPath, keyPath)
 	}
 
+	if rec := recordedCA(m, ca.Label); rec != nil && rec.Fingerprint != "" && opts.Fingerprint != nil {
+		fp, err := opts.Fingerprint(cfg.Resolve(certPath))
+		if err != nil {
+			return Action{}, fmt.Errorf("ca %q: read referenced CA cert_file %s: %w", ca.Label, certPath, err)
+		}
+		if fp != rec.Fingerprint {
+			return Action{}, fmt.Errorf(
+				"ca %q: referenced CA changed: cert_file %s has fingerprint %s, but the manifest records %s for this label; "+
+					"restore the recorded CA, or declare the new CA under a new label (move default = true and update ca_refs) to switch to it",
+				ca.Label, certPath, fp, rec.Fingerprint,
+			)
+		}
+	}
+
 	return Action{
 		Op:    OpReference,
 		Kind:  KindCA,
@@ -358,6 +373,14 @@ func planReferenceCA(cfg *config.Config, ca *config.CA, exists func(string) bool
 		Path:  certPath,
 		Desc:  fmt.Sprintf("use referenced CA %q (%s)", ca.Label, certPath),
 	}, nil
+}
+
+// recordedCA returns the manifest record for label, or nil.
+func recordedCA(m *manifest.Manifest, label string) *manifest.CA {
+	if m == nil {
+		return nil
+	}
+	return m.CAs[label]
 }
 
 func referenceMissingError(label string, haveCert, haveKey bool, certPath, keyPath string) error {
@@ -677,10 +700,9 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 // bundle is written; apply carries the decision out. A bundle is written when
 // its label is not recorded yet, its path changed, the file is missing, a
 // member CA is generated in this run, or the members' fingerprints (in
-// ca_refs order) differ from the recorded ones. Reference-mode members are
-// read through opts.Fingerprint, because the referenced file may have been
-// swapped since the last run.
-func planTrustBundles(cfg *config.Config, m *manifest.Manifest, caActions []Action, exists func(string) bool, opts Options) ([]Action, error) {
+// ca_refs order) differ from the recorded ones. A reference-mode member
+// whose file was swapped never gets here: planReferenceCA rejects it.
+func planTrustBundles(cfg *config.Config, m *manifest.Manifest, caActions []Action, exists func(string) bool) []Action {
 	generated := make(map[string]bool)
 	for _, a := range caActions {
 		if a.Kind == KindCA && a.Op == OpGenerate {
@@ -690,10 +712,7 @@ func planTrustBundles(cfg *config.Config, m *manifest.Manifest, caActions []Acti
 	var actions []Action
 	for i := range cfg.TrustBundles {
 		tb := cfg.TrustBundles[i]
-		write, err := bundleNeedsWrite(cfg, m, tb, generated, exists, opts)
-		if err != nil {
-			return nil, err
-		}
+		write := bundleNeedsWrite(cfg, m, tb, generated, exists)
 		path := cfg.TrustBundlePath(tb)
 		a := Action{Op: OpNoop, Kind: KindTrustBundle, Label: tb.Label, Path: path, Desc: fmt.Sprintf("trust bundle %q up to date", tb.Label)}
 		if write {
@@ -702,35 +721,27 @@ func planTrustBundles(cfg *config.Config, m *manifest.Manifest, caActions []Acti
 		}
 		actions = append(actions, a)
 	}
-	return actions, nil
+	return actions
 }
 
-func bundleNeedsWrite(cfg *config.Config, m *manifest.Manifest, tb config.TrustBundle, generated map[string]bool, exists func(string) bool, opts Options) (bool, error) {
+func bundleNeedsWrite(cfg *config.Config, m *manifest.Manifest, tb config.TrustBundle, generated map[string]bool, exists func(string) bool) bool {
 	path := cfg.TrustBundlePath(tb)
 	if m == nil || m.TrustBundles[tb.Label] == nil {
-		return true, nil
+		return true
 	}
 	rec := m.TrustBundles[tb.Label]
 	if rec.Path != path || !exists(path) {
-		return true, nil
+		return true
 	}
 	fps := make([]string, 0, len(tb.CARefs))
 	for _, label := range tb.CARefs {
 		caRec := m.CAs[label]
 		if generated[label] || caRec == nil {
-			return true, nil
+			return true
 		}
-		fp := caRec.Fingerprint
-		if ca := cfg.CAByLabel(label); ca.Mode == config.CAModeReference && opts.Fingerprint != nil {
-			current, err := opts.Fingerprint(cfg.Resolve(cfg.CACertPathForCA(*ca)))
-			if err != nil {
-				return false, fmt.Errorf("trust_bundle %q: ca %q: %w", tb.Label, label, err)
-			}
-			fp = current
-		}
-		fps = append(fps, fp)
+		fps = append(fps, caRec.Fingerprint)
 	}
-	return !slices.Equal(fps, rec.CAFingerprints), nil
+	return !slices.Equal(fps, rec.CAFingerprints)
 }
 
 // planReleases emits OpRelease actions for files the manifest tracked that

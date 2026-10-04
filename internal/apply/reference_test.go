@@ -226,16 +226,20 @@ func TestReconcile_ReferenceIdempotentRerun(t *testing.T) {
 	}
 }
 
-// TestReconcile_ReferenceDetectsSwappedCA confirms the rebuild-and-compare
-// idempotency check is not blind to a changed referenced file: if the
-// operator points cert_file/key_file at a different CA, the manifest's
-// fingerprint must update.
-func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
+// TestReconcile_ReferenceSwappedCAIsAnError confirms a different CA under
+// an unchanged label is caught before anything is written: the run fails,
+// and the manifest and trust bundle stay byte-identical. Switching CAs takes
+// a new label.
+func TestReconcile_ReferenceSwappedCAIsAnError(t *testing.T) {
 	cfg, first := writeRefConfig(t, `ca "mesh" { name = "first-ca" }`, refBundleHCL)
 
 	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
 		t.Fatalf("first Reconcile: %v", err)
 	}
+	manifestReal := cfg.Resolve(cfg.ManifestPath())
+	bundleReal := cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0]))
+	manifestBefore := mustRead(t, manifestReal)
+	bundleBefore := mustRead(t, bundleReal)
 
 	// Swap the referenced files for a different CA in place.
 	dir := filepath.Dir(cfg.Path)
@@ -244,36 +248,20 @@ func TestReconcile_ReferenceDetectsSwappedCA(t *testing.T) {
 		t.Fatal("test setup: the two CAs share a fingerprint")
 	}
 
-	rep, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion})
-	if err != nil {
-		t.Fatalf("second Reconcile: %v", err)
+	for _, dryRun := range []bool{true, false} {
+		_, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion, DryRun: dryRun})
+		if err == nil {
+			t.Fatalf("Reconcile (dry run %v) after the referenced CA was swapped succeeded, want an error", dryRun)
+		}
+		if !strings.Contains(err.Error(), "referenced CA changed") || !strings.Contains(err.Error(), first.Fingerprint) {
+			t.Errorf("error = %q, want it to report the change and the recorded fingerprint", err)
+		}
 	}
-	if !rep.Changed {
-		t.Fatal("Changed = false after the referenced CA was swapped, want true")
+	if !bytes.Equal(mustRead(t, manifestReal), manifestBefore) {
+		t.Error("manifest changed although the run failed")
 	}
-	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))
-	if err != nil {
-		t.Fatalf("manifest.Load: %v", err)
-	}
-	mCA := m.CAs["ref"]
-	if mCA == nil {
-		t.Fatal("manifest CAs[ref] is nil")
-	}
-	if mCA.Fingerprint != second.Fingerprint {
-		t.Errorf("CA fingerprint = %q, want the swapped-in CA's %q", mCA.Fingerprint, second.Fingerprint)
-	}
-	if mCA.Name != "second-ca" {
-		t.Errorf("CA name = %q, want second-ca", mCA.Name)
-	}
-
-	// The trust bundle must have been rewritten to contain the second CA's cert.
-	if len(rep.TrustBundlesWritten) == 0 {
-		t.Error("TrustBundlesWritten: false after CA swap, want true")
-	}
-	bundleBytes := mustRead(t, cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0])))
-	secondCertBytes := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
-	if !bytes.Equal(bundleBytes, secondCertBytes) {
-		t.Error("trust bundle does not contain the swapped-in CA cert")
+	if !bytes.Equal(mustRead(t, bundleReal), bundleBefore) {
+		t.Error("trust bundle changed although the run failed")
 	}
 }
 

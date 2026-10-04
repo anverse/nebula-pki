@@ -329,6 +329,8 @@ cert "new_app" {
 }
 ```
 
+A referenced CA is pinned to its label by the fingerprint the manifest records. Moving the same CA to another path is fine. A different CA behind `cert_file` under the same label (a new CA at the same path, the wrong branch or environment) fails the run before anything is written; to switch, declare the new CA under a new label. See [ADR-027](./adr/027-reference-ca-pinned-to-label.md).
+
 ## CA rotation example
 
 A worked rotation across a CA expiry, using two labelled CAs in one file. Each stage is a small edit to the same `nebula.hcl` followed by `nebula-pki`. The tool emits the artifacts; the operator distributes them and reloads certs (the tool never pushes — see [ADR-016](./adr/016-ca-rotation-and-trust-bundles.md)). Every trust change is an edit to `trust_bundle.ca_refs`; see [ADR-026](./adr/026-trust-bundle-block.md).
@@ -541,6 +543,7 @@ CA and multi-CA:
 - A cert's signing CA is ambiguous: the file has >1 CA, the cert has no `cert.ca`, and no CA is marked `default = true`.
 - `ca` is in reference mode but only one of `cert_file` / `key_file` is set.
 - `ca` is in reference mode and sets generate-only fields (`name`, `duration`, `curve`, `version`, `out_*`, `argon_*`, `encrypt`).
+- At reconcile and `--dry-run` (not `check`, which does not read the manifest): a reference-mode CA's certificate fingerprint differs from the one the manifest records under its label ([ADR-027](./adr/027-reference-ca-pinned-to-label.md)).
 
 Trust bundle:
 
