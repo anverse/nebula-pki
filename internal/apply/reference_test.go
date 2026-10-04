@@ -338,8 +338,9 @@ ca "ref" {
 }
 
 // TestReconcile_ReferenceExpiredWarnsButRecords drives the expiry path:
-// the CA is recorded (Changed=true, manifest written) and a warning is
-// emitted to the configured Warn writer. Expiry is decided against
+// the CA is recorded (Changed=true, manifest written) and listed among the
+// deadline report's expired CAs, which is the only place that warns about
+// it, so the warning is printed once (ADR-017 2026-10-02 amendment). Expiry is decided against
 // Options.Now (threaded into pki.LoadReferenceCA), so this is deterministic
 // and does not depend on the wall clock advancing.
 func TestReconcile_ReferenceExpiredWarnsButRecords(t *testing.T) {
@@ -362,8 +363,11 @@ ca "mesh" {
 	if !rep.Changed {
 		t.Error("Changed = false, want true (an expired reference CA is still recorded)")
 	}
-	if !strings.Contains(warn.String(), "expired") {
-		t.Errorf("warn output = %q, want it to mention 'expired'", warn.String())
+	if strings.Contains(warn.String(), "expired") {
+		t.Errorf("warn output = %q, want no load time expiry warning (the deadline report warns)", warn.String())
+	}
+	if d := rep.Deadlines.ExpiredCAs; len(d) != 1 || d[0].Label != "ref" {
+		t.Errorf("Deadlines.ExpiredCAs = %+v, want the expired reference CA", d)
 	}
 
 	m, err := manifest.Load(cfg.Resolve(cfg.ManifestPath()))

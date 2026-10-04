@@ -167,8 +167,12 @@ func printDeadlineReport(w io.Writer, d apply.DeadlineReport, now time.Time) {
 	// Expired CAs are warnings, not deadlines; they are printed even when
 	// there is nothing else to report.
 	for _, item := range d.ExpiredCAs {
-		days := int(now.Sub(item.Deadline).Hours() / 24)
-		fmt.Fprintf(w, "warning: CA %q expired %dd ago (%s)\n", item.Label, days, item.Deadline.UTC().Format("2006-01-02"))
+		date := item.Deadline.UTC().Format("2006-01-02")
+		if days := int(now.Sub(item.Deadline).Hours() / 24); days > 0 {
+			fmt.Fprintf(w, "warning: CA %q expired %dd ago (%s)\n", item.Label, days, date)
+		} else {
+			fmt.Fprintf(w, "warning: CA %q expired today (%s)\n", item.Label, date)
+		}
 	}
 
 	if d.NextDeadline.IsZero() {

@@ -95,8 +95,10 @@ Rules:
 > would be meaningless as a filter). An **expired** CA is not a deadline anymore, since running
 > again cannot fix it. It is printed as a separate warning, `warning: CA "<label>" expired <n>d
 > ago (<date>)`, and excluded from the "next deadline" computation, so a retired but still
-> declared CA never hides the next real action. The warning is printed even when the config has
-> no certs. The default output stays short: there is no per-CA listing on every run; a full
+> declared CA never hides the next real action. Within the first day it reads `expired today`.
+> The warning is printed even when the config has no certs, and it is the only expiry warning on a
+> run: loading an expired reference-mode CA does not warn separately (`nebula-pki check` still
+> does, since it prints no deadline report). The default output stays short: there is no per-CA listing on every run; a full
 > listing belongs in the deferred `nebula-pki show`.
 
 This is purely informational. It changes no exit code and triggers no writes; it reads the same `not_after` / `renew_before` data the idempotency verdict already uses.

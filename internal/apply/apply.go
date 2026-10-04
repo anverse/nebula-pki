@@ -463,13 +463,10 @@ func reconcileOneCA(cfg *config.Config, ca *config.CA, caAction plan.Action, enc
 		if err != nil {
 			return nil, caPEMs{}, fmt.Errorf("read referenced CA %q key: %w", ca.Label, err)
 		}
+		// An expired referenced CA is recorded anyway; the deadline report
+		// warns about it, like any other expired CA.
 		result, err := pki.LoadReferenceCA(certPEM, keyPEM, opts.Now)
-		if errors.Is(err, pki.ErrReferenceCAExpired) {
-			fmt.Fprintf(coalesceWriter(opts.Warn),
-				"warning: referenced CA %q is expired (not_after %s); recording it anyway\n",
-				ca.Label, result.NotAfter.UTC().Format(time.RFC3339),
-			)
-		} else if err != nil {
+		if err != nil && !errors.Is(err, pki.ErrReferenceCAExpired) {
 			return nil, caPEMs{}, err
 		}
 		next.CAs[ca.Label] = caResultToManifest(ca, result, certPath, keyPath)

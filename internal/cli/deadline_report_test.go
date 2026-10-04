@@ -186,6 +186,16 @@ func TestPrintDeadlineReport_ExpiredCAWarning(t *testing.T) {
 	}
 }
 
+func TestPrintDeadlineReport_ExpiredCAToday(t *testing.T) {
+	d := apply.DeadlineReport{
+		ExpiredCAs: []apply.DeadlineItem{{Kind: "ca", Label: "old", Deadline: drNow.Add(-time.Hour)}},
+	}
+	out := printDeadlineReportStr(d)
+	if want := "warning: CA \"old\" expired today (" + drNow.Add(-time.Hour).UTC().Format("2006-01-02") + ")\n"; out != want {
+		t.Errorf("output = %q; want %q", out, want)
+	}
+}
+
 func TestPrintDeadlineReport_ExpiredCAWithoutDeadline(t *testing.T) {
 	d := apply.DeadlineReport{
 		ExpiredCAs: []apply.DeadlineItem{{Kind: "ca", Label: "old", Deadline: drOverdue}},
