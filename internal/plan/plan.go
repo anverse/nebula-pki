@@ -42,6 +42,10 @@ const (
 	// OpDeleteSymlink means a managed symlink must be removed because its
 	// directory was removed from link_crt. Used for link_crt stale cleanup.
 	OpDeleteSymlink Op = "delete_symlink"
+	// OpForgetLink means a recorded symlink now belongs to another block
+	// that declares the same path. The symlink is left alone; only the old
+	// owner's manifest record drops it.
+	OpForgetLink Op = "forget_link"
 	// OpWrite means a trust bundle file must be (re)written.
 	OpWrite Op = "write"
 	// OpRelease means files the manifest tracked are no longer managed by
@@ -570,7 +574,8 @@ func removedCALabels(cfg *config.Config, m *manifest.Manifest) []string {
 // opts.Readlink and emits CreateSymlink, Noop, or an error. Symlinks
 // recorded in the manifest but no longer declared by this owner emit
 // DeleteSymlink for stale-link cleanup, unless another current block now
-// declares the same path (declared), which then manages it.
+// declares the same path (declared): that block manages the symlink from now
+// on, and this owner only forgets it (OpForgetLink).
 func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opts Options) ([]Action, error) {
 	absTarget := cfg.Resolve(src.target)
 
@@ -641,7 +646,18 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 	}
 
 	for _, link := range src.recorded {
-		if _, ok := expectedPaths[link.Path]; ok || declared[link.Path] {
+		if _, ok := expectedPaths[link.Path]; ok {
+			continue
+		}
+		if declared[link.Path] {
+			actions = append(actions, Action{
+				Op:    OpForgetLink,
+				Kind:  KindLink,
+				Owner: src.owner,
+				Label: src.label,
+				Path:  link.Path,
+				Desc:  fmt.Sprintf("hand over link %s from %s", link.Path, src.desc()),
+			})
 			continue
 		}
 		actions = append(actions, Action{

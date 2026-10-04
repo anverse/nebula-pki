@@ -1,0 +1,60 @@
+# A ca block and a trust_bundle with the same label name their symlinks
+# alike (main.crt). Moving a link_crt entry from one block to the other in a
+# single edit retargets the symlink; the old owner only forgets it, so the
+# manifest records the path under exactly one block. Works in both
+# directions, and re-runs are no-ops.
+
+[!exec:readlink] skip 'readlink not in PATH'
+
+cp ca-link.hcl nebula.hcl
+exec nebula-pki
+stderr '^linked CA "main"$'
+exec readlink out/node/main.crt
+stdout '^\.\./ca/main\.crt$'
+
+# CA to bundle.
+cp bundle-link.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ update link out/node/main\.crt → \.\./bundles/main\.crt \(was \.\./ca/main\.crt\)$'
+stdout '^\+ hand over link out/node/main\.crt from ca "main"$'
+exec nebula-pki
+stderr '^linked trust bundle "main"$'
+! stderr 'deleted link'
+exec readlink out/node/main.crt
+stdout '^\.\./bundles/main\.crt$'
+grep '"target": "../bundles/main.crt"' out/nebula-pki.json
+! grep '"target": "../ca/main.crt"' out/nebula-pki.json
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+# Bundle to CA.
+cp ca-link.hcl nebula.hcl
+exec nebula-pki
+stderr '^linked CA "main"$'
+! stderr 'deleted link'
+exec readlink out/node/main.crt
+stdout '^\.\./ca/main\.crt$'
+grep '"target": "../ca/main.crt"' out/nebula-pki.json
+! grep '"target": "../bundles/main.crt"' out/nebula-pki.json
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- ca-link.hcl --
+ca "main" {
+  name     = "mesh"
+  link_crt = ["out/node"]
+}
+
+trust_bundle "main" {
+  ca_refs = [ca.main]
+}
+
+-- bundle-link.hcl --
+ca "main" {
+  name = "mesh"
+}
+
+trust_bundle "main" {
+  ca_refs  = [ca.main]
+  link_crt = ["out/node"]
+}

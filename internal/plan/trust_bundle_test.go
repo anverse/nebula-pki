@@ -335,6 +335,78 @@ ca "a" { name = "a" }
 	}
 }
 
+func TestBuild_LinkHandOverBetweenCAAndBundle(t *testing.T) {
+	// A CA and a trust bundle both labelled "main" produce the same symlink
+	// name. When the link_crt entry moves from one block to the other, the new
+	// owner retargets the symlink and the old owner only forgets it, so its
+	// manifest record no longer lists the path.
+	caLink := `
+ca "main" {
+  name     = "main"
+  link_crt = ["out/node"]
+}
+trust_bundle "main" { ca_refs = [ca.main] }
+`
+	bundleLink := `
+ca "main" { name = "main" }
+trust_bundle "main" {
+  ca_refs  = [ca.main]
+  link_crt = ["out/node"]
+}
+`
+	tests := []struct {
+		name      string
+		src       string
+		oldOwner  Kind
+		newOwner  Kind
+		oldTarget string
+		newTarget string
+	}{
+		{"ca to bundle", bundleLink, KindCA, KindTrustBundle, "../ca/main.crt", "../bundles/main.crt"},
+		{"bundle to ca", caLink, KindTrustBundle, KindCA, "../bundles/main.crt", "../ca/main.crt"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := parseCfg(t, tt.src)
+			ca := cfg.CAs[0]
+			tb := cfg.TrustBundles[0]
+			old := []manifest.CertLink{{Path: "out/node/main.crt", Target: tt.oldTarget}}
+			m := manifest.New()
+			m.CAs["main"] = &manifest.CA{Mode: "generate", Name: "main", Fingerprint: "fp-main"}
+			m.TrustBundles = map[string]*manifest.TrustBundle{"main": {
+				Path: cfg.TrustBundlePath(tb), CAFingerprints: []string{"fp-main"},
+			}}
+			if tt.oldOwner == KindCA {
+				m.CAs["main"].Links = old
+			} else {
+				m.TrustBundles["main"].Links = old
+			}
+			link := cfg.Resolve("out/node/main.crt")
+			p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca), cfg.TrustBundlePath(tb)), Options{
+				Lstat:    mockLstat(map[string]os.FileMode{link: os.ModeSymlink}),
+				Readlink: mockReadlink(map[string]string{link: tt.oldTarget}),
+			})
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			var gotCreate, gotForget bool
+			for _, a := range p.LinkActions() {
+				switch {
+				case a.Op == OpCreateSymlink && a.Owner == tt.newOwner && a.LinkTarget == tt.newTarget:
+					gotCreate = true
+				case a.Op == OpForgetLink && a.Owner == tt.oldOwner && a.Path == "out/node/main.crt":
+					gotForget = true
+				default:
+					t.Errorf("unexpected link action %+v", a)
+				}
+			}
+			if !gotCreate || !gotForget {
+				t.Errorf("LinkActions = %+v, want the new owner to retarget and the old owner to forget", p.LinkActions())
+			}
+		})
+	}
+}
+
 func TestBuild_RemovedCA_ReleasesFilesAndDeletesLinks(t *testing.T) {
 	cfg := parseCfg(t, `ca "new" { name = "new" }`)
 	ca := cfg.CAs[0]

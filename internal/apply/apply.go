@@ -295,15 +295,16 @@ func Reconcile(cfg *config.Config, opts Options) (*Report, error) {
 	if diskChanged {
 		hasAnyChange = true
 	}
-	// planLinks only emits OpDeleteSymlink for entries recorded in the
-	// current manifest, so any planned delete always changes the manifest content
+	// planLinks only emits OpDeleteSymlink and OpForgetLink for entries
+	// recorded in the current manifest, so any planned delete or hand-over
+	// always changes the manifest content
 	// — even when the symlink was already absent from disk (ErrNotExist path in
 	// applyLinks) and therefore didn't mutate disk (diskChanged stays false).
 	// Without this check the hasAnyChange early return below would fire
 	// before manifestUnchanged is consulted, leaving the stale CertLink record
 	// in the manifest permanently.
 	for _, la := range p.LinkActions() {
-		if la.Op == plan.OpDeleteSymlink {
+		if la.Op == plan.OpDeleteSymlink || la.Op == plan.OpForgetLink {
 			hasAnyChange = true
 			break
 		}
@@ -771,6 +772,10 @@ func applyLinks(cfg *config.Config, linkActions []plan.Action, next *manifest.Ma
 				add(a)
 			}
 
+		case plan.OpForgetLink:
+			// Another block declares this path now; it owns the symlink.
+			seen(a)
+
 		case plan.OpDeleteSymlink:
 			seen(a) // marks the owner as seen; its links stay nil
 			absLink := cfg.Resolve(a.Path)
@@ -960,7 +965,7 @@ func writeDryRunPlan(w io.Writer, cfg *config.Config, enc crypto.Encryptor, p pl
 
 	for _, la := range p.LinkActions() {
 		switch la.Op {
-		case plan.OpCreateSymlink, plan.OpDeleteSymlink:
+		case plan.OpCreateSymlink, plan.OpDeleteSymlink, plan.OpForgetLink:
 			linkLines = append(linkLines, la.Desc)
 		}
 	}
