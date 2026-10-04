@@ -1146,7 +1146,7 @@ func TestReconcile_NoBundleBlockWritesNoBundle(t *testing.T) {
 	}
 }
 
-// TestReconcile_BundleWritten verifies that bundle.crt is created on a fresh
+// TestReconcile_BundleWritten verifies that the bundle file is created on a fresh
 // run and has the expected file mode.
 func TestReconcile_BundleWritten(t *testing.T) {
 	cfg := writeConfig(t, meshBundleHCL)
@@ -1161,7 +1161,7 @@ func TestReconcile_BundleWritten(t *testing.T) {
 
 	bundleReal := cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0]))
 	if _, err := os.Stat(bundleReal); err != nil {
-		t.Fatalf("bundle.crt missing: %v", err)
+		t.Fatalf("bundle file missing: %v", err)
 	}
 	assertMode(t, bundleReal, 0o600)
 }
@@ -1198,7 +1198,7 @@ func TestReconcile_BundleManifestRecord(t *testing.T) {
 		t.Fatalf("manifest.Load: %v", err)
 	}
 	if m.TrustBundles["main"] == nil {
-		t.Fatal("manifest.TrustBundle = nil")
+		t.Fatal(`manifest.TrustBundles["main"] = nil`)
 	}
 	if m.TrustBundles["main"].Path != cfg.TrustBundlePath(cfg.TrustBundles[0]) {
 		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundles["main"].Path, cfg.TrustBundlePath(cfg.TrustBundles[0]))
@@ -1213,7 +1213,7 @@ func TestReconcile_BundleManifestRecord(t *testing.T) {
 }
 
 // TestReconcile_BundleIdempotent verifies that a second run leaves
-// bundle.crt byte-identical and does not set TrustBundleWritten.
+// the bundle file byte-identical and reports no bundle written.
 func TestReconcile_BundleIdempotent(t *testing.T) {
 	cfg := writeConfig(t, meshBundleHCL)
 
@@ -1231,12 +1231,12 @@ func TestReconcile_BundleIdempotent(t *testing.T) {
 		t.Error("Changed = true on idempotent run, want false")
 	}
 	if len(rep.TrustBundlesWritten) > 0 {
-		t.Error("TrustBundlesWritten: true on idempotent run, want false")
+		t.Errorf("TrustBundlesWritten = %+v on idempotent run, want none", rep.TrustBundlesWritten)
 	}
 
 	bundle2 := mustRead(t, cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0])))
 	if !bytes.Equal(bundle1, bundle2) {
-		t.Error("bundle.crt changed on idempotent run")
+		t.Error("bundle file changed on idempotent run")
 	}
 }
 
@@ -1314,7 +1314,7 @@ cert "h2" {
 		t.Fatalf("manifest.Load: %v", err)
 	}
 	if m.TrustBundles["main"] == nil {
-		t.Fatal("TrustBundle = nil")
+		t.Fatal(`manifest.TrustBundles["main"] = nil`)
 	}
 	if len(m.TrustBundles["main"].CAFingerprints) != 2 {
 		t.Fatalf("CAFingerprints len = %d, want 2", len(m.TrustBundles["main"].CAFingerprints))

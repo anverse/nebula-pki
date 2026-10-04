@@ -158,13 +158,13 @@ func TestReconcile_ReferenceBundleContent(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(rep.TrustBundlesWritten) == 0 {
-		t.Error("TrustBundlesWritten: false on first reference run, want true")
+		t.Error("TrustBundlesWritten is empty on first reference run, want the bundle")
 	}
 
 	// Bundle content must equal the referenced CA cert exactly.
 	bundleReal := cfg.Resolve(cfg.TrustBundlePath(cfg.TrustBundles[0]))
 	if _, err := os.Stat(bundleReal); err != nil {
-		t.Fatalf("bundle.crt missing: %v", err)
+		t.Fatalf("bundle file missing: %v", err)
 	}
 	bundleBytes := mustRead(t, bundleReal)
 	refCertBytes := mustRead(t, cfg.Resolve(cfg.CACertPathForCA(cfg.CAs[0])))
@@ -178,7 +178,7 @@ func TestReconcile_ReferenceBundleContent(t *testing.T) {
 		t.Fatalf("manifest.Load: %v", err)
 	}
 	if m.TrustBundles["main"] == nil {
-		t.Fatal("manifest.TrustBundle = nil")
+		t.Fatal(`manifest.TrustBundles["main"] = nil`)
 	}
 	if m.TrustBundles["main"].Path != cfg.TrustBundlePath(cfg.TrustBundles[0]) {
 		t.Errorf("TrustBundle.Path = %q, want %q", m.TrustBundles["main"].Path, cfg.TrustBundlePath(cfg.TrustBundles[0]))
@@ -193,10 +193,10 @@ func TestReconcile_ReferenceBundleContent(t *testing.T) {
 		t.Fatalf("second Reconcile: %v", err)
 	}
 	if len(rep2.TrustBundlesWritten) > 0 {
-		t.Error("TrustBundlesWritten: true on second reference run, want false (idempotent)")
+		t.Errorf("TrustBundlesWritten = %+v on second reference run, want none (idempotent)", rep2.TrustBundlesWritten)
 	}
 	if !bytes.Equal(mustRead(t, bundleReal), bundleBytes) {
-		t.Error("bundle.crt changed on idempotent reference rerun")
+		t.Error("bundle file changed on idempotent reference rerun")
 	}
 }
 
