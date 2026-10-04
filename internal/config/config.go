@@ -77,16 +77,6 @@ type TrustBundle struct {
 	LinkCrt []string
 }
 
-// Has reports whether the CA with the given label is a bundle member.
-func (tb *TrustBundle) Has(label string) bool {
-	for _, l := range tb.CARefs {
-		if l == label {
-			return true
-		}
-	}
-	return false
-}
-
 // IsMultiCA reports whether the config declares more than one CA.
 func (c *Config) IsMultiCA() bool { return len(c.CAs) > 1 }
 

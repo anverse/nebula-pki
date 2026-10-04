@@ -37,9 +37,6 @@ ca "next" {
 	if want := []string{"out/a", "out/b"}; !reflect.DeepEqual(tb.LinkCrt, want) {
 		t.Errorf("LinkCrt = %v, want %v", tb.LinkCrt, want)
 	}
-	if !tb.Has("current") || tb.Has("other") {
-		t.Error("Has() does not reflect membership")
-	}
 }
 
 func TestTrustBundle_NoBlockMeansNoBundle(t *testing.T) {
