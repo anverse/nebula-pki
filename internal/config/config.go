@@ -1063,7 +1063,8 @@ func (u pathUse) String() string { return fmt.Sprintf("%s (%s)", u.owner, u.role
 // key_file are inputs and may be shared between reference CAs, but must not
 // be the target of any write. Paths are compared after resolving against the
 // config directory and cleaning. A clash names every owner of the path
-// (ADR-026 "Detailed rules").
+// (ADR-026 "Detailed rules"). A written file must also not be a parent
+// directory of another path.
 func validateArtifactPaths(cfg *Config) error {
 	type entry struct {
 		logical string
@@ -1131,14 +1132,35 @@ func validateArtifactPaths(cfg *Config) error {
 		if len(e.uses) < 2 || writes == 0 {
 			continue
 		}
-		names := make([]string, len(e.uses))
-		for i, u := range e.uses {
-			names[i] = u.String()
+		return fmt.Errorf("path %s is used by %s", e.logical, joinUses(e.uses))
+	}
+
+	// A path written as a file cannot also be a directory that holds another
+	// path, e.g. a bundle path of out/certs next to the default cert files.
+	for _, key := range order {
+		for dir := filepath.Dir(key); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+			parent, ok := byPath[dir]
+			if !ok {
+				continue
+			}
+			child := byPath[key]
+			return fmt.Errorf("path %s is a file for %s but a directory holding %s for %s",
+				parent.logical, joinUses(parent.uses), child.logical, joinUses(child.uses))
 		}
-		list := strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
-		return fmt.Errorf("path %s is used by %s", e.logical, list)
 	}
 	return nil
+}
+
+// joinUses lists the uses of one path as "a, b and c".
+func joinUses(uses []pathUse) string {
+	names := make([]string, len(uses))
+	for i, u := range uses {
+		names[i] = u.String()
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 func validateCerts(cfg *Config) error {

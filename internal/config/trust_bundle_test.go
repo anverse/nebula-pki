@@ -335,6 +335,42 @@ ca "a" { name = "a" }
 			want: `path out/ca/a.crt is used by ca "a" (cert) and trust_bundle "main" (path)`,
 		},
 		{
+			name: "bundle file is the cert directory",
+			src: `
+trust_bundle "main" {
+  ca_refs = [ca.a]
+  path    = "out/certs"
+}
+ca "a" { name = "a" }
+cert "h1" { networks = ["10.0.0.1/16"] }
+`,
+			want: `path out/certs is a file for trust_bundle "main" (path) but a directory holding out/certs/h1.crt for cert "h1" (cert)`,
+		},
+		{
+			name: "ca cert is a link_crt directory",
+			src: `
+ca "a" {
+  name     = "a"
+  link_crt = ["out/ca/a.crt"]
+}
+`,
+			want: `path out/ca/a.crt is a file for ca "a" (cert) but a directory holding out/ca/a.crt/a.crt for ca "a" (link_crt)`,
+		},
+		{
+			name: "sibling paths sharing a name prefix are fine",
+			src: `
+trust_bundle "main" {
+  ca_refs = [ca.a]
+  path    = "out/cert"
+}
+ca "a" { name = "a" }
+cert "h1" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out/certs"
+}
+`,
+		},
+		{
 			name: "bundle symlink onto its own file",
 			src: `
 trust_bundle "main" {

@@ -553,6 +553,7 @@ Paths and symlinks:
 
 - A `link_crt` entry (on a `ca` or a `trust_bundle`) is empty or repeats a directory of the same list.
 - Two things write the same path. Every path the tool writes must be unique: CA certificates and keys (with the encryption suffix), cert certificates and keys, bundle files, `link_crt` symlinks, and the manifest. No write may target a referenced CA's `cert_file` or `key_file` (reference CAs may share those inputs). Paths are compared after resolving and cleaning, so `out/x/` and `out/x` are the same. The error names every owner, e.g. `path out/s/main.crt is used by ca "a" (link_crt), ca "b" (link_crt) and trust_bundle "main" (link_crt)`. This also catches a symlink that would replace its own target, such as `link_crt` naming the bundle's own directory.
+- A written file is also a directory holding another path, e.g. a bundle `path = "out/certs"` while certs are written to `out/certs/`. The error names the owners of both paths.
 
 Certs:
 

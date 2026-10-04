@@ -279,6 +279,7 @@ The manifest already carries an explicit `schema_version` field from day one —
 - Two `trust_bundle` blocks share a label → error.
 - `trust_bundle.ca_refs` empty, not a list of `ca.<label>` references, naming an undeclared CA, or repeating a member → error with source range.
 - Two things write the same path (CA cert/key, cert cert/key, bundle file, `link_crt` symlink, manifest), or a write targets a referenced CA's `cert_file`/`key_file` → error naming every owner.
+- A written file is also the directory of another written path (e.g. bundle `path = "out/certs"`) → error naming both owners.
 - More than one `ca` block sets `default = true` → error.
 - `cert.ca` is not a `ca.<label>` reference → error.
 - `cert.ca` references a CA that is not declared → error.

@@ -2,6 +2,7 @@
 # key, cert cert and key, bundle files, link_crt symlinks and the manifest. No
 # write may target a referenced CA's cert_file or key_file. Paths are compared
 # after cleaning, and a clash names every owner (ADR-026 "Detailed rules").
+# A written file can also not be a directory that holds another path.
 
 # CA symlink vs bundle symlink with the same file name.
 ! exec nebula-pki check -c ca-bundle.hcl
@@ -35,6 +36,10 @@ stderr '^error: path out/ca/current\.crt is used by ca "current" \(cert\) and ca
 # A bundle path onto a referenced CA's cert_file.
 ! exec nebula-pki check -c onto-reference.hcl
 stderr '^error: path ref/ca\.crt is used by ca "shared" \(cert_file\) and trust_bundle "main" \(path\)$'
+
+# A bundle file where the default cert directory is.
+! exec nebula-pki check -c bundle-is-cert-dir.hcl
+stderr '^error: path out/certs is a file for trust_bundle "main" \(path\) but a directory holding out/certs/app\.crt for cert "app" \(cert\)$'
 
 # A cert written onto a CA certificate.
 ! exec nebula-pki check -c cert-onto-ca.hcl
@@ -147,6 +152,14 @@ ca "shared" {
   cert_file = "ref/ca.crt"
   key_file  = "ref/ca.key"
 }
+
+-- bundle-is-cert-dir.hcl --
+trust_bundle "main" {
+  ca_refs = [ca.a]
+  path    = "out/certs"
+}
+ca "a" { name = "a" }
+cert "app" { networks = ["10.0.0.1/16"] }
 
 -- cert-onto-ca.hcl --
 ca "current" {
