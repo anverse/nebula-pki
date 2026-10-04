@@ -84,7 +84,7 @@ Accepted. See ADR-006 for the extensibility shape.
 Only **private key files** are encrypted. Specifically: CA private keys (generate mode, written as `<label>.key<suffix>`) and cert private keys (written as `<cert.name>.key<suffix>`). Nothing else is encrypted:
 
 - **Public certificates (`.crt`)** are not secret material in Nebula's design. Nodes present them during connection establishment; they are meant to be distributed. Encrypting them would add decryption overhead to every downstream consumer (Terraform `file()`, Ansible copy tasks, etc.) with no security benefit.
-- **The trust bundle** (`bundle.crt`) is a concatenation of CA public certs — equally public.
+- **Trust bundles** (`bundles/<label>.crt`) are concatenations of CA public certs — equally public.
 - **The manifest** (`nebula-pki.json`) is designed to contain no secret material. Fingerprints are public identifiers; artifact paths are structural metadata.
 - **QR PNGs** contain public key material only.
 
