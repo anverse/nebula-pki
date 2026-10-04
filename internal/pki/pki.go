@@ -129,6 +129,16 @@ func GenerateCA(ca config.CA, now time.Time) (*CAResult, error) {
 // in reference mode). Test for it with errors.Is.
 var ErrReferenceCAExpired = errors.New("reference CA is expired")
 
+// CertFingerprint returns the fingerprint of a PEM-encoded certificate, as
+// nebula-cert prints it. Used to plan trust bundles over reference-mode CAs.
+func CertFingerprint(certPEM []byte) (string, error) {
+	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
+	if err != nil {
+		return "", fmt.Errorf("parse certificate: %w", err)
+	}
+	return c.Fingerprint()
+}
+
 // LoadReferenceCA parses and verifies an operator-supplied existing CA
 // from its certificate and private-key PEM bytes. It performs no
 // filesystem access; the caller reads the files. On success it returns
@@ -156,16 +166,6 @@ var ErrReferenceCAExpired = errors.New("reference CA is expired")
 // returned together with ErrReferenceCAExpired so the caller can warn and
 // proceed. Every other problem returns a nil result and a descriptive
 // error.
-// CertFingerprint returns the fingerprint of a PEM-encoded certificate, as
-// nebula-cert prints it. Used to plan trust bundles over reference-mode CAs.
-func CertFingerprint(certPEM []byte) (string, error) {
-	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
-	if err != nil {
-		return "", fmt.Errorf("parse certificate: %w", err)
-	}
-	return c.Fingerprint()
-}
-
 func LoadReferenceCA(certPEM, keyPEM []byte, now time.Time) (*CAResult, error) {
 	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
 	if err != nil {
