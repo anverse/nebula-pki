@@ -6,6 +6,7 @@ package plan
 import (
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -432,7 +433,7 @@ func TestBuild_RemovedCA_ReleasesFilesAndDeletesLinks(t *testing.T) {
 		CertPath: "out/ca/old.crt", KeyPath: "out/ca/old.key",
 		Links: []manifest.CertLink{{Path: "out/node/old.crt", Target: "../ca/old.crt"}},
 	}
-	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)), Options{Lstat: mockLstat(nil)})
+	p, err := Build(cfg, m, testNow, existsSet(cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca), "out/ca/old.crt", "out/ca/old.key"), Options{Lstat: mockLstat(nil)})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -467,6 +468,53 @@ func TestBuild_RemovedReferenceCA_ReleasesNoPaths(t *testing.T) {
 	rel := p.ReleaseActions()
 	if len(rel) != 1 || rel[0].Label != "ref" || len(rel[0].Paths) != 0 {
 		t.Fatalf("ReleaseActions = %+v, want ref released without paths", rel)
+	}
+}
+
+func TestBuild_Release_OnlyFilesStillOnDisk(t *testing.T) {
+	// The release notice says the files stay on disk, so it lists only files
+	// that are there. The action is planned even without paths, so the
+	// manifest drops the record.
+	cfg := parseCfg(t, `ca "new" { name = "new" }`)
+	ca := cfg.CAs[0]
+	m := manifest.New()
+	m.CAs["new"] = &manifest.CA{Mode: "generate", Name: "new"}
+	m.CAs["old"] = &manifest.CA{Mode: "generate", Name: "old", CertPath: "out/ca/old.crt", KeyPath: "out/ca/old.key"}
+	m.TrustBundles = map[string]*manifest.TrustBundle{"gone": {Path: "out/bundles/gone.crt"}}
+
+	for _, tt := range []struct {
+		name    string
+		present []string
+		ca      []string
+		bundle  []string
+	}{
+		{"all gone", nil, nil, nil},
+		{"only the ca cert", []string{"out/ca/old.crt"}, []string{"out/ca/old.crt"}, nil},
+		{"only the bundle", []string{"out/bundles/gone.crt"}, nil, []string{"out/bundles/gone.crt"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			present := append([]string{cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)}, tt.present...)
+			p, err := Build(cfg, m, testNow, existsSet(present...), Options{})
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if !p.Changes() {
+				t.Error("Changes() = false, want true: the manifest drops the records")
+			}
+			got := map[Kind][]string{}
+			for _, a := range p.ReleaseActions() {
+				got[a.Owner] = a.Paths
+				if a.Owner == KindCA && a.Label != "old" || a.Owner == KindTrustBundle && a.Label != "gone" {
+					t.Errorf("unexpected release %+v", a)
+				}
+			}
+			if len(p.ReleaseActions()) != 2 {
+				t.Fatalf("ReleaseActions = %+v, want ca old and trust bundle gone", p.ReleaseActions())
+			}
+			if !slices.Equal(got[KindCA], tt.ca) || !slices.Equal(got[KindTrustBundle], tt.bundle) {
+				t.Errorf("released ca %v, bundle %v; want ca %v, bundle %v", got[KindCA], got[KindTrustBundle], tt.ca, tt.bundle)
+			}
+		})
 	}
 }
 

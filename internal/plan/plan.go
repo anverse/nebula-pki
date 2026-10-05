@@ -243,7 +243,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 	}
 
 	actions = append(actions, planTrustBundles(cfg, m, actions, exists)...)
-	actions = append(actions, planReleases(cfg, m)...)
+	actions = append(actions, planReleases(cfg, m, exists)...)
 
 	return Plan{Actions: actions}, nil
 }
@@ -750,8 +750,10 @@ func bundleNeedsWrite(cfg *config.Config, m *manifest.Manifest, tb config.TrustB
 // removed or renamed or whose path changed. The files stay on disk (ADR-021
 // amendment, ADR-026). A removed reference-mode CA releases no paths: its
 // files were never managed. A path still managed by the current config is
-// never reported.
-func planReleases(cfg *config.Config, m *manifest.Manifest) []Action {
+// never reported, and neither is a file that is already gone: the notice says
+// the files stay on disk. The action is emitted even without paths, so the
+// manifest drops the record.
+func planReleases(cfg *config.Config, m *manifest.Manifest, exists func(string) bool) []Action {
 	if m == nil {
 		return nil
 	}
@@ -769,7 +771,7 @@ func planReleases(cfg *config.Config, m *manifest.Manifest) []Action {
 	keep := func(paths ...string) []string {
 		var kept []string
 		for _, p := range paths {
-			if p != "" && !managed[p] {
+			if p != "" && !managed[p] && exists(p) {
 				kept = append(kept, p)
 			}
 		}
@@ -795,10 +797,12 @@ func planReleases(cfg *config.Config, m *manifest.Manifest) []Action {
 	}
 	sort.Strings(labels)
 	for _, label := range labels {
-		paths := keep(m.TrustBundles[label].Path)
-		if len(paths) == 0 {
+		path := m.TrustBundles[label].Path
+		// Still managed: the bundle (or a renamed one) keeps writing it.
+		if managed[path] {
 			continue
 		}
+		paths := keep(path)
 		actions = append(actions, Action{
 			Op: OpRelease, Kind: KindRelease, Owner: KindTrustBundle, Label: label, Paths: paths,
 			Desc: fmt.Sprintf("release trust bundle %q", label),
