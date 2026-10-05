@@ -139,6 +139,41 @@ func CertFingerprint(certPEM []byte) (string, error) {
 	return c.Fingerprint()
 }
 
+// VerifyCAKey checks that a CA private key belongs to the CA certificate:
+// same curve, and the public key derived from the key equals the
+// certificate's. Used after decrypting a generate-mode CA key, which is
+// otherwise not checked before signing (ADR-027).
+func VerifyCAKey(certPEM, keyPEM []byte) error {
+	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
+	if err != nil {
+		return fmt.Errorf("parse CA certificate: %w", err)
+	}
+	if err := keyMatchesCert(c, keyPEM); err != nil {
+		return fmt.Errorf("CA %w", err)
+	}
+	return nil
+}
+
+// keyMatchesCert reports an error, phrased to follow "CA " or
+// "reference CA ", when keyPEM is not the private key of c.
+func keyMatchesCert(c cert.Certificate, keyPEM []byte) error {
+	rawKey, _, keyCurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(keyPEM)
+	if err != nil {
+		return fmt.Errorf("key: parse: %w", err)
+	}
+	if keyCurve != c.Curve() {
+		return fmt.Errorf("key curve %s does not match certificate curve %s", CurveString(keyCurve), CurveString(c.Curve()))
+	}
+	derivedPub, err := publicFromSigningKey(keyCurve, rawKey)
+	if err != nil {
+		return fmt.Errorf("key: %w", err)
+	}
+	if !bytes.Equal(derivedPub, c.PublicKey()) {
+		return fmt.Errorf("key does not match certificate %q (public keys differ)", c.Name())
+	}
+	return nil
+}
+
 // LoadReferenceCA parses and verifies an operator-supplied existing CA
 // from its certificate and private-key PEM bytes. It performs no
 // filesystem access; the caller reads the files. On success it returns
@@ -178,23 +213,8 @@ func LoadReferenceCA(certPEM, keyPEM []byte, now time.Time) (*CAResult, error) {
 		return nil, fmt.Errorf("reference CA certificate %q has an invalid self-signature", c.Name())
 	}
 
-	rawKey, _, keyCurve, err := cert.UnmarshalSigningPrivateKeyFromPEM(keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("parse reference CA key: %w", err)
-	}
-	if keyCurve != c.Curve() {
-		return nil, fmt.Errorf(
-			"reference CA key curve %s does not match certificate curve %s",
-			CurveString(keyCurve), CurveString(c.Curve()),
-		)
-	}
-
-	derivedPub, err := publicFromSigningKey(keyCurve, rawKey)
-	if err != nil {
-		return nil, fmt.Errorf("reference CA key: %w", err)
-	}
-	if !bytes.Equal(derivedPub, c.PublicKey()) {
-		return nil, fmt.Errorf("reference CA key does not match certificate %q (public keys differ)", c.Name())
+	if err := keyMatchesCert(c, keyPEM); err != nil {
+		return nil, fmt.Errorf("reference CA %w", err)
 	}
 
 	fp, err := c.Fingerprint()

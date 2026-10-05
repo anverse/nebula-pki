@@ -609,6 +609,11 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 			if err != nil {
 				return nil, nil, fmt.Errorf("cert %q: decrypt CA %q key: %w", h.Label, signingCA.Label, err)
 			}
+			// A plaintext key is checked when the CA is loaded; an encrypted
+			// one only now, before it signs anything (ADR-027).
+			if err := pki.VerifyCAKey(pems.cert, plainKey); err != nil {
+				return nil, nil, fmt.Errorf("cert %q: ca %q: %w", h.Label, signingCA.Label, err)
+			}
 			pems.key = plainKey
 			pems.encrypted = false
 			caKeys[signingCA.Label] = pems

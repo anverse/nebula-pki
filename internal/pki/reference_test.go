@@ -324,3 +324,38 @@ func mintBadSelfSignedCA(t *testing.T) (certPEM, keyPEM []byte) {
 	}
 	return badPEM, caA.KeyPEM
 }
+
+// TestVerifyCAKey covers the key check run after decrypting a generate-mode
+// CA key: its own key passes, the key of another CA on the same curve or on
+// a different curve fails, and unparsable input is an error.
+func TestVerifyCAKey(t *testing.T) {
+	caA := generateCAForRef(t, `ca "a" { name = "a" }`)
+	caB := generateCAForRef(t, `ca "b" { name = "b" }`)
+	caP256 := generateCAForRef(t, `
+ca "c" {
+  name  = "c"
+  curve = "P256"
+}`)
+
+	if err := VerifyCAKey(caA.CertPEM, caA.KeyPEM); err != nil {
+		t.Errorf("own key: %v", err)
+	}
+	if err := VerifyCAKey(caP256.CertPEM, caP256.KeyPEM); err != nil {
+		t.Errorf("own P256 key: %v", err)
+	}
+	for _, tc := range []struct {
+		name      string
+		cert, key []byte
+		want      string
+	}{
+		{"other CA's key", caA.CertPEM, caB.KeyPEM, "CA key does not match certificate"},
+		{"other curve", caA.CertPEM, caP256.KeyPEM, "CA key curve P256 does not match certificate curve 25519"},
+		{"corrupt key", caA.CertPEM, []byte("not a key"), "CA key: parse"},
+		{"corrupt cert", []byte("not a cert"), caA.KeyPEM, "parse CA certificate"},
+	} {
+		err := VerifyCAKey(tc.cert, tc.key)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: error = %v, want it to contain %q", tc.name, err, tc.want)
+		}
+	}
+}
