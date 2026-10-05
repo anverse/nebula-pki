@@ -59,6 +59,8 @@ Each CA has two mutually exclusive modes:
 
 **Generate-only fields** (`name` aside): `duration`, `version`, `curve`, `encrypt`, `argon_*`, `out_crt`, `out_key`, `out_qr`. Setting any of them in reference mode is an error. `link_crt` is allowed in both modes.
 
+**A CA is pinned to its label.** The manifest records each CA's fingerprint under its label, and certs re-sign only when their signing CA label changes. So a different CA under a recorded label is an error at reconcile and `--dry-run`, before anything is written: a referenced CA whose certificate changed, a generated CA whose cert and key are both gone (it is not silently regenerated), or a generated CA whose certificate changed. An encrypted CA key is checked against its certificate when it is decrypted to sign. To switch CAs, declare the new one under a new label; to start from scratch, delete all of `out/`, manifest included. See [ADR-027](./adr/027-ca-pinned-to-label.md).
+
 **Deleting a `ca` block.** Its `link_crt` symlinks are deleted and its manifest record is dropped. Its certificate and key files are **not** deleted: they stay on disk and the run prints a notice that they are no longer managed.
 
 #### Signing-CA selection
@@ -329,7 +331,7 @@ cert "new_app" {
 }
 ```
 
-A referenced CA is pinned to its label by the fingerprint the manifest records. Moving the same CA to another path is fine. A different CA behind `cert_file` under the same label (a new CA at the same path, the wrong branch or environment) fails the run before anything is written; to switch, declare the new CA under a new label. See [ADR-027](./adr/027-reference-ca-pinned-to-label.md).
+A referenced CA is pinned to its label by the fingerprint the manifest records. Moving the same CA to another path is fine. A different CA behind `cert_file` under the same label (a new CA at the same path, the wrong branch or environment) fails the run before anything is written; to switch, declare the new CA under a new label. See [ADR-027](./adr/027-ca-pinned-to-label.md).
 
 ## CA rotation example
 
@@ -543,7 +545,8 @@ CA and multi-CA:
 - A cert's signing CA is ambiguous: the file has >1 CA, the cert has no `cert.ca`, and no CA is marked `default = true`.
 - `ca` is in reference mode but only one of `cert_file` / `key_file` is set.
 - `ca` is in reference mode and sets generate-only fields (`name`, `duration`, `curve`, `version`, `out_*`, `argon_*`, `encrypt`).
-- At reconcile and `--dry-run` (not `check`, which does not read the manifest): a reference-mode CA's certificate fingerprint differs from the one the manifest records under its label ([ADR-027](./adr/027-reference-ca-pinned-to-label.md)).
+- At reconcile and `--dry-run` (not `check`, which does not read the manifest): a CA's certificate fingerprint differs from the one the manifest records under its label, or a generate-mode CA the manifest records has neither its cert nor its key on disk ([ADR-027](./adr/027-ca-pinned-to-label.md)).
+- When a cert is signed: an encrypted CA key does not belong to its certificate.
 
 Trust bundle:
 

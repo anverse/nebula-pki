@@ -75,7 +75,9 @@ multi-file runs — is **not** solved with a cross-file transaction. Instead:
   finishes the remaining work.
 * The tool **refuses to overwrite an untracked CA** (cert/key present on disk
   but absent from the manifest), so a partial run can never be silently
-  clobbered or mistaken for a clean slate.
+  clobbered or mistaken for a clean slate. Conversely it never generates a
+  new CA for a label the manifest records whose files are gone
+  ([ADR-027](./027-ca-pinned-to-label.md)).
 
 A no-op run (nothing changed) writes **nothing at all** — not even the manifest
 — so re-running an up-to-date tree produces a byte-identical result and zero VCS

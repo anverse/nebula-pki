@@ -77,7 +77,7 @@ On a run, nebula-pki loads the referenced pair and verifies it before recording 
 
 Reference-mode reconcile is idempotent: a second run against an unchanged referenced CA writes nothing (the manifest stays byte-identical). Moving the same CA to another path just updates the recorded paths.
 
-> **A reference CA is pinned to its label.** If the certificate behind `cert_file` has a different fingerprint than the manifest records for the label (a new CA at the same path, the wrong branch or environment), the run and `--dry-run` fail before writing anything. To switch to a different CA, declare it under a new label (move `default = true`, update `ca_refs`); its certs are then re-signed. See [ADR-027](./spec/adr/027-reference-ca-pinned-to-label.md).
+> **A reference CA is pinned to its label.** If the certificate behind `cert_file` has a different fingerprint than the manifest records for the label (a new CA at the same path, the wrong branch or environment), the run and `--dry-run` fail before writing anything. To switch to a different CA, declare it under a new label (move `default = true`, update `ca_refs`); its certs are then re-signed. See [ADR-027](./spec/adr/027-ca-pinned-to-label.md).
 
 ## Full CA options (generate mode)
 
@@ -116,6 +116,8 @@ ca "label" {
   link_crt          = ["out/hetzner", "out/aws"]
 }
 ```
+
+> **A generated CA is pinned to its label.** nebula-pki never generates a new CA under a label the manifest already records. If the CA's cert and key are both gone, or `out/ca/<label>.crt` holds a different CA than recorded (e.g. `out/` checked out from the wrong branch), the run and `--dry-run` fail before writing anything. An encrypted CA key is checked against the certificate when it is decrypted to sign. To replace a CA, declare it under a new label (move `default = true`, update `ca_refs`); to start from scratch, delete all of `out/`, manifest included. See [ADR-027](./spec/adr/027-ca-pinned-to-label.md).
 
 ## Trust bundles
 
@@ -279,6 +281,7 @@ The manifest already carries an explicit `schema_version` field from day one —
 - `ca` reference mode whose `cert_file`/`key_file` do not exist on disk → error (at reconcile/`check`, not parse time).
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
 - `ca` reference mode whose certificate fingerprint differs from the one the manifest records for the label → error at reconcile and `--dry-run` (not `check`).
+- `ca` generate mode recorded in the manifest whose cert and key are both missing, or whose certificate fingerprint differs from the record → error at reconcile and `--dry-run` (not `check`). An encrypted CA key that does not belong to its certificate → error when it is decrypted to sign.
 - Two `trust_bundle` blocks share a label → error.
 - `trust_bundle.ca_refs` empty, not a list of `ca.<label>` references, naming an undeclared CA, or repeating a member → error with source range.
 - Two things write the same path (CA cert/key, cert cert/key, bundle file, `link_crt` symlink, manifest), or a write targets a referenced CA's `cert_file`/`key_file` → error naming every owner.

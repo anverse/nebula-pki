@@ -183,6 +183,10 @@ Time-based renewal (clause 7) is the one place the up-to-date verdict depends on
 
 Existing files are not overwritten silently — Nebula refuses to overwrite, so the tool removes its own previously-recorded paths before re-signing.
 
+### CA rules
+
+A generate-mode CA is up to date when its manifest entry exists and its cert and key are on disk; it is generated only when it is neither recorded nor on disk. Half a pair, or a pair on disk the manifest does not record, is an error ([ADR-013](./013-atomic-artifact-writes.md)). A CA is also pinned to its label ([ADR-027](./027-ca-pinned-to-label.md), 2026-10-04/05): a recorded CA whose cert and key are both gone, or whose certificate fingerprint differs from the recorded one (in either mode), is an error rather than a new CA. Clause 6 above compares the signing CA by label in the implementation; with CAs pinned to their labels that is equivalent to comparing `ca_fingerprint`.
+
 ## Consequences
 
 - The manifest is the single comparator; no separate state file.
