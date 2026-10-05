@@ -219,7 +219,7 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		if ca.Mode == config.CAModeReference {
 			a, err = planReferenceCA(cfg, ca, m, exists, opts)
 		} else {
-			a, err = planCA(cfg, ca, m, exists)
+			a, err = planCA(cfg, ca, m, exists, opts)
 		}
 		if err != nil {
 			return Plan{}, err
@@ -352,18 +352,8 @@ func planReferenceCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, ex
 		return Action{}, referenceMissingError(ca.Label, haveCert, haveKey, certPath, keyPath)
 	}
 
-	if rec := recordedCA(m, ca.Label); rec != nil && rec.Fingerprint != "" && opts.Fingerprint != nil {
-		fp, err := opts.Fingerprint(cfg.Resolve(certPath))
-		if err != nil {
-			return Action{}, fmt.Errorf("ca %q: read referenced CA cert_file %s: %w", ca.Label, certPath, err)
-		}
-		if fp != rec.Fingerprint {
-			return Action{}, fmt.Errorf(
-				"ca %q: referenced CA changed: cert_file %s has fingerprint %s, but the manifest records %s for this label; "+
-					"restore the recorded CA, or declare the new CA under a new label (move default = true and update ca_refs) to switch to it",
-				ca.Label, certPath, fp, rec.Fingerprint,
-			)
-		}
+	if err := checkRecordedFingerprint(cfg, ca, recordedCA(m, ca.Label), "cert_file "+certPath, opts, "referenced CA changed"); err != nil {
+		return Action{}, err
 	}
 
 	return Action{
@@ -373,6 +363,28 @@ func planReferenceCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, ex
 		Path:  certPath,
 		Desc:  fmt.Sprintf("use referenced CA %q (%s)", ca.Label, certPath),
 	}, nil
+}
+
+// newLabelHint ends the errors for a CA that changed under its label.
+const newLabelHint = "declare the new CA under a new label (move default = true and update ca_refs) to switch to it"
+
+// checkRecordedFingerprint compares the certificate at certPath with the
+// fingerprint rec records for ca's label (ADR-027). what names the file in
+// the error and problem leads it. Without a recorded fingerprint or a
+// Fingerprint probe there is nothing to compare.
+func checkRecordedFingerprint(cfg *config.Config, ca *config.CA, rec *manifest.CA, what string, opts Options, problem string) error {
+	if rec == nil || rec.Fingerprint == "" || opts.Fingerprint == nil {
+		return nil
+	}
+	fp, err := opts.Fingerprint(cfg.Resolve(cfg.CACertPathForCA(*ca)))
+	if err != nil {
+		return fmt.Errorf("ca %q: read %s: %w", ca.Label, what, err)
+	}
+	if fp != rec.Fingerprint {
+		return fmt.Errorf("ca %q: %s: %s has fingerprint %s, but the manifest records %s for this label; restore the recorded CA, or %s",
+			ca.Label, problem, what, fp, rec.Fingerprint, newLabelHint)
+	}
+	return nil
 }
 
 // recordedCA returns the manifest record for label, or nil.
@@ -402,9 +414,16 @@ func referenceMissingError(label string, haveCert, haveKey bool, certPath, keyPa
 // decision):
 //
 //   - tracked in the manifest AND both files present  -> noop
-//   - neither file present                            -> generate
+//   - untracked AND neither file present              -> generate
 //   - anything else (files present but untracked, or
 //     only one of the pair present)                   -> error
+//
+// A CA is pinned to its label (ADR-027): certs re-sign only when their
+// signing CA label changes, so a different CA under a tracked label would
+// leave them and the trust bundles out of step. Hence a tracked CA whose
+// files are both gone is an error, not a fresh generate, and a tracked CA
+// whose certificate fingerprint differs from the recorded one is an error.
+// Switching CAs takes a new label.
 //
 // The key file path used for existence checks includes the active
 // encryption suffix (e.g. ".enc") so that idempotency works correctly
@@ -412,7 +431,7 @@ func referenceMissingError(label string, haveCert, haveKey bool, certPath, keyPa
 //
 // The tool never silently overwrites an existing CA, matching upstream
 // nebula-cert's refuse-to-overwrite behaviour.
-func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func(string) bool) (Action, error) {
+func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func(string) bool, opts Options) (Action, error) {
 	certPath := cfg.CACertPathForCA(*ca)
 	keyPath := cfg.CAKeyPathForCA(*ca)
 	suffix := cfg.Storage.Encryption.KeySuffix()
@@ -425,7 +444,15 @@ func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func
 
 	switch {
 	case tracked && haveCert && haveKey:
+		if err := checkRecordedFingerprint(cfg, ca, m.CAs[ca.Label], certPath, opts, "CA certificate changed"); err != nil {
+			return Action{}, err
+		}
 		return Action{Op: OpNoop, Kind: KindCA, Label: ca.Label, EncryptKey: encryptKey, Desc: fmt.Sprintf("CA %q up to date", ca.Label)}, nil
+	case tracked && !haveCert && !haveKey:
+		return Action{}, fmt.Errorf(
+			"ca %q: CA files missing: neither %s nor %s exists, but the manifest records CA %s for this label; restore them, or %s",
+			ca.Label, certPath, encKeyPath, m.CAs[ca.Label].Fingerprint, newLabelHint,
+		)
 	case !haveCert && !haveKey:
 		return Action{
 			Op:         OpGenerate,

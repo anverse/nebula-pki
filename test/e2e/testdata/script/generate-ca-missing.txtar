@@ -1,0 +1,67 @@
+# A generated CA is pinned to its label (ADR-027). When its files disappear,
+# the next run does not quietly generate a new CA under the old label, which
+# would leave the certs it signed behind: it fails before writing anything,
+# in --dry-run too. A new label switches to a new CA and re-signs its certs;
+# deleting all of out/ starts from scratch.
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^generated CA "mesh" \(mesh\)$'
+stderr '^signed cert "app"$'
+
+rm out/ca/mesh.crt
+rm out/ca/mesh.key
+cp out/nebula-pki.json manifest.before
+cp out/bundles/main.crt bundle.before
+cp out/certs/app.crt app.before
+
+! exec nebula-pki --dry-run
+stderr '^error: ca "mesh": CA files missing: neither out/ca/mesh\.crt nor out/ca/mesh\.key exists, but the manifest records CA [0-9a-f]+ for this label; restore them, or declare the new CA under a new label'
+! exec nebula-pki
+stderr 'CA files missing'
+! exists out/ca/mesh.crt
+! exists out/ca/mesh.key
+cmp out/nebula-pki.json manifest.before
+cmp out/bundles/main.crt bundle.before
+cmp out/certs/app.crt app.before
+
+# A new label is a new CA: generated, the cert re-signed, the bundle
+# rewritten. The old label's files are gone, so no "stays on disk" notice.
+cp v2.hcl nebula.hcl
+exec nebula-pki
+stderr '^generated CA "mesh2" \(mesh\)$'
+stderr '^signed cert "app"$'
+stderr '^wrote trust bundle "main": out/bundles/main\.crt$'
+! stderr 'no longer managed'
+cmp out/bundles/main.crt out/ca/mesh2.crt
+! grep '"mesh":' out/nebula-pki.json
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+# Deleting all of out/, manifest included, starts from scratch.
+rm out
+exec nebula-pki
+stderr '^generated CA "mesh2" \(mesh\)$'
+stderr '^signed cert "app"$'
+
+-- v1.hcl --
+ca "mesh" { name = "mesh" }
+
+trust_bundle "main" {
+  ca_refs = [ca.mesh]
+}
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- v2.hcl --
+ca "mesh2" { name = "mesh" }
+
+trust_bundle "main" {
+  ca_refs = [ca.mesh2]
+}
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}

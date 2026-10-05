@@ -1,0 +1,92 @@
+# A generated CA is pinned to its label by the fingerprint the manifest
+# records (ADR-027). If a different CA lands in its files, for example out/
+# checked out from the wrong branch, the run fails before writing anything,
+# in --dry-run too, and restoring the files makes it up to date again. With
+# an encrypted key the key itself is only read to sign: a swapped key is
+# caught then, before any cert is written.
+
+# A second, independent CA to swap in.
+mkdir other
+cp v1.hcl other/nebula.hcl
+exec nebula-pki -c other/nebula.hcl
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^signed cert "app"$'
+cp out/ca/mesh.crt mesh.crt.orig
+cp out/ca/mesh.key mesh.key.orig
+cp out/nebula-pki.json manifest.before
+cp out/certs/app.crt app.before
+
+cp other/out/ca/mesh.crt out/ca/mesh.crt
+cp other/out/ca/mesh.key out/ca/mesh.key
+! exec nebula-pki --dry-run
+stderr '^error: ca "mesh": CA certificate changed: out/ca/mesh\.crt has fingerprint [0-9a-f]+, but the manifest records [0-9a-f]+ for this label; restore the recorded CA, or declare the new CA under a new label'
+! exec nebula-pki
+stderr 'CA certificate changed'
+cmp out/nebula-pki.json manifest.before
+cmp out/certs/app.crt app.before
+
+# Restoring the recorded CA makes the tree up to date again.
+cp mesh.crt.orig out/ca/mesh.crt
+cp mesh.key.orig out/ca/mesh.key
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+# Encrypted CA keys: swap in the other CA's key while the cert stays.
+mkdir enc enc/other
+cp enc.hcl enc/nebula.hcl
+cp enc.hcl enc/other/nebula.hcl
+exec nebula-pki -c enc/other/nebula.hcl
+exec nebula-pki -c enc/nebula.hcl
+cp enc/other/out/ca/mesh.key.enc enc/out/ca/mesh.key.enc
+
+# Nothing to sign: the key is never read, the run stays a no-op.
+exec nebula-pki -c enc/nebula.hcl
+stderr '^up to date; nothing to do$'
+
+# A new cert to sign: the decrypted key is checked first.
+cp enc-new-cert.hcl enc/nebula.hcl
+! exec nebula-pki -c enc/nebula.hcl
+stderr '^error: cert "new": ca "mesh": CA key does not match certificate "mesh" \(public keys differ\)$'
+! exists enc/out/certs/new.crt
+! grep '"new"' enc/out/nebula-pki.json
+
+-- v1.hcl --
+ca "mesh" { name = "mesh" }
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- enc.hcl --
+ca "mesh" { name = "mesh" }
+
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+  }
+}
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}
+
+-- enc-new-cert.hcl --
+ca "mesh" { name = "mesh" }
+
+storage {
+  encryption "external" {
+    encrypt_command = ["cat"]
+    decrypt_command = ["cat"]
+  }
+}
+
+cert "app" {
+  networks = ["10.0.0.1/16"]
+}
+
+cert "new" {
+  networks = ["10.0.0.2/16"]
+}

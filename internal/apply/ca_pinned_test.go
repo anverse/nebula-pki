@@ -1,7 +1,7 @@
 package apply
 
-// Tests for generate-mode CA keys checked against their certificate
-// (ADR-027): a swapped encrypted key is an error, and nothing is written.
+// Tests for generate-mode CAs pinned to their label (ADR-027): deleted CA
+// files and a swapped encrypted key are errors, and nothing is written.
 
 import (
 	"bytes"
@@ -72,6 +72,32 @@ func assertUnchanged(t *testing.T, before, after map[string][]byte) {
 			t.Errorf("%s was created", path)
 		}
 	}
+}
+
+func TestReconcile_GeneratedCAFilesDeletedIsAnError(t *testing.T) {
+	cfg := writeConfig(t, `
+ca "mesh" { name = "mesh" }
+trust_bundle "main" { ca_refs = [ca.mesh] }
+cert "app" { networks = ["10.0.0.1/16"] }
+`)
+	if _, err := Reconcile(cfg, Options{Now: fixedNow, GeneratorVersion: genVersion}); err != nil {
+		t.Fatalf("first Reconcile: %v", err)
+	}
+	ca := cfg.CAs[0]
+	for _, p := range []string{cfg.CACertPathForCA(ca), cfg.CAKeyPathForCA(ca)} {
+		if err := os.Remove(cfg.Resolve(p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := snapshot(t, cfg)
+
+	for _, dryRun := range []bool{true, false} {
+		_, err := Reconcile(cfg, Options{Now: fixedNow.Add(time.Hour), GeneratorVersion: genVersion, DryRun: dryRun})
+		if err == nil || !strings.Contains(err.Error(), `ca "mesh": CA files missing`) {
+			t.Fatalf("Reconcile (dry run %v) error = %v, want the missing CA files error", dryRun, err)
+		}
+	}
+	assertUnchanged(t, before, snapshot(t, cfg))
 }
 
 func TestReconcile_EncryptedCAKeySwapped(t *testing.T) {
