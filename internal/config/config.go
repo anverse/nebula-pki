@@ -702,15 +702,17 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 // filePath returns a configured file path in its one cleaned spelling, so
 // that plan, apply and the manifest never see two spellings of one path
 // ("./out/b.crt" and "out/b.crt"). The value must name a file: a trailing
-// separator, ".", or ".." is rejected before cleaning would hide it. owner
-// and field name the setting in the error, e.g. `trust_bundle "main"` and
-// "path". nil and "" mean unset and return "".
+// separator, or a last element of "." or "..", is rejected. The last element
+// is taken from the value as written, since cleaning would hide it
+// ("dist/sub/.." cleans to "dist"). owner and field name the setting in the
+// error, e.g. `trust_bundle "main"` and "path". nil and "" mean unset and
+// return "".
 func filePath(filename, owner, field string, raw *string) (string, error) {
 	if raw == nil || *raw == "" {
 		return "", nil
 	}
 	p := *raw
-	base := filepath.Base(filepath.Clean(p))
+	base := filepath.Base(p)
 	if strings.HasSuffix(p, "/") || strings.HasSuffix(p, string(filepath.Separator)) ||
 		base == "." || base == ".." || base == string(filepath.Separator) {
 		return "", fmt.Errorf("%s: %s.%s: %q must name a file, not a directory", filename, owner, field, p)

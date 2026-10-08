@@ -168,7 +168,9 @@ func TestFilePath_MustNameAFile(t *testing.T) {
 		{"manifest_file", `storage`, func(v string) string { return ca + block(`storage`, `manifest_file = "`+v+`"`) }},
 	}
 	for _, f := range fields {
-		for _, v := range []string{"out/x/", ".", "./", "out/..", "/"} {
+		// "dist/sub/.." and "x/." clean to a file-like "dist" and "x"; the last
+		// element must be read before cleaning.
+		for _, v := range []string{"out/x/", ".", "./", "..", "../", "out/..", "/", "out/x//", "x/.", "dist/sub/..", "a/./.."} {
 			t.Run(f.owner+"."+f.name+"="+v, func(t *testing.T) {
 				_, err := Parse("t.hcl", []byte(f.hcl(v)))
 				want := `t.hcl: ` + f.owner + `.` + f.name + `: "` + v + `" must name a file, not a directory`
@@ -180,6 +182,73 @@ func TestFilePath_MustNameAFile(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestFilePath_FileNamesAccepted pins values that do name a file, including
+// names made of dots and a leading "../", and the one spelling they are
+// stored in.
+func TestFilePath_FileNamesAccepted(t *testing.T) {
+	for v, want := range map[string]string{
+		".crt":        ".crt",
+		"..crt":       "..crt",
+		"...":         "...",
+		"out/.b.crt":  "out/.b.crt",
+		"../x.crt":    "../x.crt",
+		"a/../b.crt":  "b.crt",
+		"./x.crt":     "x.crt",
+		"out//x.crt":  "out/x.crt",
+		"/abs/x.crt":  "/abs/x.crt",
+		"out/./x.crt": "out/x.crt",
+	} {
+		t.Run(v, func(t *testing.T) {
+			cfg, err := Parse("t.hcl", []byte(`
+ca "a" {
+  name = "a"
+}
+trust_bundle "main" {
+  ca_refs = [ca.a]
+  path    = "`+v+`"
+}
+`))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if got := cfg.TrustBundlePath(cfg.TrustBundles[0]); got != want {
+				t.Errorf("bundle path = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestDirPath_DotElementsAccepted pins that directory fields may end in "."
+// or "..": they name a directory either way, stored cleaned.
+func TestDirPath_DotElementsAccepted(t *testing.T) {
+	cfg, err := Parse("t.hcl", []byte(`
+ca "a" {
+  name     = "a"
+  link_crt = ["l/."]
+}
+trust_bundle "main" {
+  ca_refs  = [ca.a]
+  link_crt = ["lb/sub/.."]
+}
+cert "c" {
+  networks   = ["10.0.0.1/16"]
+  output_dir = "out/x/."
+}
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.CAs[0].LinkCrt[0]; got != "l" {
+		t.Errorf("ca link_crt = %q, want l", got)
+	}
+	if got := cfg.TrustBundles[0].LinkCrt[0]; got != "lb" {
+		t.Errorf("bundle link_crt = %q, want lb", got)
+	}
+	if got := cfg.CertArtifactPath(cfg.Certs[0]).CertPath; got != "out/x/c.crt" {
+		t.Errorf("cert path = %q, want out/x/c.crt", got)
 	}
 }
 

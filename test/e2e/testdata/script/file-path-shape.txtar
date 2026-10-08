@@ -1,7 +1,7 @@
-# A field that names a file must name a file: a trailing separator, "." or
-# ".." is rejected by check and by a run, before anything is written. Fields
-# that name a directory accept a trailing separator (ADR-026 "Detailed
-# rules").
+# A field that names a file must name a file: a trailing separator, or a last
+# element of "." or "..", is rejected by check and by a run, before anything
+# is written. Fields that name a directory accept a trailing separator
+# (ADR-026 "Detailed rules").
 
 ! exec nebula-pki check -c bundle-dir.hcl
 stderr 'trust_bundle "main"\.path: "out/x/" must name a file, not a directory'
@@ -18,6 +18,20 @@ stderr 'storage\.manifest_file: "out/" must name a file, not a directory'
 
 ! exec nebula-pki check -c dotdot.hcl
 stderr 'ca "mesh"\.out_crt: "out/\.\." must name a file, not a directory'
+
+# A last element of "." or ".." is caught as written, even when the cleaned
+# path would look like a file: "dist/sub/.." cleans to "dist", and a run used
+# to write the bundle to a file named dist.
+! exec nebula-pki check -c dotdot-nested.hcl
+stderr 'trust_bundle "main"\.path: "dist/sub/\.\." must name a file, not a directory'
+! exec nebula-pki -c dotdot-nested.hcl
+! exists dist
+! exists out
+
+! exec nebula-pki check -c dot.hcl
+stderr 'cert "app"\.out_crt: "x/\." must name a file, not a directory'
+! exec nebula-pki -c dot.hcl
+! exists out
 
 # Directory fields with a trailing separator are fine and stored cleaned.
 exec nebula-pki -c dirs.hcl
@@ -50,6 +64,20 @@ storage {
 ca "mesh" {
   name    = "mesh"
   out_crt = "out/.."
+}
+
+-- dotdot-nested.hcl --
+ca "mesh" { name = "mesh" }
+trust_bundle "main" {
+  ca_refs = [ca.mesh]
+  path    = "dist/sub/.."
+}
+
+-- dot.hcl --
+ca "mesh" { name = "mesh" }
+cert "app" {
+  networks = ["10.42.0.1/16"]
+  out_crt  = "x/."
 }
 
 -- dirs.hcl --
