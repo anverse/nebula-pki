@@ -1,0 +1,98 @@
+# Labels must be unique ignoring case within each block group (ca, cert,
+# trust_bundle), and so must cert names. They name files, and on a
+# case-insensitive filesystem such as macOS "main" and "Main" are one file.
+# check rejects them, and a run writes nothing.
+
+! exec nebula-pki check -c ca.hcl
+stderr '^error: ca "Mesh": label differs only in case from ca "mesh"; labels must be unique ignoring case$'
+! exec nebula-pki -c ca.hcl
+! exists out
+
+! exec nebula-pki check -c bundle.hcl
+stderr '^error: trust_bundle "Main": label differs only in case from trust_bundle "main"; labels must be unique ignoring case$'
+! exec nebula-pki -c bundle.hcl
+! exists out
+
+! exec nebula-pki check -c cert-label.hcl
+stderr '^error: cert "APP": label differs only in case from cert "app"; labels must be unique ignoring case$'
+
+! exec nebula-pki check -c cert-name.hcl
+stderr '^error: cert "b": certificate name "App" differs only in case from the name "app" of cert "a"; names must be unique ignoring case$'
+! exec nebula-pki -c cert-name.hcl
+! exists out
+
+# The same label in different groups names different files.
+exec nebula-pki -c across.hcl
+exists out/ca/main.crt
+exists out/bundles/main.crt
+exists out/certs/main.crt
+
+# References stay exact-case.
+! exec nebula-pki check -c ref.hcl
+stderr 'ca "Main" is not declared'
+
+-- ca.hcl --
+ca "mesh" {
+  name    = "mesh"
+  default = true
+}
+ca "Mesh" {
+  name = "mesh2"
+}
+
+-- bundle.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+trust_bundle "main" {
+  ca_refs = [ca.mesh]
+}
+trust_bundle "Main" {
+  ca_refs = [ca.mesh]
+}
+
+-- cert-label.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+cert "app" {
+  name     = "one"
+  networks = ["10.42.0.1/16"]
+}
+cert "APP" {
+  name     = "two"
+  networks = ["10.42.0.2/16"]
+}
+
+-- cert-name.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+cert "a" {
+  name     = "app"
+  networks = ["10.42.0.1/16"]
+}
+cert "b" {
+  name     = "App"
+  networks = ["10.42.0.2/16"]
+}
+
+-- across.hcl --
+ca "main" {
+  name = "main"
+}
+trust_bundle "main" {
+  ca_refs = [ca.main]
+}
+cert "main" {
+  networks = ["10.42.0.1/16"]
+}
+
+-- ref.hcl --
+ca "main" {
+  name = "main"
+}
+cert "app" {
+  networks = ["10.42.0.1/16"]
+  ca       = ca.Main
+}

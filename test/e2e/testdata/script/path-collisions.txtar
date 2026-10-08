@@ -17,6 +17,12 @@ stderr '^error: path out/s/main\.crt is used by ca "a" \(link_crt\), ca "b" \(li
 ! exec nebula-pki check -c cleaned.hcl
 stderr '^error: path out/shared/main\.crt is used by ca "main" \(link_crt\) and trust_bundle "main" \(link_crt\)$'
 
+# Paths differing only in case are one file on a case-insensitive
+# filesystem, so they collide everywhere.
+! exec nebula-pki check -c case.hcl
+stderr '^error: path out/Trust\.crt is used by trust_bundle "a" \(path\) and trust_bundle "b" \(path\)$'
+! exists out
+
 # A bundle path onto a CA certificate.
 ! exec nebula-pki check -c bundle-onto-ca.hcl
 stderr '^error: path out/ca/current\.crt is used by ca "current" \(cert\) and trust_bundle "main" \(path\)$'
@@ -99,6 +105,21 @@ trust_bundle "main" {
 ca "main" {
   name     = "mesh"
   link_crt = ["./out/shared"]
+}
+
+-- case.hcl --
+trust_bundle "a" {
+  ca_refs = [ca.mesh]
+  path    = "out/Trust.crt"
+}
+
+trust_bundle "b" {
+  ca_refs = [ca.mesh]
+  path    = "./out/trust.crt"
+}
+
+ca "mesh" {
+  name = "mesh"
 }
 
 -- bundle-onto-ca.hcl --

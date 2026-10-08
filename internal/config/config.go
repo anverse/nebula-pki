@@ -955,7 +955,7 @@ func validate(cfg *Config) error {
 }
 
 func validateCAs(cfg *Config) error {
-	seenLabels := make(map[string]struct{}, len(cfg.CAs))
+	seenLabels := make(labelSet, len(cfg.CAs))
 	defaultCount := 0
 
 	for i := range cfg.CAs {
@@ -964,10 +964,9 @@ func validateCAs(cfg *Config) error {
 		if !caLabelRe.MatchString(ca.Label) {
 			return fmt.Errorf("ca %q: label must match ^[A-Za-z_][A-Za-z0-9_-]*$", ca.Label)
 		}
-		if _, dup := seenLabels[ca.Label]; dup {
-			return fmt.Errorf("ca %q: duplicate label", ca.Label)
+		if err := seenLabels.add("ca", ca.Label); err != nil {
+			return err
 		}
-		seenLabels[ca.Label] = struct{}{}
 
 		if ca.Default {
 			defaultCount++
@@ -1042,6 +1041,35 @@ func validateOneCA(filename string, ca *CA) error {
 	return validateLinkCrt(fmt.Sprintf("ca %q", ca.Label), ca.LinkCrt)
 }
 
+// labelSet holds the labels of one block group (ca, cert or trust_bundle),
+// keyed by lower-cased label. Labels must be unique ignoring case: they name
+// files (out/ca/<label>.crt, out/bundles/<label>.crt), and on a
+// case-insensitive filesystem such as macOS "main" and "Main" are one file.
+type labelSet map[string]string
+
+// add records label for a block of kind, or reports a duplicate.
+func (s labelSet) add(kind, label string) error {
+	prev, dup := s[strings.ToLower(label)]
+	switch {
+	case !dup:
+		s[strings.ToLower(label)] = label
+		return nil
+	case prev == label:
+		return fmt.Errorf("%s %q: duplicate label", kind, label)
+	default:
+		return fmt.Errorf("%s %q: label differs only in case from %s %q; labels must be unique ignoring case", kind, label, kind, prev)
+	}
+}
+
+// foldPath returns the key under which two written paths count as the same
+// file: cleaned and lower-cased. Paths that differ only in case are one file
+// on a case-insensitive filesystem (macOS, Windows), so they are rejected on
+// every platform, and check gives the same answer everywhere. Unicode
+// normalization (NFC/NFD) is not folded.
+func foldPath(p string) string {
+	return strings.ToLower(filepath.Clean(p))
+}
+
 // validateLinkCrt checks one link_crt list: entries must be non-empty and
 // must not repeat. owner prefixes the error, e.g. `ca "mesh"`.
 func validateLinkCrt(owner string, dirs []string) error {
@@ -1050,10 +1078,11 @@ func validateLinkCrt(owner string, dirs []string) error {
 		if d == "" {
 			return fmt.Errorf("%s: link_crt[%d]: directory path must not be empty", owner, i)
 		}
-		if _, dup := seenDirs[d]; dup {
+		// Ignoring case, like every written path (see foldPath).
+		if _, dup := seenDirs[foldPath(d)]; dup {
 			return fmt.Errorf("%s: link_crt[%d]: duplicate directory %q", owner, i, d)
 		}
-		seenDirs[d] = struct{}{}
+		seenDirs[foldPath(d)] = struct{}{}
 	}
 	return nil
 }
@@ -1062,16 +1091,15 @@ func validateLinkCrt(owner string, dirs []string) error {
 // uniqueness, resolvable and duplicate-free members, and its own link_crt
 // list (ADR-026). Bundles do not restrict signing (ADR-026 §3).
 func validateTrustBundles(cfg *Config) error {
-	seenLabels := make(map[string]struct{}, len(cfg.TrustBundles))
+	seenLabels := make(labelSet, len(cfg.TrustBundles))
 	for b := range cfg.TrustBundles {
 		tb := &cfg.TrustBundles[b]
 		if !caLabelRe.MatchString(tb.Label) {
 			return fmt.Errorf("trust_bundle %q: label must match ^[A-Za-z_][A-Za-z0-9_-]*$", tb.Label)
 		}
-		if _, dup := seenLabels[tb.Label]; dup {
-			return fmt.Errorf("trust_bundle %q: duplicate label", tb.Label)
+		if err := seenLabels.add("trust_bundle", tb.Label); err != nil {
+			return err
 		}
-		seenLabels[tb.Label] = struct{}{}
 
 		seen := make(map[string]struct{}, len(tb.CARefs))
 		for i, label := range tb.CARefs {
@@ -1106,7 +1134,7 @@ func (u pathUse) String() string { return fmt.Sprintf("%s (%s)", u.owner, u.role
 // link_crt symlinks and the manifest. A referenced CA's cert_file and
 // key_file are inputs and may be shared between reference CAs, but must not
 // be the target of any write. Paths are compared after resolving against the
-// config directory and cleaning. A clash names every owner of the path
+// config directory, cleaning and ignoring case (foldPath). A clash names every owner of the path
 // (ADR-026 "Detailed rules"). A written file must also not be a parent
 // directory of another path.
 func validateArtifactPaths(cfg *Config) error {
@@ -1120,7 +1148,7 @@ func validateArtifactPaths(cfg *Config) error {
 		if logical == "" {
 			return
 		}
-		key := filepath.Clean(cfg.Resolve(logical))
+		key := foldPath(cfg.Resolve(logical))
 		e, ok := byPath[key]
 		if !ok {
 			e = &entry{logical: filepath.Clean(logical)}
@@ -1208,20 +1236,24 @@ func joinUses(uses []pathUse) string {
 }
 
 func validateCerts(cfg *Config) error {
-	seenLabels := make(map[string]struct{}, len(cfg.Certs))
-	seenNames := make(map[string]string, len(cfg.Certs)) // name -> label
+	seenLabels := make(labelSet, len(cfg.Certs))
+	// Keyed by lower-cased name: the name is the default file name.
+	seenNames := make(map[string]*Cert, len(cfg.Certs))
 	seenAddrs := make(map[string]string, len(cfg.Certs)) // addr -> label
 	for i := range cfg.Certs {
 		h := &cfg.Certs[i]
-		if _, dup := seenLabels[h.Label]; dup {
-			return fmt.Errorf("cert %q: duplicate label", h.Label)
+		if err := seenLabels.add("cert", h.Label); err != nil {
+			return err
 		}
-		seenLabels[h.Label] = struct{}{}
 
-		if other, dup := seenNames[h.Name]; dup {
-			return fmt.Errorf("cert %q: certificate name %q already used by cert %q", h.Label, h.Name, other)
+		if other, dup := seenNames[strings.ToLower(h.Name)]; dup {
+			if other.Name == h.Name {
+				return fmt.Errorf("cert %q: certificate name %q already used by cert %q", h.Label, h.Name, other.Label)
+			}
+			return fmt.Errorf("cert %q: certificate name %q differs only in case from the name %q of cert %q; names must be unique ignoring case",
+				h.Label, h.Name, other.Name, other.Label)
 		}
-		seenNames[h.Name] = h.Label
+		seenNames[strings.ToLower(h.Name)] = h
 
 		if len(h.Networks) == 0 {
 			return fmt.Errorf("cert %q: `networks` is required and must contain at least one CIDR", h.Label)
