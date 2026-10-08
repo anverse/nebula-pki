@@ -116,3 +116,54 @@ storage {
   }
 }
 `
+
+func TestBuild_CALabelRenamedOnlyInCase(t *testing.T) {
+	// A label renamed only in case is refused for both CA modes and
+	// independent of what the filesystem reports, so every platform gives
+	// the same answer (ADR-027).
+	tests := []struct {
+		name   string
+		src    string
+		exists func(string) bool
+	}{
+		{"generate, old files found", `ca "Mesh" { name = "m" }`, existsSet("out/ca/Mesh.crt", "out/ca/Mesh.key")},
+		{"generate, no files found", `ca "Mesh" { name = "m" }`, existsSet()},
+		{"reference", "ca \"Mesh\" {\n  cert_file = \"c.crt\"\n  key_file = \"c.key\"\n}", existsSet("c.crt", "c.key")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := parseCfg(t, tt.src)
+			m := manifest.New()
+			m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m", Fingerprint: "fp-old"}
+
+			p, err := Build(cfg, m, testNow, tt.exists, fingerprintProbe("fp-old", nil))
+			wantErrContaining(t, err, `ca "Mesh": label differs only in case from ca "mesh"`, `restore the label "mesh"`, "new label")
+			if len(p.Actions) != 0 {
+				t.Errorf("Actions = %+v, want none", p.Actions)
+			}
+		})
+	}
+}
+
+func TestBuild_CALabelCaseCheckLeavesOtherLabels(t *testing.T) {
+	// A genuinely new label next to a removed one generates, and a label the
+	// manifest records is never refused, even when the manifest also records
+	// a removed label equal to it ignoring case.
+	cfg := parseCfg(t, "ca \"mesh2\" {\n  name = \"m2\"\n  default = true\n}\nca \"edge\" { name = \"e\" }")
+	m := manifest.New()
+	m.CAs["mesh"] = &manifest.CA{Mode: "generate", Name: "m", Fingerprint: "fp-mesh"}
+	m.CAs["edge"] = &manifest.CA{Mode: "generate", Name: "e", Fingerprint: "fp-edge"}
+	m.CAs["EDGE"] = &manifest.CA{Mode: "generate", Name: "e", Fingerprint: "fp-edge"}
+
+	p, err := Build(cfg, m, testNow, existsSet("out/ca/edge.crt", "out/ca/edge.key"), fingerprintProbe("fp-edge", nil))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	ops := map[string]Op{}
+	for _, a := range p.CAActions() {
+		ops[a.Label] = a.Op
+	}
+	if ops["mesh2"] != OpGenerate || ops["edge"] != OpNoop {
+		t.Errorf("CA ops = %v, want mesh2 generate and edge noop", ops)
+	}
+}

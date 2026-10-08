@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/anverse/nebula-pki/internal/config"
@@ -210,6 +211,10 @@ type Options struct {
 // disk. The caller is responsible for resolving logical paths to real ones
 // inside exists.
 func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(logicalPath string) bool, opts Options) (Plan, error) {
+	if err := checkCALabelCase(cfg, m); err != nil {
+		return Plan{}, err
+	}
+
 	var actions []Action
 
 	for i := range cfg.CAs {
@@ -391,6 +396,29 @@ func checkRecordedFingerprint(cfg *config.Config, ca *config.CA, rec *manifest.C
 	if fp != rec.Fingerprint {
 		return fmt.Errorf("ca %q: %s: %s has fingerprint %s, but the manifest records %s for this label; restore the recorded CA, or %s",
 			ca.Label, problem, what, fp, rec.Fingerprint, newLabelHint)
+	}
+	return nil
+}
+
+// checkCALabelCase rejects a CA label renamed only in case (ADR-027): a
+// declared label the manifest does not record, while it records a no longer
+// declared label equal to it ignoring case. On a case-insensitive filesystem
+// both labels name the same default files, so the rename would find the old
+// CA's files; on a case-sensitive one it would generate a new CA. The error
+// makes it one outcome on every platform, for both CA modes.
+func checkCALabelCase(cfg *config.Config, m *manifest.Manifest) error {
+	removed := removedCALabels(cfg, m)
+	for i := range cfg.CAs {
+		label := cfg.CAs[i].Label
+		if recordedCA(m, label) != nil {
+			continue
+		}
+		for _, old := range removed {
+			if strings.EqualFold(old, label) {
+				return fmt.Errorf("ca %q: label differs only in case from ca %q, which the manifest records; a CA is pinned to its label, so restore the label %q, or %s",
+					label, old, old, newLabelHint)
+			}
+		}
 	}
 	return nil
 }

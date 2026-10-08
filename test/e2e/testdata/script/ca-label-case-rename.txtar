@@ -1,0 +1,74 @@
+# A CA label renamed only in case is refused on every platform (ADR-027). On
+# a case-insensitive filesystem "Mesh" names the files of "mesh", on a
+# case-sensitive one it would generate a new CA; the run fails before writing
+# anything instead, in --dry-run too, with the same message everywhere.
+# Restoring the label is up to date; a genuinely new label switches CAs.
+
+cp lower.hcl nebula.hcl
+exec nebula-pki
+stderr '^generated CA "mesh" \(mesh\)$'
+cp out/nebula-pki.json manifest.before
+cp out/ca/mesh.crt ca.before
+cp out/certs/app.crt app.before
+
+cp upper.hcl nebula.hcl
+! exec nebula-pki --dry-run
+stderr '^error: ca "Mesh": label differs only in case from ca "mesh", which the manifest records; a CA is pinned to its label, so restore the label "mesh", or declare the new CA under a new label'
+! exec nebula-pki
+stderr 'label differs only in case from ca "mesh"'
+! stderr 'generated CA'
+cmp out/nebula-pki.json manifest.before
+cmp out/ca/mesh.crt ca.before
+cmp out/certs/app.crt app.before
+
+# The same holds for a referenced CA.
+cp reference-upper.hcl nebula.hcl
+! exec nebula-pki
+stderr '^error: ca "Mesh": label differs only in case from ca "mesh"'
+cmp out/nebula-pki.json manifest.before
+
+# check reads no manifest, so it accepts the config.
+exec nebula-pki check
+
+cp lower.hcl nebula.hcl
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+cp new-label.hcl nebula.hcl
+exec nebula-pki
+stderr '^generated CA "mesh2" \(mesh\)$'
+stderr '^signed cert "app"$'
+stderr 'no longer managed'
+
+-- lower.hcl --
+ca "mesh" {
+  name = "mesh"
+}
+cert "app" {
+  networks = ["10.42.0.1/16"]
+}
+
+-- upper.hcl --
+ca "Mesh" {
+  name = "mesh"
+}
+cert "app" {
+  networks = ["10.42.0.1/16"]
+}
+
+-- reference-upper.hcl --
+ca "Mesh" {
+  cert_file = "out/ca/mesh.crt"
+  key_file  = "out/ca/mesh.key"
+}
+cert "app" {
+  networks = ["10.42.0.1/16"]
+}
+
+-- new-label.hcl --
+ca "mesh2" {
+  name = "mesh"
+}
+cert "app" {
+  networks = ["10.42.0.1/16"]
+}

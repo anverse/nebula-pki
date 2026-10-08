@@ -117,7 +117,7 @@ ca "label" {
 }
 ```
 
-> **A generated CA is pinned to its label.** nebula-pki never generates a new CA under a label the manifest already records. If the CA's cert and key are both gone, or `out/ca/<label>.crt` holds a different CA than recorded (e.g. `out/` checked out from the wrong branch), the run and `--dry-run` fail before writing anything. An encrypted CA key is checked against the certificate when it is decrypted to sign. To replace a CA, declare it under a new label (move `default = true`, update `ca_refs`); to start from scratch, delete all of `out/`, manifest included. See [ADR-027](./spec/adr/027-ca-pinned-to-label.md).
+> **A generated CA is pinned to its label.** nebula-pki never generates a new CA under a label the manifest already records. If the CA's cert and key are both gone, or `out/ca/<label>.crt` holds a different CA than recorded (e.g. `out/` checked out from the wrong branch), the run and `--dry-run` fail before writing anything. An encrypted CA key is checked against the certificate when it is decrypted to sign. A label renamed only in case is refused too, on every platform. To replace a CA, declare it under a new label (move `default = true`, update `ca_refs`); to start from scratch, delete all of `out/`, manifest included. See [ADR-027](./spec/adr/027-ca-pinned-to-label.md).
 
 ## Trust bundles
 
@@ -284,6 +284,7 @@ The manifest already carries an explicit `schema_version` field from day one —
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
 - `ca` reference mode whose certificate fingerprint differs from the one the manifest records for the label → error at reconcile and `--dry-run` (not `check`).
 - `ca` generate mode recorded in the manifest whose cert and key are both missing, or whose certificate fingerprint differs from the record → error at reconcile and `--dry-run` (not `check`). An encrypted CA key that does not belong to its certificate → error when it is decrypted to sign.
+- A `ca` label the manifest does not record that differs only in case from a removed label it does record (e.g. `ca "mesh"` renamed to `ca "Mesh"`) → error at reconcile and `--dry-run` (not `check`), on every platform.
 - Two `trust_bundle` blocks share a label, ignoring case → error.
 - `trust_bundle.ca_refs` empty, not a list of `ca.<label>` references, naming an undeclared CA, or repeating a member → error with source range.
 - Two things write the same path (CA cert/key, cert cert/key, bundle file, `link_crt` symlink, manifest), or a write targets a referenced CA's `cert_file`/`key_file` → error naming every owner. Paths are compared resolved, cleaned and ignoring case.

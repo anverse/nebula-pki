@@ -2,7 +2,7 @@
 
 * Status: accepted
 * Deciders: fw
-* Date: 2026-10-04 (extended 2026-10-05 from reference-mode to generate-mode CAs)
+* Date: 2026-10-04 (extended 2026-10-05 from reference-mode to generate-mode CAs; 2026-10-08 labels renamed only in case)
 
 ## Context and Problem Statement
 
@@ -32,12 +32,14 @@ The tool optimises for transparency: a CA is pinned to its label by the fingerpr
 | Reference mode, certificate fingerprint differs from the record | `ca "x": referenced CA changed: cert_file ext/ca.crt has fingerprint <new>, but the manifest records <old> for this label; restore the recorded CA, or declare the new CA under a new label (move default = true and update ca_refs) to switch to it` |
 | Generate mode, recorded, both files missing | `ca "x": CA files missing: neither out/ca/x.crt nor out/ca/x.key exists, but the manifest records CA <fp> for this label; restore them, or declare the new CA under a new label (…)` |
 | Generate mode, recorded, certificate fingerprint differs | `ca "x": CA certificate changed: out/ca/x.crt has fingerprint <new>, but the manifest records <old> for this label; restore the recorded CA, or declare the new CA under a new label (…)` |
+| Declared label not recorded, but a removed recorded label equals it ignoring case (either mode) | `ca "X": label differs only in case from ca "x", which the manifest records; a CA is pinned to its label, so restore the label "x", or declare the new CA under a new label (…)` |
 | Generate mode, encrypted key does not belong to the certificate | `cert "y": ca "x": CA key does not match certificate "x" (public keys differ)`, when the key is decrypted to sign |
 
 - **Switching CAs takes a new label.** A new label is a new signing CA, so every cert it signs is re-signed and every bundle that lists it is rewritten, which is the rotation flow of [ADR-016](./016-ca-rotation-and-trust-bundles.md) and [ADR-026](./026-trust-bundle-block.md). The old label's record is dropped; its files are reported as no longer managed only when they still exist.
 - **Starting from scratch** stays possible: deleting all of `out/`, manifest included, leaves nothing to compare against.
 - **Moving is fine.** A changed reference `cert_file`/`key_file` path with the same fingerprint updates the recorded paths and re-signs nothing.
 - **No record, no check.** On a first run, after the manifest was deleted, or for a new label there is nothing to compare against, and a generate-mode CA is generated as before. The missing-files rule applies whatever mode the record has, so switching a label from reference to generate mode is an error too.
+- **A label renamed only in case is refused (added 2026-10-08).** Labels are unique ignoring case within a config (ADR-026 "Detailed rules"), and the default CA files are named after the label. Renaming `ca "mesh"` to `ca "Mesh"` used to depend on the filesystem: on a case-insensitive one (macOS) `out/ca/Mesh.crt` found the old CA's files and the run failed with a misleading "untracked CA" error, on a case-sensitive one (Linux) a new CA was generated. The planner now refuses it on every platform, for both modes, before anything is written: restore the recorded label, or take a label that differs by more than case. A reference-mode CA would technically survive the rename, but one rule for every CA is easier to state and to check.
 - **The planner decides.** The fingerprint checks run while the plan is built, through a read-only fingerprint probe supplied by the caller, so `--dry-run` and the run agree. With them in place a trust bundle never sees a swapped member, so the bundle planner compares recorded fingerprints only.
 - **Encrypted keys are checked when decrypted.** The key is decrypted only when a cert needs signing, and is checked against the CA certificate before it signs anything. A run in which every cert is up to date never decrypts the key, so it cannot notice a swapped key; nothing is signed, and the next run that signs fails.
 - **`nebula-pki check` does not run the fingerprint checks.** `check` performs no I/O against `out/`, where the manifest lives.
