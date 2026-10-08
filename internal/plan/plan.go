@@ -467,7 +467,7 @@ func planCA(cfg *config.Config, ca *config.CA, m *manifest.Manifest, exists func
 		// at the manifest-recorded path. If it does, the encryption config changed
 		// between runs (e.g. sops enabled/disabled or output_suffix renamed) rather
 		// than the key being genuinely missing.
-		if rec := m.CAs[ca.Label]; rec != nil && rec.KeyPath != "" && rec.KeyPath != encKeyPath && exists(rec.KeyPath) {
+		if rec := m.CAs[ca.Label]; rec != nil && rec.KeyPath != "" && !cfg.SamePath(rec.KeyPath, encKeyPath) && exists(rec.KeyPath) {
 			return Action{}, fmt.Errorf(
 				"ca %q: encryption configuration changed: CA key exists at %s "+
 					"(recorded in manifest) but current config expects it at %s; "+
@@ -507,8 +507,8 @@ func caStateError(label string, tracked, haveCert, haveKey bool, certPath, keyPa
 	}
 }
 
-// linkSource is one owner of link_crt symlinks: a ca block, the trust
-// bundle, or a block removed from the config whose recorded links must be
+// linkSource is one owner of link_crt symlinks: a ca block, a trust_bundle
+// block, or a block removed from the config whose recorded links must be
 // cleaned up.
 type linkSource struct {
 	owner Kind
@@ -757,7 +757,7 @@ func bundleNeedsWrite(cfg *config.Config, m *manifest.Manifest, tb config.TrustB
 		return true
 	}
 	rec := m.TrustBundles[tb.Label]
-	if rec.Path != path || !exists(path) {
+	if !cfg.SamePath(rec.Path, path) || !exists(path) {
 		return true
 	}
 	fps := make([]string, 0, len(tb.CARefs))
@@ -784,21 +784,25 @@ func planReleases(cfg *config.Config, m *manifest.Manifest, exists func(string) 
 	if m == nil {
 		return nil
 	}
-	managed := make(map[string]bool)
+	// Keyed by resolved, cleaned path: a manifest may spell a managed file
+	// differently from the config (see config.SamePath).
+	managedSet := make(map[string]bool)
+	key := func(p string) string { return filepath.Clean(cfg.Resolve(p)) }
 	suffix := cfg.Storage.Encryption.KeySuffix()
 	for i := range cfg.CAs {
-		managed[cfg.CACertPathForCA(cfg.CAs[i])] = true
-		managed[cfg.CAKeyPathForCA(cfg.CAs[i])] = true
-		managed[cfg.CAKeyPathForCA(cfg.CAs[i])+suffix] = true
+		managedSet[key(cfg.CACertPathForCA(cfg.CAs[i]))] = true
+		managedSet[key(cfg.CAKeyPathForCA(cfg.CAs[i]))] = true
+		managedSet[key(cfg.CAKeyPathForCA(cfg.CAs[i])+suffix)] = true
 	}
 	for i := range cfg.TrustBundles {
-		managed[cfg.TrustBundlePath(cfg.TrustBundles[i])] = true
+		managedSet[key(cfg.TrustBundlePath(cfg.TrustBundles[i]))] = true
 	}
+	managed := func(p string) bool { return managedSet[key(p)] }
 
 	keep := func(paths ...string) []string {
 		var kept []string
 		for _, p := range paths {
-			if p != "" && !managed[p] && exists(p) {
+			if p != "" && !managed(p) && exists(p) {
 				kept = append(kept, p)
 			}
 		}
@@ -826,7 +830,7 @@ func planReleases(cfg *config.Config, m *manifest.Manifest, exists func(string) 
 	for _, label := range labels {
 		path := m.TrustBundles[label].Path
 		// Still managed: the bundle (or a renamed one) keeps writing it.
-		if managed[path] {
+		if managed(path) {
 			continue
 		}
 		paths := keep(path)

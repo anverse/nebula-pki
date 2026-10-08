@@ -318,3 +318,24 @@ func TestCACertFilename(t *testing.T) {
 		})
 	}
 }
+
+func TestSamePath(t *testing.T) {
+	cfg := &Config{Path: "/proj/nebula.hcl"}
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"out/b.crt", "out/b.crt", true},
+		{"./out/b.crt", "out/b.crt", true},
+		{"out//b.crt", "out/x/../b.crt", true},
+		{"out/b.crt", "/proj/out/b.crt", true},
+		{"out/b.crt", "/other/out/b.crt", false},
+		{"out/b.crt", "out/c.crt", false},
+		{"out/B.crt", "out/b.crt", false},
+	}
+	for _, tt := range tests {
+		if got := cfg.SamePath(tt.a, tt.b); got != tt.want {
+			t.Errorf("SamePath(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}

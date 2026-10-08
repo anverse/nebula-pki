@@ -575,7 +575,7 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 		newArt := cfg.CertArtifactPath(*h)
 		if prev, ok := current.Certs[h.Label]; ok {
 			for _, oldArt := range prev.Artifacts {
-				if oldArt.CertPath != "" && oldArt.CertPath != newArt.CertPath {
+				if oldArt.CertPath != "" && !cfg.SamePath(oldArt.CertPath, newArt.CertPath) {
 					if fsutil.Exists(cfg.Resolve(oldArt.CertPath)) {
 						stale = append(stale, oldArt.CertPath)
 					}
@@ -588,7 +588,7 @@ func applyCerts(cfg *config.Config, enc crypto.Backend, opts Options, certAction
 				// oldArt.KeyPath already contains the suffix it was written with
 				// (the manifest records on-disk paths). Flag it stale when the
 				// path changed or the cert switched to/from in_pub.
-				if oldArt.KeyPath != "" && oldArt.KeyPath != newKeyPath {
+				if oldArt.KeyPath != "" && (newKeyPath == "" || !cfg.SamePath(oldArt.KeyPath, newKeyPath)) {
 					if fsutil.Exists(cfg.Resolve(oldArt.KeyPath)) {
 						stale = append(stale, oldArt.KeyPath)
 					}

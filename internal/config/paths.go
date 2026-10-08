@@ -43,6 +43,15 @@ func (c *Config) Resolve(p string) string {
 	return filepath.Join(c.baseDir(), p)
 }
 
+// SamePath reports whether two logical paths name the same file once
+// resolved against the config directory and cleaned. Configured paths are
+// cleaned on load, but a manifest written before that, or a path switched
+// between its relative and absolute spelling, can still spell one file two
+// ways; compare recorded paths with this, never with ==.
+func (c *Config) SamePath(a, b string) bool {
+	return filepath.Clean(c.Resolve(a)) == filepath.Clean(c.Resolve(b))
+}
+
 // CACertPathForCA returns the logical path of the CA certificate for ca.
 // In reference mode it is the operator-supplied cert_file (read in place,
 // never rewritten). In generate mode it is the explicit out_crt when set,
