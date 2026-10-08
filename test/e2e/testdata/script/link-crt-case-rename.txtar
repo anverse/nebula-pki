@@ -1,0 +1,60 @@
+# Renaming a link_crt directory or a bundle path only in case. On a
+# case-insensitive filesystem (macOS) both spellings name one file: the old
+# link is deleted before the new one is created, so a single run leaves the
+# link in place, and a bundle file renamed only in case is not reported as
+# no longer managed. On a case-sensitive filesystem the old link is deleted
+# and the new one created. Either way the next run is a no-op.
+
+[!exec:readlink] skip 'readlink not in PATH'
+
+cp upper.hcl nebula.hcl
+exec nebula-pki
+exec readlink out/Node/mesh.crt
+stdout '^\.\./ca/mesh\.crt$'
+exec readlink out/Node/Main.crt
+stdout '^\.\./bundles/Main\.crt$'
+
+cp lower.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^\+ delete stale link out/Node/mesh\.crt$'
+stdout '^\+ delete stale link out/Node/Main\.crt$'
+stdout '^\+ create link out/node/mesh\.crt → \.\./ca/mesh\.crt$'
+stdout '^\+ (create|update) link out/node/main\.crt → \.\./bundles/main\.crt'
+! stdout 'stop managing'
+
+exec nebula-pki
+stderr '^deleted link out/Node/mesh\.crt$'
+stderr '^deleted link out/Node/Main\.crt$'
+! stderr 'no longer managed'
+exec readlink out/node/mesh.crt
+stdout '^\.\./ca/mesh\.crt$'
+exec readlink out/node/main.crt
+stdout '^\.\./bundles/main\.crt$'
+exists out/bundles/main.crt
+
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+
+-- upper.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/Node"]
+}
+
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  path     = "out/bundles/Main.crt"
+  link_crt = ["out/Node"]
+}
+
+-- lower.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["out/node"]
+}
+
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  path     = "out/bundles/main.crt"
+  link_crt = ["out/node"]
+}

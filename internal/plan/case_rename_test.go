@@ -158,3 +158,17 @@ ca "a" {
 		t.Errorf("link actions = %v, want %v", ops, want)
 	}
 }
+
+// A bundle path renamed only in case names the same file: it is rewritten
+// under the new spelling and not reported as released.
+func TestBuild_TrustBundle_PathRenamedOnlyInCaseNotReleased(t *testing.T) {
+	cfg := parseCfg(t, spellingHCL)
+	m, exists := spelledManifest(cfg, "out/B.crt")
+	p, err := Build(cfg, m, testNow, exists, Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if rel := p.ReleaseActions(); len(rel) != 0 {
+		t.Errorf("ReleaseActions = %+v, want none: out/B.crt and out/b.crt are one file", rel)
+	}
+}

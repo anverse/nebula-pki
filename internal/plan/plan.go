@@ -819,10 +819,12 @@ func planReleases(cfg *config.Config, m *manifest.Manifest, exists func(string) 
 	if m == nil {
 		return nil
 	}
-	// Keyed by resolved, cleaned path: a manifest may spell a managed file
-	// differently from the config (see config.SamePath).
+	// Keyed by resolved path under config.FoldPath: a manifest may spell a
+	// managed file differently from the config (see config.SamePath), and a
+	// path renamed only in case is the same file on a case-insensitive
+	// filesystem, as every written path counts (D-23).
 	managedSet := make(map[string]bool)
-	key := func(p string) string { return filepath.Clean(cfg.Resolve(p)) }
+	key := func(p string) string { return config.FoldPath(cfg.Resolve(p)) }
 	suffix := cfg.Storage.Encryption.KeySuffix()
 	for i := range cfg.CAs {
 		managedSet[key(cfg.CACertPathForCA(cfg.CAs[i]))] = true
