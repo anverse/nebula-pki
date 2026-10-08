@@ -41,9 +41,10 @@ type Manifest struct {
 
 // TrustBundle records one emitted CA trust bundle, keyed by its label in
 // Manifest.TrustBundles (ADR-026). Path is where the bundle was written
-// (logical, relative to the manifest dir when possible). CAFingerprints lists,
-// in ca_refs order, the SHA-256 fingerprint of every member CA cert; lets
-// downstream tooling verify Nebula network trust without parsing PEM.
+// (logical: relative to the config file's directory unless absolute, like
+// every recorded path). CAFingerprints lists, in ca_refs order, the SHA-256
+// fingerprint of every member CA cert; lets downstream tooling verify Nebula
+// network trust without parsing PEM.
 type TrustBundle struct {
 	Path           string   `json:"path"`
 	CAFingerprints []string `json:"ca_fingerprints"`
