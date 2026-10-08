@@ -3,7 +3,9 @@
 # link is deleted before the new one is created, so a single run leaves the
 # link in place, and a bundle file renamed only in case is not reported as
 # no longer managed. On a case-sensitive filesystem the old link is deleted
-# and the new one created. Either way the next run is a no-op.
+# and the new one created. Either way the next run is a no-op. Only links and
+# the bundle's file name change: the CA is not regenerated, no cert is
+# re-signed, and the bundle holds the same bytes.
 
 [!exec:readlink] skip 'readlink not in PATH'
 
@@ -13,6 +15,10 @@ exec readlink out/Node/mesh.crt
 stdout '^\.\./ca/mesh\.crt$'
 exec readlink out/Node/Main.crt
 stdout '^\.\./bundles/Main\.crt$'
+cp out/ca/mesh.crt ca-before.crt
+cp out/ca/mesh.key ca-key-before.key
+cp out/certs/node.crt node-before.crt
+cp out/bundles/Main.crt bundle-before.crt
 
 cp lower.hcl nebula.hcl
 exec nebula-pki --dry-run
@@ -21,11 +27,19 @@ stdout '^\+ delete stale link out/Node/Main\.crt$'
 stdout '^\+ create link out/node/mesh\.crt → \.\./ca/mesh\.crt$'
 stdout '^\+ (create|update) link out/node/main\.crt → \.\./bundles/main\.crt'
 ! stdout 'stop managing'
+! stdout 'write out/ca/'
+! stdout 'write out/certs/'
 
 exec nebula-pki
 stderr '^deleted link out/Node/mesh\.crt$'
 stderr '^deleted link out/Node/Main\.crt$'
 ! stderr 'no longer managed'
+! stderr 'generated CA'
+! stderr 'signed cert'
+cmp out/ca/mesh.crt ca-before.crt
+cmp out/ca/mesh.key ca-key-before.key
+cmp out/certs/node.crt node-before.crt
+cmp out/bundles/main.crt bundle-before.crt
 exec readlink out/node/mesh.crt
 stdout '^\.\./ca/mesh\.crt$'
 exec readlink out/node/main.crt
@@ -47,6 +61,10 @@ trust_bundle "main" {
   link_crt = ["out/Node"]
 }
 
+cert "node" {
+  networks = ["10.42.0.1/16"]
+}
+
 -- lower.hcl --
 ca "mesh" {
   name     = "mesh"
@@ -57,4 +75,8 @@ trust_bundle "main" {
   ca_refs  = [ca.mesh]
   path     = "out/bundles/main.crt"
   link_crt = ["out/node"]
+}
+
+cert "node" {
+  networks = ["10.42.0.1/16"]
 }
