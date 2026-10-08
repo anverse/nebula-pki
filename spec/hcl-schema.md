@@ -125,7 +125,7 @@ ca "mesh" {
 
 ### `trust_bundle`
 
-Declares a CA trust bundle: a concatenated PEM of the member CA certificates, suitable for `pki.ca` in each node's `config.yaml`. It contains no key material. The block label is required (`trust_bundle "<label>" {}`) and names the bundle's file: `trust_bundle "main"` writes `main.crt`. A config may declare any number of bundles, each its own trust set; labels must be unique. See [ADR-026](./adr/026-trust-bundle-block.md).
+Declares a CA trust bundle: a concatenated PEM of the member CA certificates, suitable for `pki.ca` in each node's `config.yaml`. It contains no key material. The block label is required (`trust_bundle "<label>" {}`) and names the bundle's file: `trust_bundle "main"` writes `main.crt`. A config may declare any number of bundles, each its own trust set; labels must be unique ignoring case. See [ADR-026](./adr/026-trust-bundle-block.md).
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -262,6 +262,16 @@ qr_path   = Join(base, out_qr)     if out_qr set  (cert only; no encryption)
 Encryption suffix is appended only to the **key** file (`.key` → `.key<suffix>`), and only when the active encryption backend is not `none`. Cert (`.crt`) and QR (`.png`) files are never encrypted and never suffixed.
 
 When `in_pub` is set, no `.key` is written — only the `.crt` (and `.png`, if `out_qr`). The encryption suffix logic does not apply. See [ADR-018](./adr/018-in-pub-air-gapped-signing.md).
+
+## Paths
+
+Relative paths resolve against the config file's directory; absolute paths are used as written.
+
+**One spelling per path.** Every configured path is cleaned (`filepath.Clean`) when the config is loaded: `./out/b.crt`, `out//b.crt` and `out/x/../b.crt` all become `out/b.crt`, and a trailing separator on a directory is dropped. Everything downstream (planning, writing, symlink targets, messages, the manifest) sees that one spelling, so changing how a path is written without changing the file it names changes nothing. Paths a manifest already records are compared with configured ones by the file they name (resolved against the config directory, then cleaned), never as strings. See [ADR-026](./adr/026-trust-bundle-block.md) "Detailed rules".
+
+**File fields name a file.** `trust_bundle.path`, `storage.manifest_file`, `ca.out_crt` / `out_key` / `out_qr` / `cert_file` / `key_file` and `cert.out_crt` / `out_key` / `out_qr` / `in_pub` must not end in a separator or in `.` / `..`. Directory fields (`storage.out_dir`, `cert.output_dir`, every `link_crt` entry) may end in a separator.
+
+**Uniqueness ignores case.** Labels within one block group, cert names, and every path the tool writes must be unique ignoring case, because macOS and Windows filesystems treat `main.crt` and `Main.crt` as one file. The rule applies on every platform, so `check` gives the same answer everywhere.
 
 ## Complete example
 
@@ -537,7 +547,7 @@ CA and multi-CA:
 
 - A configuration file declares zero `ca` blocks.
 - A `ca` block has no label (unlabelled `ca {}` is a parse error; use `ca "<label>" {}`).
-- Two `ca` blocks share a label.
+- Two `ca` blocks share a label, ignoring case (`mesh` and `Mesh` clash).
 - A `ca` label is not a valid identifier (`^[A-Za-z_][A-Za-z0-9_-]*$`).
 - More than one `ca` block sets `default = true`.
 - `cert.ca` is not a reference of the form `ca.<label>` (a quoted string, the index form `ca["<label>"]`, a bare `ca`, extra steps, or another root such as `cert.x`).
@@ -550,21 +560,22 @@ CA and multi-CA:
 
 Trust bundle:
 
-- Two `trust_bundle` blocks share a label.
+- Two `trust_bundle` blocks share a label, ignoring case.
 - A `trust_bundle` label is not a valid identifier (`^[A-Za-z_][A-Za-z0-9_-]*$`).
 - `trust_bundle.ca_refs` is missing, empty, or not a list.
 - A `ca_refs` element is not a reference of the form `ca.<label>`, references an undeclared CA, or repeats a member.
 
 Paths and symlinks:
 
-- A `link_crt` entry (on a `ca` or a `trust_bundle`) is empty or repeats a directory of the same list.
-- Two things write the same path. Every path the tool writes must be unique: CA certificates and keys (with the encryption suffix), cert certificates and keys, bundle files, `link_crt` symlinks, and the manifest. No write may target a referenced CA's `cert_file` or `key_file` (reference CAs may share those inputs). Paths are compared after resolving and cleaning, so `out/x/` and `out/x` are the same. The error names every owner, e.g. `path out/s/main.crt is used by ca "a" (link_crt), ca "b" (link_crt) and trust_bundle "main" (link_crt)`. This also catches a symlink that would replace its own target, such as `link_crt` naming the bundle's own directory.
+- A field that names a file ends in a separator or in `.` / `..` (see [Paths](#paths)).
+- A `link_crt` entry (on a `ca` or a `trust_bundle`) is empty or repeats a directory of the same list (after cleaning, ignoring case).
+- Two things write the same path. Every path the tool writes must be unique: CA certificates and keys (with the encryption suffix), cert certificates and keys, bundle files, `link_crt` symlinks, and the manifest. No write may target a referenced CA's `cert_file` or `key_file` (reference CAs may share those inputs). Paths are compared after resolving, cleaning and ignoring case, so `out/x/`, `out/x` and `out/X` are the same. The error names every owner, e.g. `path out/s/main.crt is used by ca "a" (link_crt), ca "b" (link_crt) and trust_bundle "main" (link_crt)`. This also catches a symlink that would replace its own target, such as `link_crt` naming the bundle's own directory.
 - A written file is also a directory holding another path, e.g. a bundle `path = "out/certs"` while certs are written to `out/certs/`. The error names the owners of both paths.
 
 Certs:
 
-- Two `cert` blocks share a label.
-- Two `cert` blocks (after `name` defaulting) share a certificate `name`.
+- Two `cert` blocks share a label, ignoring case.
+- Two `cert` blocks (after `name` defaulting) share a certificate `name`, ignoring case.
 - Two `cert` blocks share an overlay address (the `Addr()` of the first prefix in `networks`, regardless of prefix length). `nebula-cert` cannot detect cross-cert conflicts; catching them at config time avoids deploying a broken Nebula network.
 - A `cert.networks` entry is not a valid CIDR.
 - A `cert.duration` exceeds its signing CA's `not_after`.

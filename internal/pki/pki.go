@@ -130,7 +130,8 @@ func GenerateCA(ca config.CA, now time.Time) (*CAResult, error) {
 var ErrReferenceCAExpired = errors.New("reference CA is expired")
 
 // CertFingerprint returns the fingerprint of a PEM-encoded certificate, as
-// nebula-cert prints it. Used to plan trust bundles over reference-mode CAs.
+// nebula-cert prints it. Used to check that a CA is still the one the
+// manifest records under its label (ADR-027).
 func CertFingerprint(certPEM []byte) (string, error) {
 	c, _, err := cert.UnmarshalCertificateFromPEM(certPEM)
 	if err != nil {

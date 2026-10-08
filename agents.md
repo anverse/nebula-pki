@@ -167,6 +167,8 @@ key_path  = Join(base, out_key)     if out_key set
 
 `out_crt` and `out_key` compose with `output_dir` rather than overriding it; a bare filename stays in `base`, a relative sub-path nests inside it.
 
+Every configured path is cleaned on load (`./out/b.crt` → `out/b.crt`), so downstream code and the manifest only ever see one spelling of a path. See [`spec/hcl-schema.md`](./spec/hcl-schema.md#paths).
+
 ## Encryption backends
 
 Only private key files are encrypted; certificates, the trust bundle, and the manifest stay plaintext. Encrypted keys get `output_suffix` appended (default `.enc`). When the configured recipients (sops) or `encrypt_command` (external) change, every run warns until `nebula-pki rekey` re-encrypts the existing keys. Full reference in [`spec/hcl-schema.md`](./spec/hcl-schema.md); rationale in [ADR-003](./spec/adr/003-encryption-strategy.md).
@@ -273,8 +275,8 @@ The manifest already carries an explicit `schema_version` field from day one —
 
 ## Validation rules (selected)
 
-- Duplicate `cert` labels → error.
-- Duplicate cert `name`s (after defaulting from labels) → error.
+- Duplicate `cert` labels, ignoring case → error. The same holds for `ca` and `trust_bundle` labels, each within its own group.
+- Duplicate cert `name`s (after defaulting from labels), ignoring case → error.
 - Duplicate first-prefix overlay addresses across certs → error.
 - `ca` in reference mode with generate-only fields → error.
 - `ca` reference mode with only one of `cert_file`/`key_file` → error.
@@ -282,9 +284,10 @@ The manifest already carries an explicit `schema_version` field from day one —
 - `ca` reference mode whose files are not a coherent CA pair (not a CA, bad self-signature, curve/key mismatch) → error.
 - `ca` reference mode whose certificate fingerprint differs from the one the manifest records for the label → error at reconcile and `--dry-run` (not `check`).
 - `ca` generate mode recorded in the manifest whose cert and key are both missing, or whose certificate fingerprint differs from the record → error at reconcile and `--dry-run` (not `check`). An encrypted CA key that does not belong to its certificate → error when it is decrypted to sign.
-- Two `trust_bundle` blocks share a label → error.
+- Two `trust_bundle` blocks share a label, ignoring case → error.
 - `trust_bundle.ca_refs` empty, not a list of `ca.<label>` references, naming an undeclared CA, or repeating a member → error with source range.
-- Two things write the same path (CA cert/key, cert cert/key, bundle file, `link_crt` symlink, manifest), or a write targets a referenced CA's `cert_file`/`key_file` → error naming every owner.
+- Two things write the same path (CA cert/key, cert cert/key, bundle file, `link_crt` symlink, manifest), or a write targets a referenced CA's `cert_file`/`key_file` → error naming every owner. Paths are compared resolved, cleaned and ignoring case.
+- A field that names a file (`path`, `out_crt`, `out_key`, `out_qr`, `cert_file`, `key_file`, `in_pub`, `manifest_file`) ends in a separator or in `.`/`..` → error.
 - A written file is also the directory of another written path (e.g. bundle `path = "out/certs"`) → error naming both owners.
 - More than one `ca` block sets `default = true` → error.
 - `cert.ca` is not a `ca.<label>` reference → error.
