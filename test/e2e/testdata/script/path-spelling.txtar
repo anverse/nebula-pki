@@ -1,0 +1,50 @@
+# Every configured path is cleaned on load, so two spellings of one path are
+# one path: the manifest records the cleaned spelling, and switching to
+# another spelling of the same file changes nothing (ADR-026 "Detailed
+# rules").
+
+[!exec:readlink] skip 'readlink not in PATH'
+
+cp v1.hcl nebula.hcl
+exec nebula-pki
+stderr '^wrote trust bundle "main": out/b\.crt$'
+stderr '^  links/b\.crt$'
+grep '"path": "out/b.crt"' out/nebula-pki.json
+grep '"cert_path": "out/ca/x.crt"' out/nebula-pki.json
+! grep '"\./' out/nebula-pki.json
+exec readlink links/b.crt
+stdout '^\.\./out/b\.crt$'
+cp out/nebula-pki.json manifest.first
+
+# The same files, spelled the clean way.
+cp v2.hcl nebula.hcl
+exec nebula-pki --dry-run
+stdout '^up to date; nothing to do$'
+exec nebula-pki
+stderr '^up to date; nothing to do$'
+! stderr 'no longer managed'
+cmp out/nebula-pki.json manifest.first
+
+-- v1.hcl --
+ca "mesh" {
+  name    = "mesh"
+  out_crt = "./out/ca//x.crt"
+  out_key = "./out/ca/x.key"
+}
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  path     = "./out/b.crt"
+  link_crt = ["./links/"]
+}
+
+-- v2.hcl --
+ca "mesh" {
+  name    = "mesh"
+  out_crt = "out/ca/x.crt"
+  out_key = "out/ca/x.key"
+}
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  path     = "out/b.crt"
+  link_crt = ["links"]
+}

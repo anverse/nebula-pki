@@ -1,0 +1,67 @@
+# A field that names a file must name a file: a trailing separator, "." or
+# ".." is rejected by check and by a run, before anything is written. Fields
+# that name a directory accept a trailing separator (ADR-026 "Detailed
+# rules").
+
+! exec nebula-pki check -c bundle-dir.hcl
+stderr 'trust_bundle "main"\.path: "out/x/" must name a file, not a directory'
+
+! exec nebula-pki -c bundle-dir.hcl
+stderr 'must name a file, not a directory'
+! exists out
+
+! exec nebula-pki check -c cert-dir.hcl
+stderr 'cert "app"\.out_crt: "sub/" must name a file, not a directory'
+
+! exec nebula-pki check -c manifest-dir.hcl
+stderr 'storage\.manifest_file: "out/" must name a file, not a directory'
+
+! exec nebula-pki check -c dotdot.hcl
+stderr 'ca "mesh"\.out_crt: "out/\.\." must name a file, not a directory'
+
+# Directory fields with a trailing separator are fine and stored cleaned.
+exec nebula-pki -c dirs.hcl
+stderr '^  cert: out/app/app\.crt$'
+stderr '^  links/main\.crt$'
+grep '"cert_path": "out/app/app.crt"' out/nebula-pki.json
+exists links/mesh.crt
+
+-- bundle-dir.hcl --
+ca "mesh" { name = "mesh" }
+trust_bundle "main" {
+  ca_refs = [ca.mesh]
+  path    = "out/x/"
+}
+
+-- cert-dir.hcl --
+ca "mesh" { name = "mesh" }
+cert "app" {
+  networks = ["10.42.0.1/16"]
+  out_crt  = "sub/"
+}
+
+-- manifest-dir.hcl --
+ca "mesh" { name = "mesh" }
+storage {
+  manifest_file = "out/"
+}
+
+-- dotdot.hcl --
+ca "mesh" {
+  name    = "mesh"
+  out_crt = "out/.."
+}
+
+-- dirs.hcl --
+ca "mesh" {
+  name     = "mesh"
+  link_crt = ["links/"]
+}
+trust_bundle "main" {
+  ca_refs  = [ca.mesh]
+  link_crt = ["links/"]
+}
+cert "app" {
+  networks   = ["10.42.0.1/16"]
+  output_dir = "out/app/"
+}

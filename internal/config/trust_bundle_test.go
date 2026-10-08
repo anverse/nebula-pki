@@ -321,7 +321,7 @@ ca "a" {
   link_crt = ["out/shared", "out/shared/"]
 }
 `,
-			want: `path out/shared/a.crt is used by ca "a" (link_crt) and ca "a" (link_crt)`,
+			want: `ca "a": link_crt[1]: duplicate directory "out/shared"`,
 		},
 		{
 			name: "bundle onto ca cert",

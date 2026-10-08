@@ -499,7 +499,7 @@ func decode(filename string, raw *rawConfig) (*Config, error) {
 	cfg.Storage = *storage
 
 	for i := range raw.TrustBundles {
-		tb, err := decodeTrustBundle(&raw.TrustBundles[i])
+		tb, err := decodeTrustBundle(filename, &raw.TrustBundles[i])
 		if err != nil {
 			return nil, err
 		}
@@ -539,11 +539,12 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 		ca.Mode = CAModeGenerate
 	}
 
-	if r.CertFile != nil {
-		ca.CertFile = *r.CertFile
+	var err error
+	if ca.CertFile, err = filePath(filename, fmt.Sprintf("ca %q", r.Label), "cert_file", r.CertFile); err != nil {
+		return nil, err
 	}
-	if r.KeyFile != nil {
-		ca.KeyFile = *r.KeyFile
+	if ca.KeyFile, err = filePath(filename, fmt.Sprintf("ca %q", r.Label), "key_file", r.KeyFile); err != nil {
+		return nil, err
 	}
 
 	if r.Name != nil {
@@ -595,14 +596,14 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 	} else if argon != nil {
 		ca.Argon = argon
 	}
-	if r.OutCRT != nil {
-		ca.OutCRT = *r.OutCRT
+	if ca.OutCRT, err = filePath(filename, fmt.Sprintf("ca %q", r.Label), "out_crt", r.OutCRT); err != nil {
+		return nil, err
 	}
-	if r.OutKey != nil {
-		ca.OutKey = *r.OutKey
+	if ca.OutKey, err = filePath(filename, fmt.Sprintf("ca %q", r.Label), "out_key", r.OutKey); err != nil {
+		return nil, err
 	}
-	if r.OutQR != nil {
-		ca.OutQR = *r.OutQR
+	if ca.OutQR, err = filePath(filename, fmt.Sprintf("ca %q", r.Label), "out_qr", r.OutQR); err != nil {
+		return nil, err
 	}
 	if r.RenewBefore != nil {
 		d, err := time.ParseDuration(*r.RenewBefore)
@@ -612,7 +613,7 @@ func decodeCA(filename string, r *rawCA) (*CA, error) {
 		ca.RenewBefore = d
 		ca.HasRenewBefore = true
 	}
-	ca.LinkCrt = append(ca.LinkCrt, r.LinkCrt...)
+	ca.LinkCrt = dirPaths(r.LinkCrt)
 
 	return ca, nil
 }
@@ -657,11 +658,13 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 	}
 	if r != nil {
 		if r.OutDir != nil && *r.OutDir != "" {
-			s.OutDir = *r.OutDir
+			s.OutDir = dirPath(*r.OutDir)
 		}
-		if r.ManifestFile != nil && *r.ManifestFile != "" {
-			s.ManifestFile = *r.ManifestFile
+		mf, err := filePath(filename, "storage", "manifest_file", r.ManifestFile)
+		if err != nil {
+			return nil, err
 		}
+		s.ManifestFile = mf
 		if len(r.Encryption) > 1 {
 			return nil, fmt.Errorf("%s: storage: multiple `encryption` blocks are not allowed", filename)
 		}
@@ -696,7 +699,45 @@ func decodeStorage(filename string, r *rawStorage) (*Storage, error) {
 	return s, nil
 }
 
-func decodeTrustBundle(r *rawTrustBundle) (*TrustBundle, error) {
+// filePath returns a configured file path in its one cleaned spelling, so
+// that plan, apply and the manifest never see two spellings of one path
+// ("./out/b.crt" and "out/b.crt"). The value must name a file: a trailing
+// separator, ".", or ".." is rejected before cleaning would hide it. owner
+// and field name the setting in the error, e.g. `trust_bundle "main"` and
+// "path". nil and "" mean unset and return "".
+func filePath(filename, owner, field string, raw *string) (string, error) {
+	if raw == nil || *raw == "" {
+		return "", nil
+	}
+	p := *raw
+	base := filepath.Base(filepath.Clean(p))
+	if strings.HasSuffix(p, "/") || strings.HasSuffix(p, string(filepath.Separator)) ||
+		base == "." || base == ".." || base == string(filepath.Separator) {
+		return "", fmt.Errorf("%s: %s.%s: %q must name a file, not a directory", filename, owner, field, p)
+	}
+	return filepath.Clean(p), nil
+}
+
+// dirPath returns a configured directory path in its one cleaned spelling
+// (see filePath). A trailing separator is fine for a directory. "" stays ""
+// so that validation still reports an empty entry.
+func dirPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	return filepath.Clean(p)
+}
+
+// dirPaths applies dirPath to every entry of a link_crt list.
+func dirPaths(ps []string) []string {
+	var out []string
+	for _, p := range ps {
+		out = append(out, dirPath(p))
+	}
+	return out
+}
+
+func decodeTrustBundle(filename string, r *rawTrustBundle) (*TrustBundle, error) {
 	tb := &TrustBundle{Label: r.Label}
 
 	if v, diags := r.CARefs.Value(nil); !diags.HasErrors() && v.IsNull() {
@@ -721,10 +762,12 @@ func decodeTrustBundle(r *rawTrustBundle) (*TrustBundle, error) {
 		tb.CARefRanges = append(tb.CARefRanges, e.Range())
 	}
 
-	if r.Path != nil {
-		tb.Path = *r.Path
+	path, err := filePath(filename, fmt.Sprintf("trust_bundle %q", r.Label), "path", r.Path)
+	if err != nil {
+		return nil, err
 	}
-	tb.LinkCrt = append(tb.LinkCrt, r.LinkCrt...)
+	tb.Path = path
+	tb.LinkCrt = dirPaths(r.LinkCrt)
 	return tb, nil
 }
 
@@ -767,20 +810,21 @@ func decodeCert(filename string, r *rawCert) (*Cert, error) {
 		h.Duration = d
 		h.HasDuration = true
 	}
-	if r.OutCRT != nil {
-		h.OutCRT = *r.OutCRT
+	owner := fmt.Sprintf("cert %q", r.Label)
+	if h.OutCRT, err = filePath(filename, owner, "out_crt", r.OutCRT); err != nil {
+		return nil, err
 	}
-	if r.OutKey != nil {
-		h.OutKey = *r.OutKey
+	if h.OutKey, err = filePath(filename, owner, "out_key", r.OutKey); err != nil {
+		return nil, err
 	}
-	if r.OutQR != nil {
-		h.OutQR = *r.OutQR
+	if h.OutQR, err = filePath(filename, owner, "out_qr", r.OutQR); err != nil {
+		return nil, err
 	}
-	if r.InPub != nil {
-		h.InPub = *r.InPub
+	if h.InPub, err = filePath(filename, owner, "in_pub", r.InPub); err != nil {
+		return nil, err
 	}
 	if r.OutputDir != nil {
-		h.OutputDir = *r.OutputDir
+		h.OutputDir = dirPath(*r.OutputDir)
 	}
 	if r.RenewBefore != nil {
 		d, err := time.ParseDuration(*r.RenewBefore)
