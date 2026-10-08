@@ -232,15 +232,23 @@ func Build(cfg *config.Config, m *manifest.Manifest, now time.Time, exists func(
 		actions = append(actions, ha)
 	}
 
+	// Stale links are removed before any link is created: a link renamed only
+	// in case is one file on a case-insensitive filesystem, so deleting the
+	// old spelling afterwards would remove the new link.
 	srcs := linkSources(cfg, m)
 	declared := declaredLinkPaths(srcs)
+	removed := removedLinkPaths(srcs, declared)
+	var removals, links []Action
 	for _, src := range srcs {
-		linkActions, err := planLinks(cfg, src, declared, opts)
+		r, l, err := planLinks(cfg, src, declared, removed, opts)
 		if err != nil {
 			return Plan{}, err
 		}
-		actions = append(actions, linkActions...)
+		removals = append(removals, r...)
+		links = append(links, l...)
 	}
+	actions = append(actions, removals...)
+	actions = append(actions, links...)
 
 	actions = append(actions, planTrustBundles(cfg, m, actions, exists)...)
 	actions = append(actions, planReleases(cfg, m, exists)...)
@@ -587,6 +595,22 @@ func declaredLinkPaths(srcs []linkSource) map[string]bool {
 	return declared
 }
 
+// removedLinkPaths returns the recorded symlinks that planLinks deletes
+// (those no current block declares), keyed by config.FoldPath. A declared
+// link whose path matches one of them ignoring case shares its file on a
+// case-insensitive filesystem and is created again after the delete.
+func removedLinkPaths(srcs []linkSource, declared map[string]bool) map[string]bool {
+	removed := make(map[string]bool)
+	for _, src := range srcs {
+		for _, link := range src.recorded {
+			if !declared[link.Path] {
+				removed[config.FoldPath(link.Path)] = true
+			}
+		}
+	}
+	return removed
+}
+
 // removedBundleLabels returns the labels of trust bundles recorded in the
 // manifest but no longer declared, sorted for deterministic output.
 func removedBundleLabels(cfg *config.Config, m *manifest.Manifest) []string {
@@ -621,18 +645,21 @@ func removedCALabels(cfg *config.Config, m *manifest.Manifest) []string {
 
 // planLinks computes the symlink actions for one link owner. For each
 // declared directory it checks the current symlink state via opts.Lstat /
-// opts.Readlink and emits CreateSymlink, Noop, or an error. Symlinks
-// recorded in the manifest but no longer declared by this owner emit
-// DeleteSymlink for stale-link cleanup, unless another current block now
-// declares the same path (declared): that block manages the symlink from now
-// on, and this owner only forgets it (OpForgetLink).
-func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opts Options) ([]Action, error) {
+// opts.Readlink and emits CreateSymlink, Noop, or an error; a link whose
+// path matches a removed one ignoring case (removed, keyed by
+// config.FoldPath) is always created, since deleting the old spelling may
+// remove it. Symlinks recorded in the manifest but no longer declared by
+// this owner emit DeleteSymlink for stale-link cleanup, unless another
+// current block now declares the same path (declared): that block manages
+// the symlink from now on, and this owner only forgets it (OpForgetLink).
+// Deletes and hand-overs are returned as removals, which Build orders before
+// every other link action.
+func planLinks(cfg *config.Config, src linkSource, declared, removed map[string]bool, opts Options) (removals, actions []Action, err error) {
 	absTarget := cfg.Resolve(src.target)
 
 	// expectedPaths tracks which logical link paths are currently declared,
 	// so we can diff against the manifest for stale detection.
 	expectedPaths := make(map[string]struct{}, len(src.dirs))
-	var actions []Action
 
 	for _, dir := range src.dirs {
 		linkPath := filepath.Join(dir, src.filename) // logical
@@ -641,7 +668,7 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 
 		target, err := filepath.Rel(absLinkDir, absTarget)
 		if err != nil {
-			return nil, fmt.Errorf("%s: link_crt %q: cannot compute relative path to %s: %w", src.desc(), dir, src.target, err)
+			return nil, nil, fmt.Errorf("%s: link_crt %q: cannot compute relative path to %s: %w", src.desc(), dir, src.target, err)
 		}
 
 		expectedPaths[linkPath] = struct{}{}
@@ -667,13 +694,21 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 		case errors.Is(err, fs.ErrNotExist):
 			actions = append(actions, create)
 		case err != nil:
-			return nil, fmt.Errorf("%s: link_crt %q: lstat %s: %w", src.desc(), dir, linkPath, err)
+			return nil, nil, fmt.Errorf("%s: link_crt %q: lstat %s: %w", src.desc(), dir, linkPath, err)
 		case mode&os.ModeSymlink != 0:
 			currentTarget, err := opts.Readlink(absLinkPath)
 			if err != nil {
-				return nil, fmt.Errorf("%s: link_crt %q: readlink %s: %w", src.desc(), dir, linkPath, err)
+				return nil, nil, fmt.Errorf("%s: link_crt %q: readlink %s: %w", src.desc(), dir, linkPath, err)
 			}
-			if currentTarget == target {
+			switch {
+			case removed[config.FoldPath(linkPath)]:
+				// The symlink found is the removed spelling of this path; it
+				// is deleted first, so this one is created again.
+				if currentTarget != target {
+					create.Desc = fmt.Sprintf("update link %s → %s (was %s)", linkPath, target, currentTarget)
+				}
+				actions = append(actions, create)
+			case currentTarget == target:
 				actions = append(actions, Action{
 					Op:         OpNoop,
 					Kind:       KindLink,
@@ -683,12 +718,12 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 					LinkTarget: target,
 					Desc:       fmt.Sprintf("link %s up to date", linkPath),
 				})
-			} else {
+			default:
 				create.Desc = fmt.Sprintf("update link %s → %s (was %s)", linkPath, target, currentTarget)
 				actions = append(actions, create)
 			}
 		default:
-			return nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"%s: link_crt %q: %s is not a symlink; remove it manually to let nebula-pki manage this path",
 				src.desc(), dir, linkPath,
 			)
@@ -700,7 +735,7 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 			continue
 		}
 		if declared[link.Path] {
-			actions = append(actions, Action{
+			removals = append(removals, Action{
 				Op:    OpForgetLink,
 				Kind:  KindLink,
 				Owner: src.owner,
@@ -710,7 +745,7 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 			})
 			continue
 		}
-		actions = append(actions, Action{
+		removals = append(removals, Action{
 			Op:    OpDeleteSymlink,
 			Kind:  KindLink,
 			Owner: src.owner,
@@ -719,7 +754,7 @@ func planLinks(cfg *config.Config, src linkSource, declared map[string]bool, opt
 			Desc:  fmt.Sprintf("delete stale link %s", link.Path),
 		})
 	}
-	return actions, nil
+	return removals, actions, nil
 }
 
 // planTrustBundles decides one action per declared trust_bundle block

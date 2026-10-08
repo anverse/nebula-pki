@@ -1061,12 +1061,13 @@ func (s labelSet) add(kind, label string) error {
 	}
 }
 
-// foldPath returns the key under which two written paths count as the same
+// FoldPath returns the key under which two written paths count as the same
 // file: cleaned and lower-cased. Paths that differ only in case are one file
 // on a case-insensitive filesystem (macOS, Windows), so they are rejected on
-// every platform, and check gives the same answer everywhere. Unicode
+// every platform, and check gives the same answer everywhere. The planner
+// uses the same key when a path is renamed only in case. Unicode
 // normalization (NFC/NFD) is not folded.
-func foldPath(p string) string {
+func FoldPath(p string) string {
 	return strings.ToLower(filepath.Clean(p))
 }
 
@@ -1078,11 +1079,11 @@ func validateLinkCrt(owner string, dirs []string) error {
 		if d == "" {
 			return fmt.Errorf("%s: link_crt[%d]: directory path must not be empty", owner, i)
 		}
-		// Ignoring case, like every written path (see foldPath).
-		if _, dup := seenDirs[foldPath(d)]; dup {
+		// Ignoring case, like every written path (see FoldPath).
+		if _, dup := seenDirs[FoldPath(d)]; dup {
 			return fmt.Errorf("%s: link_crt[%d]: duplicate directory %q", owner, i, d)
 		}
-		seenDirs[foldPath(d)] = struct{}{}
+		seenDirs[FoldPath(d)] = struct{}{}
 	}
 	return nil
 }
@@ -1134,7 +1135,7 @@ func (u pathUse) String() string { return fmt.Sprintf("%s (%s)", u.owner, u.role
 // link_crt symlinks and the manifest. A referenced CA's cert_file and
 // key_file are inputs and may be shared between reference CAs, but must not
 // be the target of any write. Paths are compared after resolving against the
-// config directory, cleaning and ignoring case (foldPath). A clash names every owner of the path
+// config directory, cleaning and ignoring case (FoldPath). A clash names every owner of the path
 // (ADR-026 "Detailed rules"). A written file must also not be a parent
 // directory of another path.
 func validateArtifactPaths(cfg *Config) error {
@@ -1148,7 +1149,7 @@ func validateArtifactPaths(cfg *Config) error {
 		if logical == "" {
 			return
 		}
-		key := foldPath(cfg.Resolve(logical))
+		key := FoldPath(cfg.Resolve(logical))
 		e, ok := byPath[key]
 		if !ok {
 			e = &entry{logical: filepath.Clean(logical)}
